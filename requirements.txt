@@ -1,0 +1,16 @@
+# Project Control Panel - Requirements
+#
+# This application uses only Python standard library modules.
+# No external dependencies are required to run the main application.
+#
+# Minimum Python version: 3.7+ (due to dataclasses usage)
+# Recommended Python version: 3.8+
+#
+# Standard library modules used:
+# - tkinter (GUI framework)
+# - pathlib, os (file system operations)
+# - subprocess (running external commands)
+# - threading (background operations)
+# - dataclasses (data structures)
+# - typing (type hints)
+# - time, shutil, platform (utilities)
