@@ -34,10 +34,9 @@ class ProjectService:
         alias = self.get_folder_alias(parent_folder)
         if alias:
             return f"{project_clean}_{alias}.zip"
-        else:
-            # Default behavior for folders without aliases
-            parent_clean = parent_folder.replace("-", "")
-            return f"{project_clean}_{parent_clean}.zip"
+        # Default behavior for folders without aliases
+        parent_clean = parent_folder.replace("-", "")
+        return f"{project_clean}_{parent_clean}.zip"
 
     def get_docker_tag(self, parent_folder: str, project_name: str) -> str:
         """Generate Docker tag based on parent folder and project name"""
@@ -47,10 +46,25 @@ class ProjectService:
         alias = self.get_folder_alias(parent_folder)
         if alias:
             return f"{project_clean}:{alias}"
-        else:
-            # Default behavior for folders without aliases
-            parent_clean = parent_folder.replace("-", "")
-            return f"{project_clean}:{parent_clean}"
+        # Default behavior for folders without aliases
+        parent_clean = parent_folder.replace("-", "")
+        return f"{project_clean}:{parent_clean}"
+
+    def get_folder_sort_order(self, folder_name: str) -> int:
+        """Get the sort order for a folder based on FOLDER_ALIASES.
+        Returns the index in FOLDER_ALIASES order, or 999 for unaliased folders."""
+
+        # Create ordered list of alias keys from FOLDER_ALIASES
+        alias_order = list(FOLDER_ALIASES.keys())
+
+        return next(
+            (
+                i
+                for i, (alias, folder_list) in enumerate(FOLDER_ALIASES.items())
+                if folder_name in folder_list
+            ),
+            999,
+        )
 
     def find_two_layer_projects(self) -> List[Project]:
         """Find all projects that are exactly 2 layers deep"""

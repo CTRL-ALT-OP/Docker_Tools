@@ -21,7 +21,8 @@
 ### Get ready
 1. Update the source git repository with the tests that will drive development down the chain.
 2. Update the `run_tests.sh` script in each of the folders to use your new tests
-3. Use the Git View in Docker_Tools to checkout each of the 4 versions of your project to the correct commit.
+3. Select your project from the dropdown in the GUI.
+4. Use the Git View button on each version of your project to checkout to the correct commit.
 ### Pre-edits
 1. Use the Docker button to build and run the tests on your pre-edit version.
 2. Use the `Copy Test output` button to copy the output of your tests, and put them into the project.
@@ -46,12 +47,16 @@
 4. Use the Archive button to create a .zip folder with the current state of the project. It will be located in the folder that you created the archive of.
 5. Upload the new .zip file.
 
+## Using the GUI
+- **Project Selection**: Use the dropdown to select which project to work on. Projects with the same name across different folders are automatically grouped together.
+- **Version Display**: All versions of the selected project are displayed in order (pre-edit → post-edit → post-edit2 → correct-edit).
+- **Refresh**: Use the refresh button to reload projects if you've added new ones or made changes to the folder structure.
 
 ## config/settings.py
 
 ### Important configurations:
 - `IGNORE_DIRS`: List of directories to delete during cleanup operations, and ignore during archiving.
-- `FOLDER_ALIASES`: Dictionary of directories that have a specific alias. E.g. my source directory has folder names that are different than that of the project specifications, so this dictionary allows me to remap the folder names to the ones required by the project
+- `FOLDER_ALIASES`: Dictionary of directories that have a specific alias. E.g. my source directory has folder names that are different than that of the project specifications, so this dictionary allows me to remap the folder names to the ones required by the project. Also determines the display order of versions.
 - `SOURCE_DIR`: String that contains the path to the directory where your Dockerized projects live.
 
   

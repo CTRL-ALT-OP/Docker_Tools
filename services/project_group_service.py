@@ -10,9 +10,10 @@ from services.project_service import ProjectService
 class ProjectGroup:
     """Represents a group of projects with the same name across different versions"""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, project_service: ProjectService):
         self.name = name
         self.versions: Dict[str, Project] = {}
+        self.project_service = project_service
 
     def add_project(self, project: Project):
         """Add a project to this group"""
@@ -23,8 +24,11 @@ class ProjectGroup:
         return self.versions.get(parent_folder)
 
     def get_all_versions(self) -> List[Project]:
-        """Get all versions of the project, sorted by parent folder"""
-        return sorted(self.versions.values(), key=lambda x: x.parent)
+        """Get all versions of the project, sorted by FOLDER_ALIASES order"""
+        return sorted(
+            self.versions.values(),
+            key=lambda x: self.project_service.get_folder_sort_order(x.parent),
+        )
 
     def has_version(self, parent_folder: str) -> bool:
         """Check if this group has a specific version"""
@@ -51,7 +55,9 @@ class ProjectGroupService:
         # Group projects by name
         for project in projects:
             if project.name not in self._groups:
-                self._groups[project.name] = ProjectGroup(project.name)
+                self._groups[project.name] = ProjectGroup(
+                    project.name, self.project_service
+                )
 
             self._groups[project.name].add_project(project)
 
