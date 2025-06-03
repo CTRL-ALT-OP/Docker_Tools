@@ -1,8 +1,13 @@
 # This project is intended to streamline some aspects of a Test-driven-development using Docker
 ## This project was built on Windows, but should have support for MacOS and Linux as well. Platform-specific commands can be modified in `config/commands.py`
 
+## Requirements
+- **Python 3.7+** (Python 3.8+ recommended)
+- **No external dependencies** - Uses only Python standard library
+- See `requirements.txt` for details
 
 # Setup
+### You can play around with the app with the example directory. Simply run `general_tools.py`. E.g. `python general_tools.py` after cloning.
 1. Create a folder that will contain your dockerized projects.
 2. Change the `config/settings.py.SOURCE_DIR` variable to be the path to this folder
 3. Within this folder, create 4 new folders. One will be for the pre-edit version, one for the first post-edit version, one for the second post-edit version, and one for the correct version.
