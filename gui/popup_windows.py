@@ -135,7 +135,7 @@ class TerminalOutputWindow:
                         self.window.after(
                             2000,
                             lambda: copy_btn.config(
-                                text="Copy Output", bg=COLORS["secondary"]
+                                text="Copy Test Output", bg=COLORS["secondary"]
                             ),
                         )
                     except Exception as e:
@@ -145,7 +145,7 @@ class TerminalOutputWindow:
 
                 copy_btn = GuiUtils.create_styled_button(
                     self.buttons_frame,
-                    text="Copy Output",
+                    text="Copy Test Output",
                     command=copy_output,
                     style="copy",
                     font=FONTS["button_large"],

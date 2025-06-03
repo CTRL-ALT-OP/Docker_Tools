@@ -2,6 +2,8 @@
 Configuration settings for the Project Control Panel
 """
 
+import os
+
 # Directories to ignore during cleanup operations
 IGNORE_DIRS = [
     "__pycache__",
@@ -20,7 +22,8 @@ FOLDER_ALIASES = {
     "rewrite": ["correct-edit", "rewrite", "correct", "correct_edit"],
 }
 
-SOURCE_DIR = "D:\\General_Dockerized"
+# CHANGE THIS TO THE ABSOLUTE PATH OF THE SOURCE DIRECTORY
+SOURCE_DIR = os.getcwd() + "\\Example source dir"
 
 # GUI Configuration
 WINDOW_TITLE = "Project Control Panel"
