@@ -58,6 +58,16 @@ class TestSyncService:
 
         return projects
 
+    def create_mock_project_service(self):
+        """Create a properly mocked project service"""
+        project_service = Mock()
+        # Mock the get_folder_sort_order method to return consistent ordering
+        sort_order = {"pre-edit": 0, "post-edit": 1, "post-edit2": 2, "correct-edit": 3}
+        project_service.get_folder_sort_order.side_effect = lambda x: sort_order.get(
+            x, 99
+        )
+        return project_service
+
     def create_test_file(
         self, project: Project, file_name: str, content: str = "test content\n"
     ):
@@ -70,7 +80,7 @@ class TestSyncService:
         """Test successful sync of any file from pre-edit to other versions"""
         # Arrange
         projects = self.create_test_project_structure()
-        project_service = Mock()
+        project_service = self.create_mock_project_service()
         project_group = ProjectGroup("test_project", project_service)
 
         for project in projects:
@@ -103,7 +113,7 @@ class TestSyncService:
         """Test sync works with different file types"""
         # Arrange
         projects = self.create_test_project_structure()
-        project_service = Mock()
+        project_service = self.create_mock_project_service()
         project_group = ProjectGroup("test_project", project_service)
 
         for project in projects:
@@ -148,7 +158,7 @@ class TestSyncService:
         # Remove pre-edit project
         projects = [p for p in projects if p.parent != "pre-edit"]
 
-        project_service = Mock()
+        project_service = self.create_mock_project_service()
         project_group = ProjectGroup("test_project", project_service)
 
         for project in projects:
@@ -168,7 +178,7 @@ class TestSyncService:
         """Test sync fails when specified file doesn't exist in pre-edit"""
         # Arrange
         projects = self.create_test_project_structure()
-        project_service = Mock()
+        project_service = self.create_mock_project_service()
         project_group = ProjectGroup("test_project", project_service)
 
         for project in projects:
@@ -191,7 +201,7 @@ class TestSyncService:
         """Test sync when some target directories have issues"""
         # Arrange
         projects = self.create_test_project_structure()
-        project_service = Mock()
+        project_service = self.create_mock_project_service()
         project_group = ProjectGroup("test_project", project_service)
 
         for project in projects:
@@ -220,7 +230,7 @@ class TestSyncService:
     def test_sync_file_empty_project_group(self):
         """Test sync with empty project group"""
         # Arrange
-        project_service = Mock()
+        project_service = self.create_mock_project_service()
         project_group = ProjectGroup("empty_project", project_service)
 
         # Act
@@ -237,7 +247,7 @@ class TestSyncService:
         """Test getting pre-edit version when it exists"""
         # Arrange
         projects = self.create_test_project_structure()
-        project_service = Mock()
+        project_service = self.create_mock_project_service()
         project_group = ProjectGroup("test_project", project_service)
 
         for project in projects:
@@ -257,7 +267,7 @@ class TestSyncService:
         # Remove pre-edit project
         projects = [p for p in projects if p.parent != "pre-edit"]
 
-        project_service = Mock()
+        project_service = self.create_mock_project_service()
         project_group = ProjectGroup("test_project", project_service)
 
         for project in projects:
@@ -282,7 +292,7 @@ class TestSyncService:
         )
         projects.append(additional_pre_edit)
 
-        project_service = Mock()
+        project_service = self.create_mock_project_service()
         project_group = ProjectGroup("test_project", project_service)
 
         for project in projects:
@@ -441,7 +451,7 @@ class TestSyncService:
         """Test getting all versions except pre-edit"""
         # Arrange
         projects = self.create_test_project_structure()
-        project_service = Mock()
+        project_service = self.create_mock_project_service()
         project_group = ProjectGroup("test_project", project_service)
 
         for project in projects:
@@ -466,7 +476,7 @@ class TestSyncService:
         # Keep only pre-edit project
         projects = [p for p in projects if p.parent == "pre-edit"]
 
-        project_service = Mock()
+        project_service = self.create_mock_project_service()
         project_group = ProjectGroup("test_project", project_service)
 
         for project in projects:
@@ -484,7 +494,7 @@ class TestSyncService:
         """Test that sync overwrites existing files in target versions"""
         # Arrange
         projects = self.create_test_project_structure()
-        project_service = Mock()
+        project_service = self.create_mock_project_service()
         project_group = ProjectGroup("test_project", project_service)
 
         for project in projects:
