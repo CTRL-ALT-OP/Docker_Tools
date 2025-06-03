@@ -14,6 +14,7 @@ from services.project_group_service import ProjectGroupService, ProjectGroup
 from services.file_service import FileService
 from services.git_service import GitService
 from services.docker_service import DockerService
+from services.sync_service import SyncService
 from gui.gui_utils import GuiUtils
 from gui.popup_windows import TerminalOutputWindow, GitCommitWindow
 from utils.threading_utils import run_in_thread
@@ -32,6 +33,7 @@ class ProjectControlPanel:
         self.file_service = FileService()
         self.git_service = GitService()
         self.docker_service = DockerService()
+        self.sync_service = SyncService()
 
         # Initialize GUI
         self.window = tk.Tk()
@@ -140,6 +142,9 @@ class ProjectControlPanel:
         # Create project header
         self._create_project_header(current_group)
 
+        # Create project actions frame
+        self._create_project_actions_frame(current_group)
+
         # Display all versions of the current project
         versions = current_group.get_all_versions()
 
@@ -166,7 +171,7 @@ class ProjectControlPanel:
         header_frame = GuiUtils.create_styled_frame(
             self.scrollable_frame, bg_color="white", relief="raised", bd=2
         )
-        header_frame.pack(fill="x", padx=20, pady=(10, 20))
+        header_frame.pack(fill="x", padx=20, pady=(10, 0))
 
         # Project name
         name_label = GuiUtils.create_styled_label(
@@ -177,6 +182,29 @@ class ProjectControlPanel:
             bg=COLORS["white"],
         )
         name_label.pack(pady=15)
+
+    def _create_project_actions_frame(self, project_group: ProjectGroup):
+        """Create a frame for project-level action buttons"""
+        actions_frame = GuiUtils.create_styled_frame(
+            self.scrollable_frame, bg_color="background", relief="flat"
+        )
+        actions_frame.pack(fill="x", padx=20, pady=(0, 10))
+
+        # Buttons container
+        buttons_container = GuiUtils.create_styled_frame(
+            actions_frame,
+            bg_color="background",
+        )
+        buttons_container.pack(fill="x")
+
+        # Sync button
+        sync_btn = GuiUtils.create_styled_button(
+            buttons_container,
+            text="🔄 Sync run_tests.sh",
+            command=lambda: self.sync_run_tests_from_pre_edit(project_group),
+            style="sync",
+        )
+        sync_btn.pack(side="left", padx=(0, 10))
 
     def _create_version_section(self, project: Project):
         """Create a version section for a project"""
@@ -538,6 +566,35 @@ class ProjectControlPanel:
                 )
 
         run_in_thread(git_thread)
+
+    def sync_run_tests_from_pre_edit(self, project_group: ProjectGroup):
+        """Sync run_tests.sh from pre-edit to all other versions"""
+
+        def sync_run_tests_thread():
+            try:
+                # Sync run_tests.sh from pre-edit to other versions
+                success, message, synced_paths = (
+                    self.sync_service.sync_file_from_pre_edit(
+                        project_group, "run_tests.sh"
+                    )
+                )
+
+                if success:
+                    paths_text = "\n".join([f"• {path}" for path in synced_paths])
+                    messagebox.showinfo(
+                        "Sync Complete",
+                        f"Successfully synced run_tests.sh from pre-edit!\n\n"
+                        f"Synced to {len(synced_paths)} versions:\n{paths_text}",
+                    )
+                else:
+                    messagebox.showerror(
+                        "Sync Error", f"Failed to sync run_tests.sh:\n\n{message}"
+                    )
+
+            except Exception as e:
+                messagebox.showerror("Sync Error", f"Error during sync: {str(e)}")
+
+        run_in_thread(sync_run_tests_thread)
 
     def refresh_projects(self):
         """Refresh the project list"""
