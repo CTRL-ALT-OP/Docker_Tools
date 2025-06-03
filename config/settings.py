@@ -23,7 +23,7 @@ FOLDER_ALIASES = {
 }
 
 # CHANGE THIS TO THE ABSOLUTE PATH OF THE SOURCE DIRECTORY
-SOURCE_DIR = os.getcwd() + "\\Example_source_dir"
+SOURCE_DIR = "D:\\General_Dockerized\\dockerized"
 
 # GUI Configuration
 WINDOW_TITLE = "Project Control Panel"
@@ -68,6 +68,7 @@ BUTTON_STYLES = {
     "docker": {"bg": "#9b59b6", "fg": "white"},
     "git": {"bg": "#f39c12", "fg": "white"},
     "refresh": {"bg": "#27ae60", "fg": "white"},
+    "sync": {"bg": "#16a085", "fg": "white"},
     "close": {"bg": "#34495e", "fg": "white"},
     "copy": {"bg": "#34495e", "fg": "white"},
 }
