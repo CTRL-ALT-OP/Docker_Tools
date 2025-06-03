@@ -106,9 +106,7 @@ class ProjectControlPanel:
         # Update combobox values
         self.project_selector["values"] = group_names
 
-        # Set current selection
-        current_group_name = self.project_group_service.get_current_group_name()
-        if current_group_name:
+        if current_group_name := self.project_group_service.get_current_group_name():
             self.project_selector.set(current_group_name)
         elif group_names:
             self.project_selector.set(group_names[0])

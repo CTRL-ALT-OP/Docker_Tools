@@ -31,12 +31,9 @@ class PlatformService:
         if current_platform != "windows":
             return SHELL_COMMANDS["bash"]  # Available natively on Unix systems
 
-        # Try to find bash on Windows
-        for path in BASH_PATHS["windows"]:
-            if os.path.exists(path):
-                return path
-
-        return None
+        return next(
+            (path for path in BASH_PATHS["windows"] if os.path.exists(path)), None
+        )
 
     @staticmethod
     def create_archive_command(archive_name: str) -> Tuple[List[str], bool]:
@@ -76,8 +73,7 @@ class PlatformService:
         Returns (command_list, display_command)
         """
         if PlatformService.is_windows():
-            bash_exe = PlatformService.find_bash_executable()
-            if bash_exe:
+            if bash_exe := PlatformService.find_bash_executable():
                 return ([bash_exe, "-c", command], f"'{bash_exe}' -c \"{command}\"")
             else:
                 return ([f'bash -c "{command}"'], f'bash -c "{command}"')

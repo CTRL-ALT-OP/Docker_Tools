@@ -17,10 +17,14 @@ class ProjectService:
 
     def get_folder_alias(self, folder_name: str) -> Optional[str]:
         """Get the alias for a folder name, returns None if no alias exists"""
-        for alias, folder_list in FOLDER_ALIASES.items():
-            if folder_name in folder_list:
-                return alias
-        return None
+        return next(
+            (
+                alias
+                for alias, folder_list in FOLDER_ALIASES.items()
+                if folder_name in folder_list
+            ),
+            None,
+        )
 
     def get_archive_name(self, parent_folder: str, project_name: str) -> str:
         """Generate archive name based on the specified naming convention"""

@@ -59,10 +59,7 @@ class ProjectGroupService:
         self._group_names = sorted(self._groups.keys())
 
         # Reset current group index
-        if self._group_names:
-            self._current_group_index = 0
-        else:
-            self._current_group_index = -1
+        self._current_group_index = 0 if self._group_names else -1
 
     def get_group_names(self) -> List[str]:
         """Get all group names"""

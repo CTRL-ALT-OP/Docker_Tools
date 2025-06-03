@@ -22,8 +22,8 @@ class DockerService:
         """Analyze pytest output to determine actual test status"""
         output_text = (stdout + stderr).lower()
 
-        if any(
-            indicator in output_text
+        if all(
+            indicator not in output_text
             for indicator in [
                 "collected",
                 "passed",
@@ -33,21 +33,17 @@ class DockerService:
                 "pytest",
             ]
         ):
-            if "failed" in output_text and "passed" in output_text:
-                return "COMPLETED (Some Tests Failed)"
-            elif "failed" in output_text and "passed" not in output_text:
-                return "COMPLETED (All Tests Failed)"
-            elif "passed" in output_text and "failed" not in output_text:
-                return "COMPLETED (All Tests Passed)"
-            elif return_code == 0:
-                return "COMPLETED (Success)"
-            else:
-                return "COMPLETED (With Issues)"
+            return "FAILED TO RUN" if return_code != 0 else "COMPLETED (No Output)"
+        if "failed" in output_text and "passed" in output_text:
+            return "COMPLETED (Some Tests Failed)"
+        elif "failed" in output_text:
+            return "COMPLETED (All Tests Failed)"
+        elif "passed" in output_text:
+            return "COMPLETED (All Tests Passed)"
+        elif return_code == 0:
+            return "COMPLETED (Success)"
         else:
-            if return_code != 0:
-                return "FAILED TO RUN"
-            else:
-                return "COMPLETED (No Output)"
+            return "COMPLETED (With Issues)"
 
     def build_docker_image(
         self,
