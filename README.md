@@ -15,6 +15,7 @@
 5. Add the required Docker files to each of the folders, as specified by the project.
 6. Ensure `config/settings.py.FOLDER_ALIASES` maps correctly to the folders you created in step 3.
 7. Run `general_tools.py`. E.g. `python general_tools.py`.
+8. Expand directories that should be culled in `config/settings.py.IGNORE_DIRS`
 
 # Designed workflow
 ### Get ready
