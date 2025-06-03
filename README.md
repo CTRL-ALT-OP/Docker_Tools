@@ -20,7 +20,7 @@
 # Designed workflow
 ### Get ready
 1. Update the source git repository with the tests that will drive development down the chain.
-2. Update the `run_tests.sh` script to use your new tests
+2. Update the `run_tests.sh` script in each of the folders to use your new tests
 3. Use the Git View in Docker_Tools to checkout each of the 4 versions of your project to the correct commit.
 ### Pre-edits
 1. Use the Docker button to build and run the tests on your pre-edit version.
