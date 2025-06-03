@@ -23,7 +23,7 @@ FOLDER_ALIASES = {
 }
 
 # CHANGE THIS TO THE ABSOLUTE PATH OF THE SOURCE DIRECTORY
-SOURCE_DIR = os.getcwd() + "\\Example source dir"
+SOURCE_DIR = os.getcwd() + "\\Example_source_dir"
 
 # GUI Configuration
 WINDOW_TITLE = "Project Control Panel"
