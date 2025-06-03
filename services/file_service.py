@@ -23,10 +23,11 @@ class FileService:
         cleanup_needed_dirs = []
 
         for root, dirs, files in os.walk(project_path):
-            for dir_name in dirs:
-                if any(pattern in dir_name.lower() for pattern in self.cleanup_dirs):
-                    cleanup_needed_dirs.append(os.path.join(root, dir_name))
-
+            cleanup_needed_dirs.extend(
+                os.path.join(root, dir_name)
+                for dir_name in dirs
+                if any(pattern in dir_name.lower() for pattern in self.cleanup_dirs)
+            )
         return cleanup_needed_dirs
 
     def cleanup_project_dirs(self, project_path: Path) -> List[str]:
@@ -81,9 +82,8 @@ class FileService:
 
                 if result.returncode == 0:
                     return True, ""
-                else:
-                    error_msg = result.stderr if result.stderr else result.stdout
-                    return False, error_msg
+                error_msg = result.stderr or result.stdout
+                return False, error_msg
 
             finally:
                 os.chdir(original_cwd)

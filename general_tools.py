@@ -5,11 +5,12 @@ Refactored Project Control Panel - Main Application
 import os
 import time
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 from pathlib import Path
 
 from config.settings import WINDOW_TITLE, MAIN_WINDOW_SIZE, COLORS, FONTS, SOURCE_DIR
 from services.project_service import ProjectService
+from services.project_group_service import ProjectGroupService, ProjectGroup
 from services.file_service import FileService
 from services.git_service import GitService
 from services.docker_service import DockerService
@@ -27,6 +28,7 @@ class ProjectControlPanel:
 
         # Initialize services
         self.project_service = ProjectService(root_dir)
+        self.project_group_service = ProjectGroupService(self.project_service)
         self.file_service = FileService()
         self.git_service = GitService()
         self.docker_service = DockerService()
@@ -39,17 +41,17 @@ class ProjectControlPanel:
 
         # GUI components
         self.scrollable_frame = None
+        self.project_selector = None
+        self.navigation_frame = None
 
         self.create_gui()
-        self.populate_projects()
+        self.load_projects()
 
     def create_gui(self):
         """Create the main GUI layout"""
-        # Title
-        title_label = GuiUtils.create_styled_label(
-            self.window, text=WINDOW_TITLE, font_key="title", color_key="project_header"
-        )
-        title_label.pack(pady=10)
+
+        # Create navigation frame
+        self._create_navigation_frame()
 
         # Create main frame with scrollbar
         main_frame = GuiUtils.create_styled_frame(self.window)
@@ -60,66 +62,152 @@ class ProjectControlPanel:
             main_frame
         )
 
-    def populate_projects(self):
-        """Populate the GUI with project controls"""
-        projects = self.project_service.find_two_layer_projects()
+    def _create_navigation_frame(self):
+        """Create the navigation frame with project selector and navigation buttons"""
+        self.navigation_frame = GuiUtils.create_styled_frame(self.window)
+        self.navigation_frame.pack(fill="x", padx=10, pady=(0, 10))
 
-        if not projects:
+        # Project selection row
+        selection_frame = GuiUtils.create_styled_frame(self.navigation_frame)
+        selection_frame.pack(fill="x", pady=5)
+
+        # Project selector label
+        selector_label = GuiUtils.create_styled_label(
+            selection_frame, text="Project:", font_key="project_name"
+        )
+        selector_label.pack(side="left", padx=(0, 10))
+
+        # Project selector dropdown
+        self.project_selector = ttk.Combobox(
+            selection_frame, state="readonly", font=FONTS["project_name"], width=30
+        )
+        self.project_selector.pack(side="left", padx=(0, 10))
+        self.project_selector.bind("<<ComboboxSelected>>", self.on_project_selected)
+
+        # Refresh button
+        refresh_btn = GuiUtils.create_styled_button(
+            selection_frame,
+            text="🔄 Refresh",
+            command=self.refresh_projects,
+            style="refresh",
+        )
+        refresh_btn.pack(side="right")
+
+    def load_projects(self):
+        """Load and populate project groups"""
+        self.project_group_service.load_project_groups()
+        self.update_project_selector()
+        self.populate_current_project()
+
+    def update_project_selector(self):
+        """Update the project selector dropdown with available projects"""
+        group_names = self.project_group_service.get_group_names()
+
+        # Update combobox values
+        self.project_selector["values"] = group_names
+
+        if current_group_name := self.project_group_service.get_current_group_name():
+            self.project_selector.set(current_group_name)
+        elif group_names:
+            self.project_selector.set(group_names[0])
+            self.project_group_service.set_current_group_by_name(group_names[0])
+
+    def on_project_selected(self, event=None):
+        """Handle project selection from dropdown"""
+        selected_name = self.project_selector.get()
+        if selected_name and self.project_group_service.set_current_group_by_name(
+            selected_name
+        ):
+            self.populate_current_project()
+
+    def populate_current_project(self):
+        """Populate the GUI with the current project group"""
+        # Clear existing content
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+
+        current_group = self.project_group_service.get_current_group()
+
+        if not current_group:
             no_projects_label = GuiUtils.create_styled_label(
                 self.scrollable_frame,
-                text=f"No 2-layer projects found in:\n{self.root_dir}",
+                text=f"No projects found in:\n{self.root_dir}",
                 font_key="project_name",
             )
             no_projects_label.pack(pady=20)
             return
 
-        # Group projects by parent folder
-        current_parent = None
+        # Create project header
+        self._create_project_header(current_group)
 
-        for project in projects:
-            # Add parent folder header if it's a new parent
-            if project.parent != current_parent:
-                current_parent = project.parent
+        # Display all versions of the current project
+        versions = current_group.get_all_versions()
 
-                if project != projects[0]:  # Add some space between groups
-                    tk.Frame(
-                        self.scrollable_frame, height=10, bg=COLORS["background"]
-                    ).pack()
+        if not versions:
+            no_versions_label = GuiUtils.create_styled_label(
+                self.scrollable_frame,
+                text="No versions found for this project",
+                font_key="project_name",
+            )
+            no_versions_label.pack(pady=20)
+            return
 
-                self._create_parent_header(project)
+        # Group versions for better display
+        for i, project in enumerate(versions):
+            if i > 0:  # Add spacing between versions
+                tk.Frame(
+                    self.scrollable_frame, height=10, bg=COLORS["background"]
+                ).pack()
 
-            self._create_project_row(project)
+            self._create_version_section(project)
 
-        # Add refresh button at the bottom
-        self._create_refresh_button()
+    def _create_project_header(self, project_group: ProjectGroup):
+        """Create a header for the current project group"""
+        header_frame = GuiUtils.create_styled_frame(
+            self.scrollable_frame, bg_color="white", relief="raised", bd=2
+        )
+        header_frame.pack(fill="x", padx=20, pady=(10, 20))
 
-    def _create_parent_header(self, project: Project):
-        """Create a parent folder header"""
+        # Project name
+        name_label = GuiUtils.create_styled_label(
+            header_frame,
+            text=f"📁 Project: {project_group.name}",
+            font_key="title",
+            color_key="project_header",
+            bg=COLORS["white"],
+        )
+        name_label.pack(pady=15)
+
+    def _create_version_section(self, project: Project):
+        """Create a version section for a project"""
+        # Get alias for better display
         alias = self.project_service.get_folder_alias(project.parent)
-        alias_text = f" ({alias})" if alias else ""
 
-        # Create frame for parent label with alias
-        parent_frame = GuiUtils.create_styled_frame(self.scrollable_frame)
-        parent_frame.pack(anchor="w", padx=20, pady=(10, 5))
+        # Version header
+        version_header_frame = GuiUtils.create_styled_frame(self.scrollable_frame)
+        version_header_frame.pack(anchor="w", padx=30, pady=(10, 5))
 
-        # Main parent folder label
-        parent_label = GuiUtils.create_styled_label(
-            parent_frame,
-            text=f"📁 {project.parent}/",
+        # Main version name
+        version_label = GuiUtils.create_styled_label(
+            version_header_frame,
+            text=f"📂 {project.parent}",
             font_key="header",
             color_key="project_header",
         )
-        parent_label.pack(side="left")
+        version_label.pack(side="left")
 
-        # Alias label if it exists
-        if alias_text:
+        # Alias in faded text if it exists
+        if alias:
             alias_label = GuiUtils.create_styled_label(
-                parent_frame,
-                text=alias_text,
-                font_key="project_name",
+                version_header_frame,
+                text=f" ({alias})",
+                font_key="info",
                 color_key="muted",
             )
-            alias_label.pack(side="left", padx=(5, 0))
+            alias_label.pack(side="left")
+
+        # Project row
+        self._create_project_row(project)
 
     def _create_project_row(self, project: Project):
         """Create a project row with buttons"""
@@ -191,24 +279,6 @@ class ProjectControlPanel:
             style="git",
         )
         git_btn.pack(side="left")
-
-    def _create_refresh_button(self):
-        """Create the refresh button"""
-        tk.Frame(self.scrollable_frame, height=20, bg=COLORS["background"]).pack()
-
-        refresh_frame = GuiUtils.create_styled_frame(self.scrollable_frame)
-        refresh_frame.pack(pady=10)
-
-        refresh_btn = GuiUtils.create_styled_button(
-            refresh_frame,
-            text="🔄 Refresh Projects",
-            command=self.refresh_projects,
-            style="refresh",
-            font=FONTS["button_large"],
-            padx=15,
-            pady=8,
-        )
-        refresh_btn.pack()
 
     def cleanup_project(self, project: Project):
         """Clean up specified directories in the project"""
@@ -476,7 +546,7 @@ class ProjectControlPanel:
             widget.destroy()
 
         # Repopulate
-        self.populate_projects()
+        self.load_projects()
 
     def run(self):
         """Start the GUI"""

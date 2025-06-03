@@ -27,7 +27,7 @@ SOURCE_DIR = os.getcwd() + "\\Example_source_dir"
 
 # GUI Configuration
 WINDOW_TITLE = "Project Control Panel"
-MAIN_WINDOW_SIZE = "800x600"
+MAIN_WINDOW_SIZE = "750x650"
 OUTPUT_WINDOW_SIZE = "800x600"
 GIT_WINDOW_SIZE = "900x500"
 
