@@ -1,0 +1,24 @@
+[submodule "Example_source_dir/correct-edit/example_project1"]
+	path = Example_source_dir/correct-edit/example_project1
+	url = ./Example_source_dir/correct-edit/example_project1
+[submodule "Example_source_dir/correct-edit/example_project2"]
+	path = Example_source_dir/correct-edit/example_project2
+	url = ./Example_source_dir/correct-edit/example_project2
+[submodule "Example_source_dir/post-edit/example_project2"]
+	path = Example_source_dir/post-edit/example_project2
+	url = ./Example_source_dir/post-edit/example_project2
+[submodule "Example_source_dir/post-edit/example_project1"]
+	path = Example_source_dir/post-edit/example_project1
+	url = ./Example_source_dir/post-edit/example_project1
+[submodule "Example_source_dir/post-edit2/example_project1"]
+	path = Example_source_dir/post-edit2/example_project1
+	url = ./Example_source_dir/post-edit2/example_project1
+[submodule "Example_source_dir/post-edit2/example_project2"]
+	path = Example_source_dir/post-edit2/example_project2
+	url = ./Example_source_dir/post-edit2/example_project2
+[submodule "Example_source_dir/pre-edit/example_project1"]
+	path = Example_source_dir/pre-edit/example_project1
+	url = ./Example_source_dir/pre-edit/example_project1
+[submodule "Example_source_dir/pre-edit/example_project2"]
+	path = Example_source_dir/pre-edit/example_project2
+	url = ./Example_source_dir/pre-edit/example_project2
