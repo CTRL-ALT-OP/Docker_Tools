@@ -191,14 +191,20 @@ class GitCommitWindow:
         project_name: str,
         commits: List,
         on_checkout_callback: Callable[[str], None],
+        git_service=None,
+        project_path=None,
     ):
         self.parent_window = parent_window
         self.project_name = project_name
         self.commits = commits
         self.on_checkout_callback = on_checkout_callback
+        self.git_service = git_service
+        self.project_path = project_path
 
         self.window = None
         self.commit_listbox = None
+        self.status_label = None
+        self.checkout_btn = None
 
     def create_window(self, fetch_success: bool, fetch_message: str):
         """Create the git commit window"""
@@ -222,22 +228,21 @@ class GitCommitWindow:
         title_label.pack(pady=(0, 10))
 
         # Status message
-        status_text = (
-            "Showing latest commits (fetched from remote)"
-            if fetch_success
-            else "Showing local commits only"
-        )
         if "No remote repository" in fetch_message:
-            status_text = "Showing local commits (no remote configured)"
+            status_text = f"Showing local commits ({len(self.commits)} total) - no remote configured"
+        elif fetch_success:
+            status_text = f"Showing all commits ({len(self.commits)} total)"
+        else:
+            status_text = "Showing local commits only"
 
-        status_label = GuiUtils.create_styled_label(
+        self.status_label = GuiUtils.create_styled_label(
             main_frame,
             text=status_text,
             font_key="info",
             bg=COLORS["terminal_bg"],
             fg=COLORS["muted"],
         )
-        status_label.pack(pady=(0, 5))
+        self.status_label.pack(pady=(0, 5))
 
         # Instructions
         info_label = GuiUtils.create_styled_label(
@@ -272,13 +277,7 @@ class GitCommitWindow:
         scrollbar.config(command=self.commit_listbox.yview)
 
         # Populate listbox
-        for commit in self.commits:
-            display_text = (
-                commit.display
-                if hasattr(commit, "display")
-                else commit.get("display", str(commit))
-            )
-            self.commit_listbox.insert(tk.END, display_text)
+        self.populate_commits()
 
         # Handle double-click on commit
         def on_commit_select(event):
@@ -316,7 +315,7 @@ class GitCommitWindow:
                     "No Selection", "Please select a commit to checkout"
                 )
 
-        checkout_btn = GuiUtils.create_styled_button(
+        self.checkout_btn = GuiUtils.create_styled_button(
             buttons_frame,
             text="Checkout Selected",
             command=checkout_selected,
@@ -325,7 +324,7 @@ class GitCommitWindow:
             padx=20,
             pady=5,
         )
-        checkout_btn.pack(side="left", padx=(0, 10))
+        self.checkout_btn.pack(side="left", padx=(0, 10))
 
         # Close button
         close_btn = GuiUtils.create_styled_button(
@@ -348,7 +347,52 @@ class GitCommitWindow:
             self.window, *[int(x) for x in GIT_WINDOW_SIZE.split("x")]
         )
 
-    def destroy(self):
-        """Destroy the window"""
-        if self.window:
-            self.window.destroy()
+    def populate_commits(self):
+        """Populate the listbox with current commits"""
+        self.commit_listbox.delete(0, tk.END)
+        for commit in self.commits:
+            display_text = (
+                commit.display
+                if hasattr(commit, "display")
+                else commit.get("display", str(commit))
+            )
+            self.commit_listbox.insert(tk.END, display_text)
+
+    def create_window_with_loading(self, fetch_success: bool, fetch_message: str):
+        """Create the git commit window with loading state"""
+        self.create_window(fetch_success, fetch_message)
+
+        # Show loading state
+        self.status_label.config(
+            text="Loading commits... (this may take a moment for large repositories)"
+        )
+        self.checkout_btn.config(state="disabled")
+
+        # Add loading message to listbox
+        self.commit_listbox.delete(0, tk.END)
+        self.commit_listbox.insert(tk.END, "Loading commits...")
+        self.commit_listbox.config(state="disabled")
+
+    def update_with_commits(self, commits):
+        """Update window with loaded commits"""
+        self.commits = commits
+        self.commit_listbox.config(state="normal")
+        self.populate_commits()
+        self.status_label.config(text=f"Showing all commits ({len(commits)} total)")
+        self.checkout_btn.config(state="normal")
+
+    def update_with_error(self, error_message):
+        """Update window with error state"""
+        self.commit_listbox.config(state="normal")
+        self.commit_listbox.delete(0, tk.END)
+        self.commit_listbox.insert(tk.END, f"Error: {error_message}")
+        self.status_label.config(text="Error loading commits")
+        self.checkout_btn.config(state="disabled")
+
+    def update_with_no_commits(self):
+        """Update window when no commits found"""
+        self.commit_listbox.config(state="normal")
+        self.commit_listbox.delete(0, tk.END)
+        self.commit_listbox.insert(tk.END, "No commits found")
+        self.status_label.config(text="No commits found in this repository")
+        self.checkout_btn.config(state="disabled")

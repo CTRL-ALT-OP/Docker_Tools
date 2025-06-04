@@ -83,14 +83,19 @@ class GitService:
     def get_git_commits(
         self, project_path: Path
     ) -> Tuple[Optional[List[GitCommit]], Optional[str]]:
-        """Get list of git commits"""
+        """
+        Get list of all git commits
+
+        Args:
+            project_path: Path to the git repository
+        """
         try:
             # Change to project directory
             original_cwd = os.getcwd()
             os.chdir(project_path)
 
             try:
-                # Get git log using centralized command
+                # Run git log command
                 result = subprocess.run(
                     GIT_COMMANDS["log"],
                     capture_output=True,
@@ -102,6 +107,7 @@ class GitService:
                 if result.returncode != 0:
                     return None, f"Error getting git log: {result.stderr}"
 
+                # Parse commits
                 commits = []
                 for line in result.stdout.strip().split("\n"):
                     if line.strip() and "|" in line:

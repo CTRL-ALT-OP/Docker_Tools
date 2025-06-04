@@ -461,109 +461,126 @@ class ProjectControlPanel:
                         ),
                     )
 
-                # Get commits
-                commits, error = self.git_service.get_git_commits(project.path)
+                # Create git window immediately with loading state
+                git_window = None
 
-                if error:
-                    self.window.after(
-                        0, lambda: messagebox.showerror("Git Error", error)
-                    )
-                    return
-
-                if not commits:
-                    self.window.after(
-                        0,
-                        lambda: messagebox.showinfo(
-                            "No Commits", f"No git commits found for {project.name}"
-                        ),
-                    )
-                    return
-
-                # Create checkout callback
-                def checkout_callback(commit_hash: str):
-                    # Confirm checkout
-                    response = messagebox.askyesno(
-                        "Confirm Checkout",
-                        f"Are you sure you want to checkout to commit {commit_hash}?\n\n"
-                        f"This will change your working directory to that commit.\n"
-                        f"Any uncommitted changes may be lost.",
-                    )
-
-                    if not response:
-                        return
-
-                    # Perform checkout
-                    success, message = self.git_service.checkout_commit(
-                        project.path, commit_hash
-                    )
-
-                    if success:
-                        messagebox.showinfo(
-                            "Checkout Success", f"{message}\n\nProject: {project.name}"
-                        )
-                        git_window.destroy()
-                    else:
-                        # Check if the error is due to local changes
-                        if self.git_service.has_local_changes(project.path, message):
-                            # Show warning and ask if user wants to discard changes
-                            discard_response = messagebox.askyesnocancel(
-                                "Local Changes Detected",
-                                f"Cannot checkout because local changes would be overwritten:\n\n"
-                                f"{message}\n\n"
-                                f"Would you like to discard all local changes and force checkout?\n\n"
-                                f"⚠️  WARNING: This will permanently delete all uncommitted changes!\n\n"
-                                f"• Yes: Discard changes and checkout\n"
-                                f"• No: Keep changes and cancel checkout\n"
-                                f"• Cancel: Return to commit list",
-                            )
-
-                            if discard_response is True:  # Yes - discard changes
-                                force_success, force_message = (
-                                    self.git_service.force_checkout_commit(
-                                        project.path, commit_hash
-                                    )
-                                )
-
-                                if force_success:
-                                    messagebox.showinfo(
-                                        "Checkout Success",
-                                        f"{force_message}\n\nProject: {project.name}",
-                                    )
-                                    git_window.destroy()
-                                else:
-                                    messagebox.showerror(
-                                        "Force Checkout Failed",
-                                        f"Failed to checkout even after discarding changes:\n\n{force_message}",
-                                    )
-                            elif discard_response is False:  # No - keep changes
-                                messagebox.showinfo(
-                                    "Checkout Cancelled",
-                                    "Checkout cancelled. Your local changes have been preserved.",
-                                )
-                            # If None (Cancel), just return to commit list without message
-                        else:
-                            # Some other git error
-                            messagebox.showerror(
-                                "Checkout Error",
-                                f"Failed to checkout commit {commit_hash}\n\n{message}",
-                            )
-
-                # Create git window on main thread
                 def create_git_window():
                     nonlocal git_window
                     git_window = GitCommitWindow(
-                        self.window, project.name, commits, checkout_callback
+                        self.window,
+                        project.name,
+                        [],  # Start with empty commits
+                        lambda commit_hash: self.checkout_commit_callback(
+                            project.path, project.name, commit_hash, git_window
+                        ),
+                        git_service=self.git_service,
+                        project_path=project.path,
                     )
-                    git_window.create_window(fetch_success, fetch_message)
+                    git_window.create_window_with_loading(fetch_success, fetch_message)
 
-                git_window = None
                 self.window.after(0, create_git_window)
+
+                # Wait a moment for window to be created
+                time.sleep(0.2)
+
+                # Get commits in background
+                commits, error = self.git_service.get_git_commits(project.path)
+
+                if error:
+                    self.window.after(0, lambda: git_window.update_with_error(error))
+                    return
+
+                if not commits:
+                    self.window.after(0, lambda: git_window.update_with_no_commits())
+                    return
+
+                # Update window with commits
+                self.window.after(0, lambda: git_window.update_with_commits(commits))
 
             except Exception as e:
                 error_msg = f"Error accessing git repository: {str(e)}"
-                self.window.after(
-                    0, lambda: messagebox.showerror("Git Error", error_msg)
+                if "git_window" in locals() and git_window:
+                    self.window.after(
+                        0, lambda: git_window.update_with_error(error_msg)
+                    )
+                else:
+                    self.window.after(
+                        0, lambda: messagebox.showerror("Git Error", error_msg)
+                    )
+
+        # Create checkout callback
+        def checkout_commit_callback(
+            project_path, project_name, commit_hash, git_window
+        ):
+            # Confirm checkout
+            response = messagebox.askyesno(
+                "Confirm Checkout",
+                f"Are you sure you want to checkout to commit {commit_hash}?\n\n"
+                f"This will change your working directory to that commit.\n"
+                f"Any uncommitted changes may be lost.",
+            )
+
+            if not response:
+                return
+
+            # Perform checkout
+            success, message = self.git_service.checkout_commit(
+                project_path, commit_hash
+            )
+
+            if success:
+                messagebox.showinfo(
+                    "Checkout Success", f"{message}\n\nProject: {project_name}"
                 )
+                git_window.destroy()
+            else:
+                # Check if the error is due to local changes
+                if self.git_service.has_local_changes(project_path, message):
+                    # Show warning and ask if user wants to discard changes
+                    discard_response = messagebox.askyesnocancel(
+                        "Local Changes Detected",
+                        f"Cannot checkout because local changes would be overwritten:\n\n"
+                        f"{message}\n\n"
+                        f"Would you like to discard all local changes and force checkout?\n\n"
+                        f"⚠️  WARNING: This will permanently delete all uncommitted changes!\n\n"
+                        f"• Yes: Discard changes and checkout\n"
+                        f"• No: Keep changes and cancel checkout\n"
+                        f"• Cancel: Return to commit list",
+                    )
+
+                    if discard_response is True:  # Yes - discard changes
+                        force_success, force_message = (
+                            self.git_service.force_checkout_commit(
+                                project_path, commit_hash
+                            )
+                        )
+
+                        if force_success:
+                            messagebox.showinfo(
+                                "Checkout Success",
+                                f"{force_message}\n\nProject: {project_name}",
+                            )
+                            git_window.destroy()
+                        else:
+                            messagebox.showerror(
+                                "Force Checkout Failed",
+                                f"Failed to checkout even after discarding changes:\n\n{force_message}",
+                            )
+                    elif discard_response is False:  # No - keep changes
+                        messagebox.showinfo(
+                            "Checkout Cancelled",
+                            "Checkout cancelled. Your local changes have been preserved.",
+                        )
+                    # If None (Cancel), just return to commit list without message
+                else:
+                    # Some other git error
+                    messagebox.showerror(
+                        "Checkout Error",
+                        f"Failed to checkout commit {commit_hash}\n\n{message}",
+                    )
+
+        # Store the callback method for use in the git_thread
+        self.checkout_commit_callback = checkout_commit_callback
 
         run_in_thread(git_thread)
 
