@@ -396,3 +396,8 @@ class GitCommitWindow:
         self.commit_listbox.insert(tk.END, "No commits found")
         self.status_label.config(text="No commits found in this repository")
         self.checkout_btn.config(state="disabled")
+
+    def destroy(self):
+        """Destroy the window"""
+        if self.window:
+            self.window.destroy()
