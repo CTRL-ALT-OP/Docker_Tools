@@ -775,7 +775,7 @@ class ProjectControlPanel:
                                 f"{message}\n\nProject: {project_name}",
                             ),
                         )
-                        self.window.after(0, git_window.window.destroy)
+                        self.window.after(0, git_window.destroy)
                     else:
                         # Check if the error is due to local changes
                         if self.git_service.has_local_changes(project_path, message):
