@@ -1,10 +1,12 @@
 """
-Refactored Project Control Panel - Main Application
+Refactored Project Control Panel - Main Application with Improved Async Architecture
 """
 
 import os
 import time
+import asyncio
 import tkinter as tk
+import logging
 from tkinter import messagebox, ttk
 from pathlib import Path
 
@@ -17,17 +19,29 @@ from services.docker_service import DockerService
 from services.sync_service import SyncService
 from gui.gui_utils import GuiUtils
 from gui.popup_windows import TerminalOutputWindow, GitCommitWindow
-from utils.threading_utils import run_in_thread
+from utils.async_utils import (
+    task_manager,
+    shutdown_all,
+    AsyncResourceManager,
+    TkinterAsyncBridge,
+    AsyncTaskGroup,
+)
 from models.project import Project
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
 class ProjectControlPanel:
-    """Main Project Control Panel application"""
+    """Main Project Control Panel application with improved async architecture"""
 
     def __init__(self, root_dir: str = "."):
         self.root_dir = Path(root_dir).resolve()
 
-        # Initialize services
+        # Initialize services (all now async-capable)
         self.project_service = ProjectService(root_dir)
         self.project_group_service = ProjectGroupService(self.project_service)
         self.file_service = FileService()
@@ -41,6 +55,15 @@ class ProjectControlPanel:
         self.window.geometry(MAIN_WINDOW_SIZE)
         self.window.configure(bg=COLORS["background"])
 
+        # Initialize async bridge for GUI coordination
+        self.async_bridge = TkinterAsyncBridge(self.window, task_manager)
+
+        # Set up proper event loop for async operations
+        self._setup_async_integration()
+
+        # Set up proper cleanup on window close
+        self.window.protocol("WM_DELETE_WINDOW", self._on_window_close)
+
         # GUI components
         self.scrollable_frame = None
         self.project_selector = None
@@ -48,6 +71,71 @@ class ProjectControlPanel:
 
         self.create_gui()
         self.load_projects()
+
+        # Setup improved async event processing
+        self._setup_async_processing()
+
+    def _setup_async_integration(self):
+        """Set up async integration with tkinter"""
+        try:
+            # Set up event loop for async operations
+            task_manager.setup_event_loop()
+            logger.info("Async integration setup complete")
+        except Exception as e:
+            logger.error("Failed to setup async integration: %s", e)
+            # Continue without async support
+
+    def _setup_async_processing(self):
+        """Setup improved async event processing with better timing"""
+
+        def process_async_events():
+            """Process async events and schedule next processing"""
+            try:
+                # Get task statistics for monitoring
+                stats = task_manager.get_task_stats()
+
+                # Log task statistics periodically (every 10 seconds)
+                current_time = time.time()
+                if not hasattr(self, "_last_stats_log"):
+                    self._last_stats_log = current_time
+
+                if current_time - self._last_stats_log > 10:
+                    if stats["running"] > 0:
+                        logger.debug(
+                            "Async task stats - Running: %d, Total: %d",
+                            stats["running"],
+                            stats["total"],
+                        )
+                    self._last_stats_log = current_time
+
+                # Warn if too many tasks are running
+                if stats["running"] > 20:
+                    logger.warning(
+                        "High number of running async tasks: %d", stats["running"]
+                    )
+
+            except Exception as e:
+                logger.exception("Error processing async events")
+            finally:
+                # Schedule next processing - using adaptive timing
+                # More frequent processing when tasks are active
+                interval = 25 if task_manager.get_task_count() > 0 else 100
+                self.window.after(interval, process_async_events)
+
+        # Start the processing loop
+        process_async_events()
+
+    def _on_window_close(self):
+        """Handle window close event with proper cleanup"""
+        logger.info("Application shutdown initiated")
+        try:
+            # Cancel any pending async operations with timeout
+            shutdown_all(timeout=3.0)  # Shorter timeout for better UX
+        except Exception as e:
+            logger.exception("Error during shutdown cleanup")
+        finally:
+            # Destroy the window
+            self.window.destroy()
 
     def create_gui(self):
         """Create the main GUI layout"""
@@ -309,35 +397,107 @@ class ProjectControlPanel:
         git_btn.pack(side="left")
 
     def cleanup_project(self, project: Project):
-        """Clean up specified directories in the project"""
+        """Create cleanup of the project (async)"""
 
-        def cleanup_thread():
+        async def cleanup_async():
             try:
-                deleted_items = self.file_service.cleanup_project_dirs(project.path)
-
-                # Show results
-                if deleted_items:
-                    message = (
-                        f"Cleanup completed for {project.name}!\n\nDeleted:\n"
-                        + "\n".join(deleted_items)
+                async with AsyncResourceManager(f"cleanup-{project.name}"):
+                    # First, scan for directories that need cleanup
+                    cleanup_needed_dirs = await self.file_service.scan_for_cleanup_dirs(
+                        project.path
                     )
-                else:
-                    message = f"Cleanup completed for {project.name}!\n\nNo cleanup directories found."
 
-                messagebox.showinfo("Cleanup Complete", message)
+                    # If cleanup directories found, prompt user
+                    proceed_with_cleanup = True
+                    if cleanup_needed_dirs:
+                        cleanup_list = "\n".join(
+                            [
+                                f"• {os.path.relpath(d, project.path)}"
+                                for d in cleanup_needed_dirs
+                            ]
+                        )
+                        response = messagebox.askyesno(
+                            "Confirm Cleanup",
+                            f"Found directories to cleanup in {project.name}:\n\n{cleanup_list}\n\n"
+                            f"Are you sure you want to delete these directories?\n\n"
+                            f"⚠️  This action cannot be undone!",
+                        )
 
+                        if not response:
+                            return
+
+                    # Proceed with cleanup
+                    if proceed_with_cleanup:
+                        deleted_items = await self.file_service.cleanup_project_dirs(
+                            project.path
+                        )
+
+                    if deleted_items:
+                        message = (
+                            f"Cleanup completed for {project.name}!\n\nDeleted:\n"
+                            + "\n".join(deleted_items)
+                        )
+                    else:
+                        message = f"Cleanup completed for {project.name}!\n\nNo cleanup directories found."
+
+                    # Use window.after to safely update GUI from async context
+                    self.window.after(
+                        0, lambda: messagebox.showinfo("Cleanup Complete", message)
+                    )
+
+            except FileNotFoundError as e:
+                logger.error("Project directory not found: %s", project.path)
+                error_msg = f"Project directory not found: {project.path}"
+                self.window.after(
+                    0, lambda: messagebox.showerror("Cleanup Error", error_msg)
+                )
+            except PermissionError as e:
+                logger.error(
+                    "Permission denied during cleanup for %s: %s", project.path, e
+                )
+                error_msg = f"Permission denied during cleanup. Please check file permissions for: {project.path}"
+                self.window.after(
+                    0, lambda: messagebox.showerror("Permission Error", error_msg)
+                )
+            except OSError as e:
+                logger.error(
+                    "File system error during cleanup for %s: %s", project.path, e
+                )
+                error_msg = f"File system error during cleanup: {str(e)}"
+                self.window.after(
+                    0, lambda: messagebox.showerror("File System Error", error_msg)
+                )
+            except asyncio.CancelledError:
+                logger.info("Cleanup task was cancelled for %s", project.path)
+                raise  # Always re-raise CancelledError
+            except RuntimeError as e:
+                logger.error(
+                    "Task execution error during cleanup for %s: %s", project.path, e
+                )
+                error_msg = f"Task execution error: {str(e)}"
+                self.window.after(
+                    0, lambda: messagebox.showerror("Runtime Error", error_msg)
+                )
             except Exception as e:
-                messagebox.showerror("Cleanup Error", f"Error during cleanup: {str(e)}")
+                # Only for truly unexpected errors - log for debugging
+                logger.exception(
+                    "Unexpected error in cleanup_project for %s", project.path
+                )
+                error_msg = f"An unexpected error occurred during cleanup: {str(e)}"
+                self.window.after(
+                    0, lambda: messagebox.showerror("Cleanup Error", error_msg)
+                )
 
-        run_in_thread(cleanup_thread)
+        # Run the async operation with proper task naming
+        task_manager.run_task(cleanup_async(), task_name=f"cleanup-{project.name}")
 
     def archive_project(self, project: Project):
-        """Create archive of the project"""
+        """Create archive of the project (async)"""
 
-        def archive_thread():
+        async def archive_async():
             try:
                 # First, scan for directories that need cleanup
-                cleanup_needed_dirs = self.file_service.scan_for_cleanup_dirs(
+                cleanup_needed_dirs = await self.file_service.scan_for_cleanup_dirs(
                     project.path
                 )
 
@@ -362,13 +522,16 @@ class ProjectControlPanel:
                     if response is None:  # Cancel
                         return
                     elif response:  # Yes - cleanup first
-                        deleted_items = self.file_service.cleanup_project_dirs(
+                        deleted_items = await self.file_service.cleanup_project_dirs(
                             project.path
                         )
                         if deleted_items:
-                            messagebox.showinfo(
-                                "Cleanup Complete",
-                                f"Cleaned up {len(deleted_items)} directories before archiving.",
+                            self.window.after(
+                                0,
+                                lambda: messagebox.showinfo(
+                                    "Cleanup Complete",
+                                    f"Cleaned up {len(deleted_items)} directories before archiving.",
+                                ),
                             )
 
                 # Proceed with archiving
@@ -376,55 +539,111 @@ class ProjectControlPanel:
                     archive_name = self.project_service.get_archive_name(
                         project.parent, project.name
                     )
-                    success, error_msg = self.file_service.create_archive(
+                    success, error_msg = await self.file_service.create_archive(
                         project.path, archive_name
                     )
 
                     if success:
-                        messagebox.showinfo(
-                            "Archive Complete",
-                            f"Successfully created archive:\n{archive_name}\n\nLocation: {project.path}",
+                        self.window.after(
+                            0,
+                            lambda: messagebox.showinfo(
+                                "Archive Complete",
+                                f"Successfully created archive:\n{archive_name}\n\nLocation: {project.path}",
+                            ),
                         )
                     else:
-                        messagebox.showerror(
-                            "Archive Error",
-                            f"Failed to create archive.\nError: {error_msg}",
+                        self.window.after(
+                            0,
+                            lambda: messagebox.showerror(
+                                "Archive Error",
+                                f"Failed to create archive.\nError: {error_msg}",
+                            ),
                         )
 
+            except FileNotFoundError as e:
+                logger.error("Project directory not found: %s", project.path)
+                error_msg = f"Project directory not found: {project.path}"
+                self.window.after(
+                    0, lambda: messagebox.showerror("Archive Error", error_msg)
+                )
+            except PermissionError as e:
+                logger.error(
+                    "Permission denied during archiving for %s: %s", project.path, e
+                )
+                error_msg = f"Permission denied during archiving. Please check file permissions for: {project.path}"
+                self.window.after(
+                    0, lambda: messagebox.showerror("Permission Error", error_msg)
+                )
+            except OSError as e:
+                logger.error(
+                    "File system error during archiving for %s: %s", project.path, e
+                )
+                error_msg = f"File system error during archiving: {str(e)}"
+                self.window.after(
+                    0, lambda: messagebox.showerror("File System Error", error_msg)
+                )
+            except asyncio.CancelledError:
+                logger.info("Archive task was cancelled for %s", project.path)
+                raise  # Always re-raise CancelledError
+            except RuntimeError as e:
+                logger.error(
+                    "Task execution error during archiving for %s: %s", project.path, e
+                )
+                error_msg = f"Task execution error: {str(e)}"
+                self.window.after(
+                    0, lambda: messagebox.showerror("Runtime Error", error_msg)
+                )
             except Exception as e:
-                messagebox.showerror(
-                    "Archive Error", f"Error during archiving: {str(e)}"
+                # Only for truly unexpected errors - log for debugging
+                logger.exception(
+                    "Unexpected error in archive_project for %s", project.path
+                )
+                error_msg = f"An unexpected error occurred during archiving: {str(e)}"
+                self.window.after(
+                    0, lambda: messagebox.showerror("Archive Error", error_msg)
                 )
 
-        run_in_thread(archive_thread)
+        # Run the async operation with proper task naming
+        task_manager.run_task(archive_async(), task_name=f"archive-{project.name}")
 
     def docker_build_and_test(self, project: Project):
-        """Build Docker container and run tests"""
+        """Build Docker container and run tests (async) with improved synchronization"""
 
-        def docker_thread():
+        async def docker_async():
             try:
                 docker_tag = self.project_service.get_docker_tag(
                     project.parent, project.name
                 )
 
-                # Create terminal output window
-                terminal_window = TerminalOutputWindow(
-                    self.window, f"Docker Build & Test - {docker_tag}"
-                )
+                # Create synchronization event to coordinate with GUI
+                event_id, window_ready_event = self.async_bridge.create_sync_event()
 
-                # Create window on main thread
-                self.window.after(0, terminal_window.create_window)
+                # Create terminal output window on main thread
+                terminal_window = None
 
-                # Wait a moment for window to be created
-                time.sleep(0.5)
+                def create_window():
+                    nonlocal terminal_window
+                    terminal_window = TerminalOutputWindow(
+                        self.window, f"Docker Build & Test - {docker_tag}"
+                    )
+                    terminal_window.create_window()
+                    # Signal that window is ready
+                    self.async_bridge.signal_from_gui(event_id)
+
+                self.window.after(0, create_window)
+
+                # Wait for window to be properly created (no hardcoded sleep!)
+                await window_ready_event.wait()
+
+                # Clean up the synchronization event
+                self.async_bridge.cleanup_event(event_id)
 
                 # Update initial status
                 terminal_window.update_status(
                     "Building Docker image...", COLORS["warning"]
                 )
-
                 # Run Docker build and test
-                success, raw_test_output = self.docker_service.build_and_test(
+                success, raw_test_output = await self.docker_service.build_and_test(
                     project.path,
                     docker_tag,
                     terminal_window.append_output,
@@ -434,22 +653,27 @@ class ProjectControlPanel:
                 # Add final buttons
                 terminal_window.add_final_buttons(copy_text=raw_test_output)
 
+            except asyncio.CancelledError:
+                logger.info("Docker build/test was cancelled for %s", project.name)
+                raise  # Always re-raise CancelledError
             except Exception as e:
+                logger.exception("Error during Docker build/test for %s", project.name)
                 error_msg = f"Error during Docker build/test: {str(e)}"
                 self.window.after(
                     0, lambda: messagebox.showerror("Docker Error", error_msg)
                 )
 
-        run_in_thread(docker_thread)
+        # Run the async operation with proper task naming
+        task_manager.run_task(docker_async(), task_name=f"docker-{project.name}")
 
     def git_view(self, project: Project):
-        """Show git commits and allow checkout"""
+        """Show git commits and allow checkout (async) with improved synchronization"""
 
-        def git_thread():
+        async def git_async():
             try:
                 # Fetch latest commits (no blocking message)
-                fetch_success, fetch_message = self.git_service.fetch_latest_commits(
-                    project.path
+                fetch_success, fetch_message = (
+                    await self.git_service.fetch_latest_commits(project.path)
                 )
 
                 if not fetch_success and "No remote repository" not in fetch_message:
@@ -460,6 +684,9 @@ class ProjectControlPanel:
                             f"Could not fetch latest commits:\n{fetch_message}\n\nShowing local commits only.",
                         ),
                     )
+
+                # Create synchronization event for window creation
+                event_id, window_ready_event = self.async_bridge.create_sync_event()
 
                 # Create git window immediately with loading state
                 git_window = None
@@ -477,14 +704,19 @@ class ProjectControlPanel:
                         project_path=project.path,
                     )
                     git_window.create_window_with_loading(fetch_success, fetch_message)
+                    # Signal that window is ready
+                    self.async_bridge.signal_from_gui(event_id)
 
                 self.window.after(0, create_git_window)
 
-                # Wait a moment for window to be created
-                time.sleep(0.2)
+                # Wait for window to be properly created (no hardcoded sleep!)
+                await window_ready_event.wait()
+
+                # Clean up the synchronization event
+                self.async_bridge.cleanup_event(event_id)
 
                 # Get commits in background
-                commits, error = self.git_service.get_git_commits(project.path)
+                commits, error = await self.git_service.get_git_commits(project.path)
 
                 if error:
                     self.window.after(0, lambda: git_window.update_with_error(error))
@@ -497,7 +729,11 @@ class ProjectControlPanel:
                 # Update window with commits
                 self.window.after(0, lambda: git_window.update_with_commits(commits))
 
+            except asyncio.CancelledError:
+                logger.info("Git view was cancelled for %s", project.name)
+                raise  # Always re-raise CancelledError
             except Exception as e:
+                logger.exception("Error accessing git repository for %s", project.name)
                 error_msg = f"Error accessing git repository: {str(e)}"
                 if "git_window" in locals() and git_window:
                     self.window.after(
@@ -508,7 +744,7 @@ class ProjectControlPanel:
                         0, lambda: messagebox.showerror("Git Error", error_msg)
                     )
 
-        # Create checkout callback
+        # Create checkout callback (async) - using task groups for better management
         def checkout_commit_callback(
             project_path, project_name, commit_hash, git_window
         ):
@@ -523,95 +759,149 @@ class ProjectControlPanel:
             if not response:
                 return
 
-            # Perform checkout
-            success, message = self.git_service.checkout_commit(
-                project_path, commit_hash
+            # Run checkout as async task with task group
+            async def checkout_async():
+                try:
+                    # Perform checkout
+                    success, message = await self.git_service.checkout_commit(
+                        project_path, commit_hash
+                    )
+
+                    if success:
+                        self.window.after(
+                            0,
+                            lambda: messagebox.showinfo(
+                                "Checkout Success",
+                                f"{message}\n\nProject: {project_name}",
+                            ),
+                        )
+                        self.window.after(0, git_window.window.destroy)
+                    else:
+                        # Check if the error is due to local changes
+                        if self.git_service.has_local_changes(project_path, message):
+                            # Show warning and ask if user wants to discard changes
+                            discard_response = messagebox.askyesnocancel(
+                                "Local Changes Detected",
+                                f"Cannot checkout because local changes would be overwritten:\n\n"
+                                f"{message}\n\n"
+                                f"Would you like to discard all local changes and force checkout?\n\n"
+                                f"⚠️  WARNING: This will permanently delete all uncommitted changes!\n\n"
+                                f"• Yes: Discard changes and checkout\n"
+                                f"• No: Keep changes and cancel checkout\n"
+                                f"• Cancel: Return to commit list",
+                            )
+
+                            if discard_response is True:  # Yes - discard changes
+                                force_success, force_message = (
+                                    await self.git_service.force_checkout_commit(
+                                        project_path, commit_hash
+                                    )
+                                )
+
+                                if force_success:
+                                    self.window.after(
+                                        0,
+                                        lambda: messagebox.showinfo(
+                                            "Checkout Success",
+                                            f"{force_message}\n\nProject: {project_name}",
+                                        ),
+                                    )
+                                    self.window.after(0, git_window.window.destroy)
+                                else:
+                                    self.window.after(
+                                        0,
+                                        lambda: messagebox.showerror(
+                                            "Force Checkout Failed",
+                                            f"Failed to checkout even after discarding changes:\n\n{force_message}",
+                                        ),
+                                    )
+                            elif discard_response is False:  # No - keep changes
+                                self.window.after(
+                                    0,
+                                    lambda: messagebox.showinfo(
+                                        "Checkout Cancelled",
+                                        "Checkout cancelled. Your local changes have been preserved.",
+                                    ),
+                                )
+                            # If None (Cancel), just return to commit list without message
+                        else:
+                            # Some other git error
+                            self.window.after(
+                                0,
+                                lambda: messagebox.showerror(
+                                    "Checkout Error",
+                                    f"Failed to checkout commit {commit_hash}\n\n{message}",
+                                ),
+                            )
+                except asyncio.CancelledError:
+                    logger.info("Checkout was cancelled for %s", project_name)
+                    raise  # Always re-raise CancelledError
+                except Exception as e:
+                    logger.exception("Error during checkout for %s", project_name)
+                    error_msg = f"Error during checkout: {str(e)}"
+                    self.window.after(
+                        0, lambda: messagebox.showerror("Checkout Error", error_msg)
+                    )
+
+            # Run the checkout operation with proper task naming
+            task_manager.run_task(
+                checkout_async(), task_name=f"checkout-{project_name}-{commit_hash[:8]}"
             )
 
-            if success:
-                messagebox.showinfo(
-                    "Checkout Success", f"{message}\n\nProject: {project_name}"
-                )
-                git_window.destroy()
-            else:
-                # Check if the error is due to local changes
-                if self.git_service.has_local_changes(project_path, message):
-                    # Show warning and ask if user wants to discard changes
-                    discard_response = messagebox.askyesnocancel(
-                        "Local Changes Detected",
-                        f"Cannot checkout because local changes would be overwritten:\n\n"
-                        f"{message}\n\n"
-                        f"Would you like to discard all local changes and force checkout?\n\n"
-                        f"⚠️  WARNING: This will permanently delete all uncommitted changes!\n\n"
-                        f"• Yes: Discard changes and checkout\n"
-                        f"• No: Keep changes and cancel checkout\n"
-                        f"• Cancel: Return to commit list",
-                    )
-
-                    if discard_response is True:  # Yes - discard changes
-                        force_success, force_message = (
-                            self.git_service.force_checkout_commit(
-                                project_path, commit_hash
-                            )
-                        )
-
-                        if force_success:
-                            messagebox.showinfo(
-                                "Checkout Success",
-                                f"{force_message}\n\nProject: {project_name}",
-                            )
-                            git_window.destroy()
-                        else:
-                            messagebox.showerror(
-                                "Force Checkout Failed",
-                                f"Failed to checkout even after discarding changes:\n\n{force_message}",
-                            )
-                    elif discard_response is False:  # No - keep changes
-                        messagebox.showinfo(
-                            "Checkout Cancelled",
-                            "Checkout cancelled. Your local changes have been preserved.",
-                        )
-                    # If None (Cancel), just return to commit list without message
-                else:
-                    # Some other git error
-                    messagebox.showerror(
-                        "Checkout Error",
-                        f"Failed to checkout commit {commit_hash}\n\n{message}",
-                    )
-
-        # Store the callback method for use in the git_thread
+        # Store the callback method for use in the git_async
         self.checkout_commit_callback = checkout_commit_callback
 
-        run_in_thread(git_thread)
+        # Run the async operation with proper task naming
+        task_manager.run_task(git_async(), task_name=f"git-view-{project.name}")
 
     def sync_run_tests_from_pre_edit(self, project_group: ProjectGroup):
-        """Sync run_tests.sh from pre-edit to all other versions"""
+        """Sync run_tests.sh from pre-edit to all other versions (async)"""
 
-        def sync_run_tests_thread():
+        async def sync_run_tests_async():
             try:
                 # Sync run_tests.sh from pre-edit to other versions
                 success, message, synced_paths = (
-                    self.sync_service.sync_file_from_pre_edit(
+                    await self.sync_service.sync_file_from_pre_edit(
                         project_group, "run_tests.sh"
                     )
                 )
 
                 if success:
                     paths_text = "\n".join([f"• {path}" for path in synced_paths])
-                    messagebox.showinfo(
-                        "Sync Complete",
-                        f"Successfully synced run_tests.sh from pre-edit!\n\n"
-                        f"Synced to {len(synced_paths)} versions:\n{paths_text}",
+                    self.window.after(
+                        0,
+                        lambda: messagebox.showinfo(
+                            "Sync Complete",
+                            f"Successfully synced run_tests.sh from pre-edit!\n\n"
+                            f"Synced to {len(synced_paths)} versions:\n{paths_text}",
+                        ),
                     )
                 else:
-                    messagebox.showerror(
-                        "Sync Error", f"Failed to sync run_tests.sh:\n\n{message}"
+                    self.window.after(
+                        0,
+                        lambda: messagebox.showerror(
+                            "Sync Error", f"Failed to sync run_tests.sh:\n\n{message}"
+                        ),
                     )
 
+            except asyncio.CancelledError:
+                logger.info(
+                    "Sync was cancelled for project group %s", project_group.name
+                )
+                raise  # Always re-raise CancelledError
             except Exception as e:
-                messagebox.showerror("Sync Error", f"Error during sync: {str(e)}")
+                logger.exception(
+                    "Error during sync for project group %s", project_group.name
+                )
+                error_msg = f"Error during sync: {str(e)}"
+                self.window.after(
+                    0, lambda: messagebox.showerror("Sync Error", error_msg)
+                )
 
-        run_in_thread(sync_run_tests_thread)
+        # Run the async operation with proper task naming
+        task_manager.run_task(
+            sync_run_tests_async(), task_name=f"sync-{project_group.name}"
+        )
 
     def refresh_projects(self):
         """Refresh the project list"""

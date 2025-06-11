@@ -1,5 +1,5 @@
 """
-Service for synchronizing files between project versions
+Service for synchronizing files between project versions - Async version
 """
 
 import shutil
@@ -8,15 +8,16 @@ from typing import List, Tuple, Optional
 from models.project import Project
 from services.project_group_service import ProjectGroup
 from services.project_service import ProjectService
+from utils.async_utils import run_in_executor
 
 
 class SyncService:
-    """Service for synchronizing files between project versions"""
+    """Service for synchronizing files between project versions - Async version"""
 
     def __init__(self):
         self.project_service = ProjectService()
 
-    def sync_file_from_pre_edit(
+    async def sync_file_from_pre_edit(
         self, project_group: ProjectGroup, file_name: str
     ) -> Tuple[bool, str, List[str]]:
         """
@@ -35,7 +36,7 @@ class SyncService:
             return False, "No pre-edit version found in project group", []
 
         # Check if the file exists in pre-edit version
-        if not self.has_file(pre_edit_project, file_name):
+        if not await self.has_file(pre_edit_project, file_name):
             return False, f"File '{file_name}' not found in pre-edit version", []
 
         # Get all non-pre-edit versions to sync to
@@ -52,7 +53,7 @@ class SyncService:
         failed_syncs = []
 
         for target_project in target_projects:
-            if self.copy_file(pre_edit_project, target_project, file_name):
+            if await self.copy_file(pre_edit_project, target_project, file_name):
                 synced_paths.append(str(target_project.path / file_name))
             else:
                 failed_syncs.append(target_project.parent)
@@ -90,7 +91,7 @@ class SyncService:
             None,
         )
 
-    def has_file(self, project: Project, file_name: str) -> bool:
+    async def has_file(self, project: Project, file_name: str) -> bool:
         """
         Check if a project has a file.
 
@@ -101,10 +102,14 @@ class SyncService:
         Returns:
             True if file exists, False otherwise
         """
+        return await run_in_executor(self._has_file_sync, project, file_name)
+
+    def _has_file_sync(self, project: Project, file_name: str) -> bool:
+        """Synchronous implementation of file existence check"""
         file_path = project.path / file_name
         return file_path.exists() and file_path.is_file()
 
-    def copy_file(
+    async def copy_file(
         self, source_project: Project, target_project: Project, file_name: str
     ) -> bool:
         """
@@ -118,6 +123,14 @@ class SyncService:
         Returns:
             True if copy was successful, False otherwise
         """
+        return await run_in_executor(
+            self._copy_file_sync, source_project, target_project, file_name
+        )
+
+    def _copy_file_sync(
+        self, source_project: Project, target_project: Project, file_name: str
+    ) -> bool:
+        """Synchronous implementation of file copying"""
         try:
             source_file = source_project.path / file_name
             target_file = target_project.path / file_name

@@ -1,13 +1,13 @@
 """
-Service for Git operations
+Service for Git operations - Async version
 """
 
 import os
-import subprocess
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 
 from config.commands import GIT_COMMANDS
+from utils.async_utils import run_subprocess_async, run_in_executor
 
 
 class GitCommit:
@@ -36,51 +36,36 @@ class GitCommit:
 
 
 class GitService:
-    """Service for Git operations"""
+    """Service for Git operations - Async version"""
 
-    def fetch_latest_commits(self, project_path: Path) -> Tuple[bool, str]:
+    async def fetch_latest_commits(self, project_path: Path) -> Tuple[bool, str]:
         """
         Fetch latest commits from remote repository
         Returns (success, message)
         """
         try:
-            original_cwd = os.getcwd()
-            os.chdir(project_path)
+            # Check if there's a remote repository
+            remote_check = await run_subprocess_async(
+                GIT_COMMANDS["remote_check"], cwd=str(project_path)
+            )
 
-            try:
-                # Check if there's a remote repository
-                remote_check = subprocess.run(
-                    GIT_COMMANDS["remote_check"],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                )
+            if remote_check.returncode != 0 or not remote_check.stdout.strip():
+                return False, "No remote repository configured"
 
-                if remote_check.returncode != 0 or not remote_check.stdout.strip():
-                    return False, "No remote repository configured"
+            # Fetch from all remotes
+            fetch_result = await run_subprocess_async(
+                GIT_COMMANDS["fetch"], cwd=str(project_path)
+            )
 
-                # Fetch from all remotes
-                fetch_result = subprocess.run(
-                    GIT_COMMANDS["fetch"],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                )
-
-                if fetch_result.returncode == 0:
-                    return True, "Successfully fetched latest commits"
-                else:
-                    return False, f"Fetch failed: {fetch_result.stderr}"
-
-            finally:
-                os.chdir(original_cwd)
+            if fetch_result.returncode == 0:
+                return True, "Successfully fetched latest commits"
+            else:
+                return False, f"Fetch failed: {fetch_result.stderr}"
 
         except Exception as e:
             return False, f"Error during fetch: {str(e)}"
 
-    def get_git_commits(
+    async def get_git_commits(
         self, project_path: Path
     ) -> Tuple[Optional[List[GitCommit]], Optional[str]]:
         """
@@ -90,93 +75,74 @@ class GitService:
             project_path: Path to the git repository
         """
         try:
-            # Change to project directory
-            original_cwd = os.getcwd()
-            os.chdir(project_path)
+            # Run git log command
+            result = await run_subprocess_async(
+                GIT_COMMANDS["log"], cwd=str(project_path)
+            )
 
-            try:
-                # Run git log command
-                result = subprocess.run(
-                    GIT_COMMANDS["log"],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                )
+            if result.returncode != 0:
+                return None, f"Error getting git log: {result.stderr}"
 
-                if result.returncode != 0:
-                    return None, f"Error getting git log: {result.stderr}"
-
-                # Parse commits
-                commits = []
-                for line in result.stdout.strip().split("\n"):
-                    if line.strip() and "|" in line:
-                        # Remove git graph characters
-                        clean_line = line
-                        for char in ["*", "|", "\\", "/", "-", " "]:
-                            if clean_line.startswith(char):
-                                clean_line = clean_line[1:]
-                            else:
-                                break
-                        clean_line = clean_line.strip()
-
-                        if "|" in clean_line:
-                            parts = clean_line.split("|", 3)
-                            if len(parts) >= 4:
-                                hash_val, author, date, subject = parts
-                                commit = GitCommit(
-                                    hash_val.strip(),
-                                    author.strip(),
-                                    date.strip(),
-                                    subject.strip(),
-                                )
-                                commits.append(commit)
-
-                return commits, None
-
-            finally:
-                os.chdir(original_cwd)
+            # Parse commits in executor to avoid blocking
+            commits = await run_in_executor(self._parse_commits, result.stdout.strip())
+            return commits, None
 
         except Exception as e:
             return None, f"Error accessing git repository: {str(e)}"
 
-    def checkout_commit(self, project_path: Path, commit_hash: str) -> Tuple[bool, str]:
+    def _parse_commits(self, log_output: str) -> List[GitCommit]:
+        """Parse git log output into GitCommit objects"""
+        commits = []
+        for line in log_output.split("\n"):
+            if line.strip() and "|" in line:
+                # Remove git graph characters
+                clean_line = line
+                for char in ["*", "|", "\\", "/", "-", " "]:
+                    if clean_line.startswith(char):
+                        clean_line = clean_line[1:]
+                    else:
+                        break
+                clean_line = clean_line.strip()
+
+                if "|" in clean_line:
+                    parts = clean_line.split("|", 3)
+                    if len(parts) >= 4:
+                        hash_val, author, date, subject = parts
+                        commit = GitCommit(
+                            hash_val.strip(),
+                            author.strip(),
+                            date.strip(),
+                            subject.strip(),
+                        )
+                        commits.append(commit)
+        return commits
+
+    async def checkout_commit(
+        self, project_path: Path, commit_hash: str
+    ) -> Tuple[bool, str]:
         """
         Checkout to specific commit
         Returns (success, message)
         """
         try:
-            original_cwd = os.getcwd()
-            os.chdir(project_path)
+            # Create checkout command with commit hash
+            checkout_cmd = [
+                cmd.format(commit=commit_hash) if "{commit}" in cmd else cmd
+                for cmd in GIT_COMMANDS["checkout"]
+            ]
 
-            try:
-                # Create checkout command with commit hash
-                checkout_cmd = [
-                    cmd.format(commit=commit_hash) if "{commit}" in cmd else cmd
-                    for cmd in GIT_COMMANDS["checkout"]
-                ]
+            # Perform checkout
+            result = await run_subprocess_async(checkout_cmd, cwd=str(project_path))
 
-                # Perform checkout
-                result = subprocess.run(
-                    checkout_cmd,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                )
-
-                if result.returncode == 0:
-                    return True, f"Successfully checked out to commit: {commit_hash}"
-                else:
-                    return False, result.stderr
-
-            finally:
-                os.chdir(original_cwd)
+            if result.returncode == 0:
+                return True, f"Successfully checked out to commit: {commit_hash}"
+            else:
+                return False, result.stderr
 
         except Exception as e:
             return False, f"Error during checkout: {str(e)}"
 
-    def force_checkout_commit(
+    async def force_checkout_commit(
         self, project_path: Path, commit_hash: str
     ) -> Tuple[bool, str]:
         """
@@ -184,70 +150,42 @@ class GitService:
         Returns (success, message)
         """
         try:
-            original_cwd = os.getcwd()
-            os.chdir(project_path)
+            # First, reset any staged changes
+            reset_result = await run_subprocess_async(
+                GIT_COMMANDS["reset_hard"], cwd=str(project_path)
+            )
 
-            try:
-                # First, reset any staged changes
-                reset_result = subprocess.run(
-                    GIT_COMMANDS["reset_hard"],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                )
+            # Clean untracked files
+            clean_result = await run_subprocess_async(
+                GIT_COMMANDS["clean"], cwd=str(project_path)
+            )
 
-                # Clean untracked files
-                clean_result = subprocess.run(
-                    GIT_COMMANDS["clean"],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                )
-
-                # Create checkout command with commit hash
-                checkout_cmd = [
+            # Now try force checkout
+            force_result = await run_subprocess_async(
+                [
                     cmd.format(commit=commit_hash) if "{commit}" in cmd else cmd
-                    for cmd in GIT_COMMANDS["checkout"]
-                ]
+                    for cmd in GIT_COMMANDS["force_checkout"]
+                ],
+                cwd=str(project_path),
+            )
 
-                # Now try checkout again
-                force_result = subprocess.run(
-                    checkout_cmd,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                )
-
-                if force_result.returncode == 0:
-                    return (
-                        True,
-                        f"Successfully discarded local changes and checked out to: {commit_hash}",
-                    )
-                else:
-                    return (
-                        False,
-                        f"Failed to checkout even after discarding changes: {force_result.stderr}",
-                    )
-
-            finally:
-                os.chdir(original_cwd)
+            if force_result.returncode == 0:
+                return True, f"Successfully force checked out to commit: {commit_hash}"
+            else:
+                return False, force_result.stderr
 
         except Exception as e:
             return False, f"Error during force checkout: {str(e)}"
 
     def has_local_changes(self, project_path: Path, error_message: str) -> bool:
         """
-        Check if the error is due to local changes
-        Returns True if the error indicates local changes would be overwritten
+        Check if error message indicates local changes would be overwritten
         """
         local_change_indicators = [
             "would be overwritten",
             "local changes",
-            "uncommitted changes",
             "working tree clean",
+            "uncommitted changes",
         ]
 
         return any(
