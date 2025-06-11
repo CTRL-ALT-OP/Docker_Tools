@@ -76,35 +76,75 @@ class TerminalOutputWindow:
         self.is_created = True
 
     def append_output(self, text: str):
-        """Safely append text to output window"""
-        if self.text_area and self.window and self.window.winfo_exists():
+        """Safely append text to output window with race condition protection"""
+        if not self.is_created or not self.text_area:
+            return
 
-            def update_text():
+        def update_text():
+            try:
+                # Double-check window still exists before updating
+                if not (
+                    self.window
+                    and self.window.winfo_exists()
+                    and self.text_area
+                    and self.text_area.winfo_exists()
+                ):
+                    return
+
                 self.text_area.config(state=tk.NORMAL)
                 self.text_area.insert(tk.END, text)
                 self.text_area.see(tk.END)
                 self.text_area.config(state=tk.DISABLED)
                 self.text_area.update()
 
-            try:
-                self.window.after(0, update_text)
-            except:
+            except tk.TclError:
+                # Widget was destroyed - ignore silently
                 pass
+            except Exception as e:
+                # Log unexpected errors but don't crash
+                print(f"Unexpected error updating text area: {e}")
+
+        try:
+            if self.window:
+                self.window.after(0, update_text)
+        except tk.TclError:
+            # Window was destroyed - ignore silently
+            pass
 
     def update_status(self, status_text: str, color: str = None):
-        """Update status label"""
+        """Update status label with race condition protection"""
         if color is None:
             color = COLORS["warning"]
 
-        if self.status_label and self.window and self.window.winfo_exists():
+        if not self.is_created or not self.status_label:
+            return
 
-            def update_label():
+        def update_label():
+            try:
+                # Double-check window and label still exist
+                if not (
+                    self.window
+                    and self.window.winfo_exists()
+                    and self.status_label
+                    and self.status_label.winfo_exists()
+                ):
+                    return
+
                 self.status_label.config(text=f"Status: {status_text}", fg=color)
 
-            try:
-                self.window.after(0, update_label)
-            except:
+            except tk.TclError:
+                # Widget was destroyed - ignore silently
                 pass
+            except Exception as e:
+                # Log unexpected errors but don't crash
+                print(f"Unexpected error updating status label: {e}")
+
+        try:
+            if self.window:
+                self.window.after(0, update_label)
+        except tk.TclError:
+            # Window was destroyed - ignore silently
+            pass
 
     def add_final_buttons(
         self,
