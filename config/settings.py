@@ -12,6 +12,12 @@ IGNORE_DIRS = [
     ".dist",
     "dist",
     ".trunk",
+    ".benchmarks",
+    "benchmarks",
+    ".vscode",
+    "vscode",
+    ".venv",
+    "venv",
 ]
 
 # Global dictionary for folder aliases
