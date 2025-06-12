@@ -402,24 +402,41 @@ class ProjectControlPanel:
         async def cleanup_async():
             try:
                 async with AsyncResourceManager(f"cleanup-{project.name}"):
-                    # First, scan for directories that need cleanup
-                    cleanup_needed_dirs = await self.file_service.scan_for_cleanup_dirs(
-                        project.path
+                    # First, scan for directories and files that need cleanup
+                    cleanup_needed_dirs, cleanup_needed_files = (
+                        await self.file_service.scan_for_cleanup_items(project.path)
                     )
 
-                    # If cleanup directories found, prompt user
+                    # If cleanup items found, prompt user
                     proceed_with_cleanup = True
-                    if cleanup_needed_dirs:
-                        cleanup_list = "\n".join(
-                            [
-                                f"• {os.path.relpath(d, project.path)}"
-                                for d in cleanup_needed_dirs
-                            ]
-                        )
+                    if cleanup_needed_dirs or cleanup_needed_files:
+                        cleanup_items = []
+
+                        if cleanup_needed_dirs:
+                            cleanup_items.append("Directories:")
+                            cleanup_items.extend(
+                                [
+                                    f"  • {os.path.relpath(d, project.path)}"
+                                    for d in cleanup_needed_dirs
+                                ]
+                            )
+
+                        if cleanup_needed_files:
+                            if cleanup_items:
+                                cleanup_items.append("")  # Empty line separator
+                            cleanup_items.append("Files:")
+                            cleanup_items.extend(
+                                [
+                                    f"  • {os.path.relpath(f, project.path)}"
+                                    for f in cleanup_needed_files
+                                ]
+                            )
+
+                        cleanup_list = "\n".join(cleanup_items)
                         response = messagebox.askyesno(
                             "Confirm Cleanup",
-                            f"Found directories to cleanup in {project.name}:\n\n{cleanup_list}\n\n"
-                            f"Are you sure you want to delete these directories?\n\n"
+                            f"Found items to cleanup in {project.name}:\n\n{cleanup_list}\n\n"
+                            f"Are you sure you want to delete these items?\n\n"
                             f"⚠️  This action cannot be undone!",
                         )
 
@@ -428,17 +445,22 @@ class ProjectControlPanel:
 
                     # Proceed with cleanup
                     if proceed_with_cleanup:
-                        deleted_items = await self.file_service.cleanup_project_dirs(
+                        deleted_items = await self.file_service.cleanup_project_items(
                             project.path
                         )
 
                     if deleted_items:
                         message = (
                             f"Cleanup completed for {project.name}!\n\nDeleted:\n"
-                            + "\n".join(deleted_items)
+                            + "\n".join(
+                                [
+                                    os.path.relpath(item, project.path)
+                                    for item in deleted_items
+                                ]
+                            )
                         )
                     else:
-                        message = f"Cleanup completed for {project.name}!\n\nNo cleanup directories found."
+                        message = f"Cleanup completed for {project.name}!\n\nNo cleanup items found."
 
                     # Use window.after to safely update GUI from async context
                     self.window.after(
@@ -496,23 +518,40 @@ class ProjectControlPanel:
 
         async def archive_async():
             try:
-                # First, scan for directories that need cleanup
-                cleanup_needed_dirs = await self.file_service.scan_for_cleanup_dirs(
-                    project.path
+                # First, scan for directories and files that need cleanup
+                cleanup_needed_dirs, cleanup_needed_files = (
+                    await self.file_service.scan_for_cleanup_items(project.path)
                 )
 
-                # If cleanup directories found, prompt user
+                # If cleanup items found, prompt user
                 proceed_with_archive = True
-                if cleanup_needed_dirs:
-                    cleanup_list = "\n".join(
-                        [
-                            f"• {os.path.relpath(d, project.path)}"
-                            for d in cleanup_needed_dirs
-                        ]
-                    )
+                if cleanup_needed_dirs or cleanup_needed_files:
+                    cleanup_items = []
+
+                    if cleanup_needed_dirs:
+                        cleanup_items.append("Directories:")
+                        cleanup_items.extend(
+                            [
+                                f"  • {os.path.relpath(d, project.path)}"
+                                for d in cleanup_needed_dirs
+                            ]
+                        )
+
+                    if cleanup_needed_files:
+                        if cleanup_items:
+                            cleanup_items.append("")  # Empty line separator
+                        cleanup_items.append("Files:")
+                        cleanup_items.extend(
+                            [
+                                f"  • {os.path.relpath(f, project.path)}"
+                                for f in cleanup_needed_files
+                            ]
+                        )
+
+                    cleanup_list = "\n".join(cleanup_items)
                     response = messagebox.askyesnocancel(
                         "Cleanup Before Archive",
-                        f"Found directories to cleanup in {project.name}:\n\n{cleanup_list}\n\n"
+                        f"Found items to cleanup in {project.name}:\n\n{cleanup_list}\n\n"
                         f"Would you like to clean these up before creating the archive?\n\n"
                         f"• Yes: Clean up and then archive\n"
                         f"• No: Archive without cleanup\n"
@@ -522,7 +561,7 @@ class ProjectControlPanel:
                     if response is None:  # Cancel
                         return
                     elif response:  # Yes - cleanup first
-                        deleted_items = await self.file_service.cleanup_project_dirs(
+                        deleted_items = await self.file_service.cleanup_project_items(
                             project.path
                         )
                         if deleted_items:
@@ -530,7 +569,7 @@ class ProjectControlPanel:
                                 0,
                                 lambda: messagebox.showinfo(
                                     "Cleanup Complete",
-                                    f"Cleaned up {len(deleted_items)} directories before archiving.",
+                                    f"Cleaned up {len(deleted_items)} items before archiving.",
                                 ),
                             )
 

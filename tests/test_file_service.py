@@ -593,6 +593,176 @@ class TestFileService:
         assert external_dir.exists()
         assert (external_dir / "important.txt").exists()
 
+    @pytest.mark.asyncio
+    async def test_scan_for_cleanup_items(self):
+        """Test scanning for both directories and files that need cleanup"""
+        project_path = self.create_test_directory_structure()
+
+        # Create some IGNORE_FILES for testing
+        (project_path / ".coverage").touch()
+        subdir = project_path / "subdir"
+        subdir.mkdir(exist_ok=True)
+        (subdir / ".coverage").touch()
+        (project_path / "another_coverage_file.coverage").touch()
+
+        # Mock IGNORE_DIRS and IGNORE_FILES for testing
+        with patch(
+            "services.file_service.IGNORE_DIRS",
+            ["__pycache__", "node_modules", ".pytest_cache", "venv"],
+        ), patch(
+            "services.file_service.IGNORE_FILES",
+            [".coverage"],
+        ):
+            service = FileService()
+            cleanup_dirs, cleanup_files = await service.scan_for_cleanup_items(
+                project_path
+            )
+
+        # Should find directories
+        assert len(cleanup_dirs) > 0
+        cleanup_dir_names = [Path(d).name for d in cleanup_dirs]
+        assert "__pycache__" in cleanup_dir_names
+        assert "node_modules" in cleanup_dir_names
+
+        # Should find files
+        assert len(cleanup_files) >= 2  # At least the two .coverage files we created
+        cleanup_file_names = [Path(f).name for f in cleanup_files]
+        assert ".coverage" in cleanup_file_names
+
+    @pytest.mark.asyncio
+    async def test_cleanup_project_items(self):
+        """Test cleanup of both directories and files"""
+        project_path = self.create_test_directory_structure()
+
+        # Create some IGNORE_FILES for testing
+        coverage_file = project_path / ".coverage"
+        coverage_file.touch()
+        subdir_coverage = project_path / "subdir" / ".coverage"
+        subdir_coverage.parent.mkdir(exist_ok=True)
+        subdir_coverage.touch()
+
+        # Verify files exist before cleanup
+        assert coverage_file.exists()
+        assert subdir_coverage.exists()
+
+        # Mock IGNORE_DIRS and IGNORE_FILES for testing
+        with patch(
+            "services.file_service.IGNORE_DIRS",
+            ["__pycache__"],
+        ), patch(
+            "services.file_service.IGNORE_FILES",
+            [".coverage"],
+        ):
+            service = FileService()
+            deleted_items = await service.cleanup_project_items(project_path)
+
+        # Should have deleted items
+        assert len(deleted_items) > 0
+
+        # Check that files were deleted
+        deleted_names = [Path(item).name for item in deleted_items]
+        assert ".coverage" in deleted_names or "__pycache__" in deleted_names
+
+        # Verify .coverage files are gone
+        assert not coverage_file.exists()
+        assert not subdir_coverage.exists()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_project_items_files_only(self):
+        """Test cleanup when only files need to be cleaned (no directories)"""
+        project_path = Path(self.temp_dir) / "files_only_project"
+        project_path.mkdir()
+
+        # Create only files, no directories to cleanup
+        (project_path / ".coverage").touch()
+        (project_path / "test.coverage").touch()
+        (project_path / "regular_file.txt").touch()
+
+        with patch(
+            "services.file_service.IGNORE_DIRS",
+            ["nonexistent_dir"],  # No directories should match
+        ), patch(
+            "services.file_service.IGNORE_FILES",
+            [".coverage"],
+        ):
+            service = FileService()
+            deleted_items = await service.cleanup_project_items(project_path)
+
+        # Should have deleted only the .coverage files
+        assert len(deleted_items) == 2
+        deleted_names = [Path(item).name for item in deleted_items]
+        assert ".coverage" in deleted_names
+        assert "test.coverage" in deleted_names
+
+        # Regular file should still exist
+        assert (project_path / "regular_file.txt").exists()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_project_items_dirs_only(self):
+        """Test cleanup when only directories need to be cleaned (no files)"""
+        project_path = Path(self.temp_dir) / "dirs_only_project"
+        project_path.mkdir()
+
+        # Create only directories, no matching files
+        (project_path / "__pycache__").mkdir()
+        (project_path / "dist").mkdir()
+        (project_path / "regular_file.txt").touch()
+
+        with patch(
+            "services.file_service.IGNORE_DIRS",
+            ["__pycache__", "dist"],
+        ), patch(
+            "services.file_service.IGNORE_FILES",
+            ["nonexistent.file"],  # No files should match
+        ):
+            service = FileService()
+            deleted_items = await service.cleanup_project_items(project_path)
+
+        # Should have deleted only the directories
+        assert len(deleted_items) == 2
+        deleted_names = [Path(item).name for item in deleted_items]
+        assert "__pycache__" in deleted_names
+        assert "dist" in deleted_names
+
+        # Regular file should still exist
+        assert (project_path / "regular_file.txt").exists()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_handles_file_permission_error(self):
+        """Test cleanup handles permission errors on files gracefully"""
+        project_path = self.create_test_directory_structure()
+
+        # Create a file that will cause permission error
+        test_file = project_path / ".coverage"
+        test_file.touch()
+
+        # Mock os.remove to raise PermissionError for .coverage files
+        original_remove = os.remove
+
+        def mock_remove(path):
+            if ".coverage" in str(path):
+                raise PermissionError("Permission denied")
+            return original_remove(path)
+
+        with patch("os.remove", side_effect=mock_remove), patch(
+            "services.file_service.IGNORE_FILES", [".coverage"]
+        ):
+            service = FileService()
+            deleted_items = await service.cleanup_project_items(project_path)
+
+            # Should handle the error and not crash
+            assert isinstance(deleted_items, list)
+
+    def test_backward_compatibility(self):
+        """Test that old methods still work for backward compatibility"""
+        service = FileService()
+
+        # Old methods should still exist
+        assert hasattr(service, "scan_for_cleanup_dirs")
+        assert hasattr(service, "cleanup_project_dirs")
+        assert hasattr(service, "_scan_for_cleanup_dirs_sync")
+        assert hasattr(service, "_cleanup_project_dirs_sync")
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

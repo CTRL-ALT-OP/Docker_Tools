@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import List, Tuple
 
-from config.settings import IGNORE_DIRS
+from config.settings import IGNORE_DIRS, IGNORE_FILES
 from services.platform_service import PlatformService
 from utils.async_utils import run_in_executor
 
@@ -20,44 +20,91 @@ class FileService:
 
     def __init__(self):
         self.cleanup_dirs = IGNORE_DIRS
+        self.cleanup_files = IGNORE_FILES
         self.platform_service = PlatformService()
 
-    async def scan_for_cleanup_dirs(self, project_path: Path) -> List[str]:
-        """Scan for directories that match cleanup patterns"""
-        return await run_in_executor(self._scan_for_cleanup_dirs_sync, project_path)
+    async def scan_for_cleanup_items(
+        self, project_path: Path
+    ) -> Tuple[List[str], List[str]]:
+        """Scan for directories and files that match cleanup patterns"""
+        return await run_in_executor(self._scan_for_cleanup_items_sync, project_path)
 
-    def _scan_for_cleanup_dirs_sync(self, project_path: Path) -> List[str]:
-        """Synchronous implementation of directory scanning"""
+    def _scan_for_cleanup_items_sync(
+        self, project_path: Path
+    ) -> Tuple[List[str], List[str]]:
+        """Synchronous implementation of directory and file scanning"""
         cleanup_needed_dirs = []
+        cleanup_needed_files = []
 
         try:
             for root, dirs, files in os.walk(project_path):
+                # Scan for directories to cleanup
                 cleanup_needed_dirs.extend(
                     os.path.join(root, dir_name)
                     for dir_name in dirs
                     if any(pattern in dir_name.lower() for pattern in self.cleanup_dirs)
                 )
+
+                # Scan for files to cleanup
+                cleanup_needed_files.extend(
+                    os.path.join(root, file_name)
+                    for file_name in files
+                    if any(
+                        pattern in file_name.lower() for pattern in self.cleanup_files
+                    )
+                )
         except (OSError, PermissionError) as e:
             logger.error("Error scanning directory %s: %s", project_path, e)
-            # Return empty list on error - let caller handle the situation
+            # Return empty lists on error - let caller handle the situation
 
-        return cleanup_needed_dirs
+        return cleanup_needed_dirs, cleanup_needed_files
 
-    async def cleanup_project_dirs(self, project_path: Path) -> List[str]:
+    # Keep the old method for backward compatibility
+    async def scan_for_cleanup_dirs(self, project_path: Path) -> List[str]:
+        """Scan for directories that match cleanup patterns (backward compatibility)"""
+        dirs, _ = await self.scan_for_cleanup_items(project_path)
+        return dirs
+
+    def _scan_for_cleanup_dirs_sync(self, project_path: Path) -> List[str]:
+        """Synchronous implementation of directory scanning (backward compatibility)"""
+        dirs, _ = self._scan_for_cleanup_items_sync(project_path)
+        return dirs
+
+    async def cleanup_project_items(self, project_path: Path) -> List[str]:
         """
-        Clean up specified directories in the project
+        Clean up specified directories and files in the project
         Returns list of deleted items
         """
-        return await run_in_executor(self._cleanup_project_dirs_sync, project_path)
+        return await run_in_executor(self._cleanup_project_items_sync, project_path)
 
-    def _cleanup_project_dirs_sync(self, project_path: Path) -> List[str]:
-        """Synchronous implementation of directory cleanup"""
+    def _cleanup_project_items_sync(self, project_path: Path) -> List[str]:
+        """Synchronous implementation of directory and file cleanup"""
         deleted_items = []
 
-        def remove_dir_recursive(path):
-            """Recursively remove directories matching cleanup patterns"""
+        def remove_items_recursive(path):
+            """Recursively remove directories and files matching cleanup patterns"""
             try:
                 for root, dirs, files in os.walk(path, topdown=False):
+                    # Remove files that match cleanup patterns
+                    for file_name in list(files):
+                        if any(
+                            pattern in file_name.lower()
+                            for pattern in self.cleanup_files
+                        ):
+                            file_path = os.path.join(root, file_name)
+                            try:
+                                os.remove(file_path)
+                                deleted_items.append(file_path)
+                                logger.debug("Deleted file: %s", file_path)
+                            except PermissionError as e:
+                                logger.warning(
+                                    "Permission denied deleting %s: %s", file_path, e
+                                )
+                            except FileNotFoundError:
+                                logger.debug("File already deleted: %s", file_path)
+                            except OSError as e:
+                                logger.error("OS error deleting %s: %s", file_path, e)
+
                     # Remove directories that match cleanup patterns
                     for dir_name in list(dirs):
                         if any(
@@ -79,8 +126,20 @@ class FileService:
             except (OSError, PermissionError) as e:
                 logger.error("Error walking directory %s: %s", path, e)
 
-        remove_dir_recursive(project_path)
+        remove_items_recursive(project_path)
         return deleted_items
+
+    # Keep the old method for backward compatibility
+    async def cleanup_project_dirs(self, project_path: Path) -> List[str]:
+        """
+        Clean up specified directories in the project (backward compatibility)
+        Returns list of deleted items
+        """
+        return await self.cleanup_project_items(project_path)
+
+    def _cleanup_project_dirs_sync(self, project_path: Path) -> List[str]:
+        """Synchronous implementation of directory cleanup (backward compatibility)"""
+        return self._cleanup_project_items_sync(project_path)
 
     async def create_archive(
         self, project_path: Path, archive_name: str

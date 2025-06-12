@@ -18,6 +18,11 @@ IGNORE_DIRS = [
     "vscode",
     ".venv",
     "venv",
+    "htmlcov",
+]
+
+IGNORE_FILES = [
+    ".coverage",
 ]
 
 # Global dictionary for folder aliases
