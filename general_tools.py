@@ -18,7 +18,7 @@ from services.git_service import GitService
 from services.docker_service import DockerService
 from services.sync_service import SyncService
 from gui.gui_utils import GuiUtils
-from gui.popup_windows import TerminalOutputWindow, GitCommitWindow
+from gui.popup_windows import TerminalOutputWindow, GitCommitWindow, AddProjectWindow
 from utils.async_utils import (
     task_manager,
     shutdown_all,
@@ -182,6 +182,15 @@ class ProjectControlPanel:
             style="refresh",
         )
         refresh_btn.pack(side="right")
+
+        # Add Project button
+        add_project_btn = GuiUtils.create_styled_button(
+            selection_frame,
+            text="➕ Add Project",
+            command=self.open_add_project_window,
+            style="git",
+        )
+        add_project_btn.pack(side="right", padx=(0, 10))
 
     def load_projects(self):
         """Load and populate project groups"""
@@ -940,6 +949,156 @@ class ProjectControlPanel:
         # Run the async operation with proper task naming
         task_manager.run_task(
             sync_run_tests_async(), task_name=f"sync-{project_group.name}"
+        )
+
+    def open_add_project_window(self):
+        """Open the add project window"""
+        add_project_window = AddProjectWindow(self.window, self.add_project)
+        add_project_window.create_window()
+
+    def add_project(self, repo_url: str, project_name: str):
+        """Add a new project by cloning it into all subdirectories"""
+
+        async def add_project_async():
+            output_window = None
+            try:
+                # Create output window for showing progress
+                output_window = TerminalOutputWindow(
+                    self.window, f"Adding Project: {project_name}"
+                )
+                output_window.create_window()
+                output_window.update_status("Initializing...", COLORS["warning"])
+
+                # Get all subdirectories from SOURCE_DIR
+                source_path = Path(SOURCE_DIR)
+                subdirs = [
+                    d
+                    for d in source_path.iterdir()
+                    if d.is_dir() and not d.name.startswith(".")
+                ]
+
+                if not subdirs:
+                    output_window.update_status(
+                        "Error: No subdirectories found", COLORS["error"]
+                    )
+                    output_window.append_output(
+                        f"No subdirectories found in {SOURCE_DIR}\n"
+                    )
+                    return
+
+                output_window.append_output(
+                    f"Found {len(subdirs)} subdirectories to clone into:\n"
+                )
+                for subdir in subdirs:
+                    output_window.append_output(f"  • {subdir.name}\n")
+                output_window.append_output("\n")
+
+                successful_clones = []
+                failed_clones = []
+
+                # Clone repository into each subdirectory
+                for i, subdir in enumerate(subdirs):
+                    output_window.update_status(
+                        f"Cloning into {subdir.name} ({i+1}/{len(subdirs)})",
+                        COLORS["warning"],
+                    )
+                    output_window.append_output(f"📁 Cloning into {subdir.name}/...\n")
+
+                    # Check if project already exists
+                    target_path = subdir / project_name
+                    if target_path.exists():
+                        output_window.append_output(
+                            f"   ⚠️  Project already exists at {target_path}\n"
+                        )
+                        failed_clones.append(f"{subdir.name} (already exists)")
+                        continue
+
+                    # Perform the clone
+                    success, message = await self.git_service.clone_repository(
+                        repo_url, project_name, subdir
+                    )
+
+                    if success:
+                        output_window.append_output(f"   ✅ {message}\n")
+                        successful_clones.append(subdir.name)
+                    else:
+                        output_window.append_output(f"   ❌ {message}\n")
+                        failed_clones.append(f"{subdir.name} ({message})")
+
+                # Final summary
+                output_window.append_output("\n" + "=" * 50 + "\n")
+                output_window.append_output("SUMMARY:\n")
+                output_window.append_output(
+                    f"✅ Successful clones: {len(successful_clones)}\n"
+                )
+                output_window.append_output(f"❌ Failed clones: {len(failed_clones)}\n")
+
+                if successful_clones:
+                    output_window.append_output("\nSuccessful clones:\n")
+                    for clone in successful_clones:
+                        output_window.append_output(f"  • {clone}\n")
+
+                if failed_clones:
+                    output_window.append_output("\nFailed clones:\n")
+                    for clone in failed_clones:
+                        output_window.append_output(f"  • {clone}\n")
+
+                # Update status
+                if len(successful_clones) == len(subdirs):
+                    output_window.update_status(
+                        "All clones completed successfully!", COLORS["success"]
+                    )
+                    # Trigger refresh after successful completion
+                    self.window.after(1000, self.refresh_projects)
+                elif successful_clones:
+                    output_window.update_status(
+                        "Partially completed with some failures", COLORS["warning"]
+                    )
+                    # Trigger refresh after partial completion
+                    self.window.after(1000, self.refresh_projects)
+                else:
+                    output_window.update_status("All clones failed", COLORS["error"])
+
+                # Add final buttons
+                output_window.add_final_buttons(
+                    copy_text=(
+                        output_window.text_area.get("1.0", "end-1c")
+                        if output_window.text_area
+                        else ""
+                    ),
+                    additional_buttons=[
+                        {
+                            "text": "Refresh Projects",
+                            "command": lambda: (
+                                self.refresh_projects(),
+                                output_window.destroy(),
+                            ),
+                            "style": "refresh",
+                        }
+                    ],
+                )
+
+            except asyncio.CancelledError:
+                logger.info("Add project was cancelled for %s", project_name)
+                if output_window:
+                    output_window.update_status("Operation cancelled", COLORS["error"])
+                raise
+            except Exception as e:
+                logger.exception("Error adding project %s", project_name)
+                if output_window:
+                    output_window.update_status("Error occurred", COLORS["error"])
+                    output_window.append_output(f"\nError: {str(e)}\n")
+                else:
+                    self.window.after(
+                        0,
+                        lambda: messagebox.showerror(
+                            "Add Project Error", f"Error adding project: {str(e)}"
+                        ),
+                    )
+
+        # Run the async operation
+        task_manager.run_task(
+            add_project_async(), task_name=f"add-project-{project_name}"
         )
 
     def refresh_projects(self):

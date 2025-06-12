@@ -24,6 +24,7 @@ GIT_COMMANDS = {
     "clean": ["git", "clean", "-fd"],
     "remote_check": ["git", "remote"],
     "fetch": ["git", "fetch", "--all"],
+    "clone": ["git", "clone", "{repo_url}", "{project_name}"],
 }
 
 # Archive commands by platform
