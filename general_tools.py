@@ -17,6 +17,7 @@ from services.file_service import FileService
 from services.git_service import GitService
 from services.docker_service import DockerService
 from services.sync_service import SyncService
+from services.validation_service import ValidationService
 from gui.gui_utils import GuiUtils
 from gui.popup_windows import TerminalOutputWindow, GitCommitWindow, AddProjectWindow
 from utils.async_utils import (
@@ -48,6 +49,7 @@ class ProjectControlPanel:
         self.git_service = GitService()
         self.docker_service = DockerService()
         self.sync_service = SyncService()
+        self.validation_service = ValidationService()
 
         # Initialize GUI
         self.window = tk.Tk()
@@ -302,6 +304,15 @@ class ProjectControlPanel:
             style="sync",
         )
         sync_btn.pack(side="left", padx=(0, 10))
+
+        # Validation button
+        validate_btn = GuiUtils.create_styled_button(
+            buttons_container,
+            text="🔍 Validate All",
+            command=lambda: self.validate_project_group(project_group),
+            style="validate",
+        )
+        validate_btn.pack(side="left", padx=(0, 10))
 
     def _create_version_section(self, project: Project):
         """Create a version section for a project"""
@@ -950,6 +961,168 @@ class ProjectControlPanel:
         task_manager.run_task(
             sync_run_tests_async(), task_name=f"sync-{project_group.name}"
         )
+
+    def validate_project_group(self, project_group: ProjectGroup):
+        """Archive all versions of a project group and run validation (async)"""
+
+        async def validate_async():
+            try:
+                # Create synchronization event to coordinate with GUI
+                event_id, window_ready_event = self.async_bridge.create_sync_event()
+
+                # Create terminal output window on main thread
+                terminal_window = None
+
+                def create_window():
+                    nonlocal terminal_window
+                    terminal_window = TerminalOutputWindow(
+                        self.window, f"Validation - {project_group.name}"
+                    )
+                    terminal_window.create_window()
+                    # Signal that window is ready
+                    self.async_bridge.signal_from_gui(event_id)
+
+                self.window.after(0, create_window)
+
+                # Wait for window to be properly created
+                await window_ready_event.wait()
+
+                # Clean up the synchronization event
+                self.async_bridge.cleanup_event(event_id)
+
+                # Update initial status
+                terminal_window.update_status(
+                    "Preparing validation...", COLORS["warning"]
+                )
+
+                # Run validation process
+                success, raw_output = (
+                    await self.validation_service.archive_and_validate_project_group(
+                        project_group,
+                        terminal_window.append_output,
+                        terminal_window.update_status,
+                    )
+                )
+
+                # Extract validation ID from the output
+                validation_id = self._extract_validation_id(raw_output)
+
+                # Add final buttons
+                additional_buttons = []
+
+                # Add validation ID copy button if we found an ID
+                if validation_id:
+
+                    def copy_validation_id():
+                        try:
+                            import pyperclip
+
+                            pyperclip.copy(validation_id)
+                            messagebox.showinfo(
+                                "Copied!",
+                                f"Validation ID copied to clipboard:\n{validation_id}",
+                            )
+                        except ImportError:
+                            # Fallback for systems without pyperclip
+                            self.window.clipboard_clear()
+                            self.window.clipboard_append(validation_id)
+                            messagebox.showinfo(
+                                "Copied!",
+                                f"Validation ID copied to clipboard:\n{validation_id}",
+                            )
+                        except Exception as e:
+                            messagebox.showerror(
+                                "Copy Error", f"Could not copy validation ID: {e}"
+                            )
+
+                    additional_buttons.append(
+                        {
+                            "text": "📋 Copy Validation ID",
+                            "command": copy_validation_id,
+                            "style": "git",
+                        }
+                    )
+
+                # Add button to open results file if it exists
+                results_file = Path("validation-tool/output/validation_results.csv")
+                if results_file.exists():
+
+                    def open_results():
+                        try:
+                            import subprocess
+                            import sys
+
+                            if sys.platform.startswith("win"):
+                                subprocess.run(
+                                    ["start", str(results_file)], shell=True, check=True
+                                )
+                            elif sys.platform.startswith("darwin"):
+                                subprocess.run(["open", str(results_file)], check=True)
+                            else:
+                                subprocess.run(
+                                    ["xdg-open", str(results_file)], check=True
+                                )
+                        except Exception as e:
+                            messagebox.showerror(
+                                "Error", f"Could not open results file: {e}"
+                            )
+
+                    additional_buttons.append(
+                        {
+                            "text": "📊 Open Results",
+                            "command": open_results,
+                            "style": "archive",
+                        }
+                    )
+
+                # Use the validation ID as copy text, or fall back to raw output
+                copy_text = validation_id if validation_id else raw_output
+
+                terminal_window.add_final_buttons(
+                    copy_text=copy_text, additional_buttons=additional_buttons
+                )
+
+            except asyncio.CancelledError:
+                logger.info("Validation was cancelled for %s", project_group.name)
+                raise  # Always re-raise CancelledError
+            except Exception as e:
+                logger.exception("Error during validation for %s", project_group.name)
+                error_msg = f"Error during validation: {str(e)}"
+                self.window.after(
+                    0, lambda: messagebox.showerror("Validation Error", error_msg)
+                )
+
+        # Run the async operation with proper task naming
+        task_manager.run_task(
+            validate_async(), task_name=f"validate-{project_group.name}"
+        )
+
+    def _extract_validation_id(self, raw_output: str) -> str:
+        """
+        Extract the validation ID from the validation output
+        Returns the ID string or empty string if not found
+        """
+        import re
+
+        # Look for the validation ID in the format "UNIQUE VALIDATION ID: xxxxxxxxx"
+        pattern = r"UNIQUE VALIDATION ID:\s*([a-f0-9]+)"
+        match = re.search(pattern, raw_output, re.IGNORECASE)
+
+        if match:
+            return match.group(1)
+
+        # Fallback: look for the ID in the box format (standalone hex string)
+        # Look for lines that contain only hexadecimal characters (the ID in the box)
+        lines = raw_output.split("\n")
+        for line in lines:
+            line = line.strip()
+            # Remove any container prefixes like "codebase-validator  | "
+            clean_line = re.sub(r"^.*\|\s*", "", line).strip()
+            # Check if it's a hex string of reasonable length (validation IDs are typically 16 chars)
+            if re.match(r"^[a-f0-9]{8,32}$", clean_line):
+                return clean_line
+
+        return ""
 
     def open_add_project_window(self):
         """Open the add project window"""
