@@ -17,8 +17,9 @@ from services.file_service import FileService
 from services.git_service import GitService
 from services.docker_service import DockerService
 from services.sync_service import SyncService
+from services.validation_service import ValidationService
 from gui.gui_utils import GuiUtils
-from gui.popup_windows import TerminalOutputWindow, GitCommitWindow
+from gui.popup_windows import TerminalOutputWindow, GitCommitWindow, AddProjectWindow
 from utils.async_utils import (
     task_manager,
     shutdown_all,
@@ -48,6 +49,7 @@ class ProjectControlPanel:
         self.git_service = GitService()
         self.docker_service = DockerService()
         self.sync_service = SyncService()
+        self.validation_service = ValidationService()
 
         # Initialize GUI
         self.window = tk.Tk()
@@ -183,6 +185,15 @@ class ProjectControlPanel:
         )
         refresh_btn.pack(side="right")
 
+        # Add Project button
+        add_project_btn = GuiUtils.create_styled_button(
+            selection_frame,
+            text="➕ Add Project",
+            command=self.open_add_project_window,
+            style="git",
+        )
+        add_project_btn.pack(side="right", padx=(0, 10))
+
     def load_projects(self):
         """Load and populate project groups"""
         self.project_group_service.load_project_groups()
@@ -294,6 +305,15 @@ class ProjectControlPanel:
         )
         sync_btn.pack(side="left", padx=(0, 10))
 
+        # Validation button
+        validate_btn = GuiUtils.create_styled_button(
+            buttons_container,
+            text="🔍 Validate All",
+            command=lambda: self.validate_project_group(project_group),
+            style="validate",
+        )
+        validate_btn.pack(side="left", padx=(0, 10))
+
     def _create_version_section(self, project: Project):
         """Create a version section for a project"""
         # Get alias for better display
@@ -402,24 +422,41 @@ class ProjectControlPanel:
         async def cleanup_async():
             try:
                 async with AsyncResourceManager(f"cleanup-{project.name}"):
-                    # First, scan for directories that need cleanup
-                    cleanup_needed_dirs = await self.file_service.scan_for_cleanup_dirs(
-                        project.path
+                    # First, scan for directories and files that need cleanup
+                    cleanup_needed_dirs, cleanup_needed_files = (
+                        await self.file_service.scan_for_cleanup_items(project.path)
                     )
 
-                    # If cleanup directories found, prompt user
+                    # If cleanup items found, prompt user
                     proceed_with_cleanup = True
-                    if cleanup_needed_dirs:
-                        cleanup_list = "\n".join(
-                            [
-                                f"• {os.path.relpath(d, project.path)}"
-                                for d in cleanup_needed_dirs
-                            ]
-                        )
+                    if cleanup_needed_dirs or cleanup_needed_files:
+                        cleanup_items = []
+
+                        if cleanup_needed_dirs:
+                            cleanup_items.append("Directories:")
+                            cleanup_items.extend(
+                                [
+                                    f"  • {os.path.relpath(d, project.path)}"
+                                    for d in cleanup_needed_dirs
+                                ]
+                            )
+
+                        if cleanup_needed_files:
+                            if cleanup_items:
+                                cleanup_items.append("")  # Empty line separator
+                            cleanup_items.append("Files:")
+                            cleanup_items.extend(
+                                [
+                                    f"  • {os.path.relpath(f, project.path)}"
+                                    for f in cleanup_needed_files
+                                ]
+                            )
+
+                        cleanup_list = "\n".join(cleanup_items)
                         response = messagebox.askyesno(
                             "Confirm Cleanup",
-                            f"Found directories to cleanup in {project.name}:\n\n{cleanup_list}\n\n"
-                            f"Are you sure you want to delete these directories?\n\n"
+                            f"Found items to cleanup in {project.name}:\n\n{cleanup_list}\n\n"
+                            f"Are you sure you want to delete these items?\n\n"
                             f"⚠️  This action cannot be undone!",
                         )
 
@@ -428,17 +465,22 @@ class ProjectControlPanel:
 
                     # Proceed with cleanup
                     if proceed_with_cleanup:
-                        deleted_items = await self.file_service.cleanup_project_dirs(
+                        deleted_items = await self.file_service.cleanup_project_items(
                             project.path
                         )
 
                     if deleted_items:
                         message = (
                             f"Cleanup completed for {project.name}!\n\nDeleted:\n"
-                            + "\n".join(deleted_items)
+                            + "\n".join(
+                                [
+                                    os.path.relpath(item, project.path)
+                                    for item in deleted_items
+                                ]
+                            )
                         )
                     else:
-                        message = f"Cleanup completed for {project.name}!\n\nNo cleanup directories found."
+                        message = f"Cleanup completed for {project.name}!\n\nNo cleanup items found."
 
                     # Use window.after to safely update GUI from async context
                     self.window.after(
@@ -496,23 +538,40 @@ class ProjectControlPanel:
 
         async def archive_async():
             try:
-                # First, scan for directories that need cleanup
-                cleanup_needed_dirs = await self.file_service.scan_for_cleanup_dirs(
-                    project.path
+                # First, scan for directories and files that need cleanup
+                cleanup_needed_dirs, cleanup_needed_files = (
+                    await self.file_service.scan_for_cleanup_items(project.path)
                 )
 
-                # If cleanup directories found, prompt user
+                # If cleanup items found, prompt user
                 proceed_with_archive = True
-                if cleanup_needed_dirs:
-                    cleanup_list = "\n".join(
-                        [
-                            f"• {os.path.relpath(d, project.path)}"
-                            for d in cleanup_needed_dirs
-                        ]
-                    )
+                if cleanup_needed_dirs or cleanup_needed_files:
+                    cleanup_items = []
+
+                    if cleanup_needed_dirs:
+                        cleanup_items.append("Directories:")
+                        cleanup_items.extend(
+                            [
+                                f"  • {os.path.relpath(d, project.path)}"
+                                for d in cleanup_needed_dirs
+                            ]
+                        )
+
+                    if cleanup_needed_files:
+                        if cleanup_items:
+                            cleanup_items.append("")  # Empty line separator
+                        cleanup_items.append("Files:")
+                        cleanup_items.extend(
+                            [
+                                f"  • {os.path.relpath(f, project.path)}"
+                                for f in cleanup_needed_files
+                            ]
+                        )
+
+                    cleanup_list = "\n".join(cleanup_items)
                     response = messagebox.askyesnocancel(
                         "Cleanup Before Archive",
-                        f"Found directories to cleanup in {project.name}:\n\n{cleanup_list}\n\n"
+                        f"Found items to cleanup in {project.name}:\n\n{cleanup_list}\n\n"
                         f"Would you like to clean these up before creating the archive?\n\n"
                         f"• Yes: Clean up and then archive\n"
                         f"• No: Archive without cleanup\n"
@@ -522,7 +581,7 @@ class ProjectControlPanel:
                     if response is None:  # Cancel
                         return
                     elif response:  # Yes - cleanup first
-                        deleted_items = await self.file_service.cleanup_project_dirs(
+                        deleted_items = await self.file_service.cleanup_project_items(
                             project.path
                         )
                         if deleted_items:
@@ -530,7 +589,7 @@ class ProjectControlPanel:
                                 0,
                                 lambda: messagebox.showinfo(
                                     "Cleanup Complete",
-                                    f"Cleaned up {len(deleted_items)} directories before archiving.",
+                                    f"Cleaned up {len(deleted_items)} items before archiving.",
                                 ),
                             )
 
@@ -901,6 +960,318 @@ class ProjectControlPanel:
         # Run the async operation with proper task naming
         task_manager.run_task(
             sync_run_tests_async(), task_name=f"sync-{project_group.name}"
+        )
+
+    def validate_project_group(self, project_group: ProjectGroup):
+        """Archive all versions of a project group and run validation (async)"""
+
+        async def validate_async():
+            try:
+                # Create synchronization event to coordinate with GUI
+                event_id, window_ready_event = self.async_bridge.create_sync_event()
+
+                # Create terminal output window on main thread
+                terminal_window = None
+
+                def create_window():
+                    nonlocal terminal_window
+                    terminal_window = TerminalOutputWindow(
+                        self.window, f"Validation - {project_group.name}"
+                    )
+                    terminal_window.create_window()
+                    # Signal that window is ready
+                    self.async_bridge.signal_from_gui(event_id)
+
+                self.window.after(0, create_window)
+
+                # Wait for window to be properly created
+                await window_ready_event.wait()
+
+                # Clean up the synchronization event
+                self.async_bridge.cleanup_event(event_id)
+
+                # Update initial status
+                terminal_window.update_status(
+                    "Preparing validation...", COLORS["warning"]
+                )
+
+                # Run validation process
+                success, raw_output = (
+                    await self.validation_service.archive_and_validate_project_group(
+                        project_group,
+                        terminal_window.append_output,
+                        terminal_window.update_status,
+                    )
+                )
+
+                # Extract validation ID from the output
+                validation_id = self._extract_validation_id(raw_output)
+
+                # Add final buttons
+                additional_buttons = []
+
+                # Add validation ID copy button if we found an ID
+                if validation_id:
+
+                    def copy_validation_id():
+                        try:
+                            import pyperclip
+
+                            pyperclip.copy(validation_id)
+                            messagebox.showinfo(
+                                "Copied!",
+                                f"Validation ID copied to clipboard:\n{validation_id}",
+                            )
+                        except ImportError:
+                            # Fallback for systems without pyperclip
+                            self.window.clipboard_clear()
+                            self.window.clipboard_append(validation_id)
+                            messagebox.showinfo(
+                                "Copied!",
+                                f"Validation ID copied to clipboard:\n{validation_id}",
+                            )
+                        except Exception as e:
+                            messagebox.showerror(
+                                "Copy Error", f"Could not copy validation ID: {e}"
+                            )
+
+                    additional_buttons.append(
+                        {
+                            "text": "📋 Copy Validation ID",
+                            "command": copy_validation_id,
+                            "style": "git",
+                        }
+                    )
+
+                # Add button to open results file if it exists
+                results_file = Path("validation-tool/output/validation_results.csv")
+                if results_file.exists():
+
+                    def open_results():
+                        try:
+                            import subprocess
+                            import sys
+
+                            if sys.platform.startswith("win"):
+                                subprocess.run(
+                                    ["start", str(results_file)], shell=True, check=True
+                                )
+                            elif sys.platform.startswith("darwin"):
+                                subprocess.run(["open", str(results_file)], check=True)
+                            else:
+                                subprocess.run(
+                                    ["xdg-open", str(results_file)], check=True
+                                )
+                        except Exception as e:
+                            messagebox.showerror(
+                                "Error", f"Could not open results file: {e}"
+                            )
+
+                    additional_buttons.append(
+                        {
+                            "text": "📊 Open Results",
+                            "command": open_results,
+                            "style": "archive",
+                        }
+                    )
+
+                # Use the validation ID as copy text, or fall back to raw output
+                copy_text = validation_id if validation_id else raw_output
+
+                terminal_window.add_final_buttons(
+                    copy_text=copy_text, additional_buttons=additional_buttons
+                )
+
+            except asyncio.CancelledError:
+                logger.info("Validation was cancelled for %s", project_group.name)
+                raise  # Always re-raise CancelledError
+            except Exception as e:
+                logger.exception("Error during validation for %s", project_group.name)
+                error_msg = f"Error during validation: {str(e)}"
+                self.window.after(
+                    0, lambda: messagebox.showerror("Validation Error", error_msg)
+                )
+
+        # Run the async operation with proper task naming
+        task_manager.run_task(
+            validate_async(), task_name=f"validate-{project_group.name}"
+        )
+
+    def _extract_validation_id(self, raw_output: str) -> str:
+        """
+        Extract the validation ID from the validation output
+        Returns the ID string or empty string if not found
+        """
+        import re
+
+        # Look for the validation ID in the format "UNIQUE VALIDATION ID: xxxxxxxxx"
+        pattern = r"UNIQUE VALIDATION ID:\s*([a-f0-9]+)"
+        match = re.search(pattern, raw_output, re.IGNORECASE)
+
+        if match:
+            return match.group(1)
+
+        # Fallback: look for the ID in the box format (standalone hex string)
+        # Look for lines that contain only hexadecimal characters (the ID in the box)
+        lines = raw_output.split("\n")
+        for line in lines:
+            line = line.strip()
+            # Remove any container prefixes like "codebase-validator  | "
+            clean_line = re.sub(r"^.*\|\s*", "", line).strip()
+            # Check if it's a hex string of reasonable length (validation IDs are typically 16 chars)
+            if re.match(r"^[a-f0-9]{8,32}$", clean_line):
+                return clean_line
+
+        return ""
+
+    def open_add_project_window(self):
+        """Open the add project window"""
+        add_project_window = AddProjectWindow(self.window, self.add_project)
+        add_project_window.create_window()
+
+    def add_project(self, repo_url: str, project_name: str):
+        """Add a new project by cloning it into all subdirectories"""
+
+        async def add_project_async():
+            output_window = None
+            try:
+                # Create output window for showing progress
+                output_window = TerminalOutputWindow(
+                    self.window, f"Adding Project: {project_name}"
+                )
+                output_window.create_window()
+                output_window.update_status("Initializing...", COLORS["warning"])
+
+                # Get all subdirectories from SOURCE_DIR
+                source_path = Path(SOURCE_DIR)
+                subdirs = [
+                    d
+                    for d in source_path.iterdir()
+                    if d.is_dir() and not d.name.startswith(".")
+                ]
+
+                if not subdirs:
+                    output_window.update_status(
+                        "Error: No subdirectories found", COLORS["error"]
+                    )
+                    output_window.append_output(
+                        f"No subdirectories found in {SOURCE_DIR}\n"
+                    )
+                    return
+
+                output_window.append_output(
+                    f"Found {len(subdirs)} subdirectories to clone into:\n"
+                )
+                for subdir in subdirs:
+                    output_window.append_output(f"  • {subdir.name}\n")
+                output_window.append_output("\n")
+
+                successful_clones = []
+                failed_clones = []
+
+                # Clone repository into each subdirectory
+                for i, subdir in enumerate(subdirs):
+                    output_window.update_status(
+                        f"Cloning into {subdir.name} ({i+1}/{len(subdirs)})",
+                        COLORS["warning"],
+                    )
+                    output_window.append_output(f"📁 Cloning into {subdir.name}/...\n")
+
+                    # Check if project already exists
+                    target_path = subdir / project_name
+                    if target_path.exists():
+                        output_window.append_output(
+                            f"   ⚠️  Project already exists at {target_path}\n"
+                        )
+                        failed_clones.append(f"{subdir.name} (already exists)")
+                        continue
+
+                    # Perform the clone
+                    success, message = await self.git_service.clone_repository(
+                        repo_url, project_name, subdir
+                    )
+
+                    if success:
+                        output_window.append_output(f"   ✅ {message}\n")
+                        successful_clones.append(subdir.name)
+                    else:
+                        output_window.append_output(f"   ❌ {message}\n")
+                        failed_clones.append(f"{subdir.name} ({message})")
+
+                # Final summary
+                output_window.append_output("\n" + "=" * 50 + "\n")
+                output_window.append_output("SUMMARY:\n")
+                output_window.append_output(
+                    f"✅ Successful clones: {len(successful_clones)}\n"
+                )
+                output_window.append_output(f"❌ Failed clones: {len(failed_clones)}\n")
+
+                if successful_clones:
+                    output_window.append_output("\nSuccessful clones:\n")
+                    for clone in successful_clones:
+                        output_window.append_output(f"  • {clone}\n")
+
+                if failed_clones:
+                    output_window.append_output("\nFailed clones:\n")
+                    for clone in failed_clones:
+                        output_window.append_output(f"  • {clone}\n")
+
+                # Update status
+                if len(successful_clones) == len(subdirs):
+                    output_window.update_status(
+                        "All clones completed successfully!", COLORS["success"]
+                    )
+                    # Trigger refresh after successful completion
+                    self.window.after(1000, self.refresh_projects)
+                elif successful_clones:
+                    output_window.update_status(
+                        "Partially completed with some failures", COLORS["warning"]
+                    )
+                    # Trigger refresh after partial completion
+                    self.window.after(1000, self.refresh_projects)
+                else:
+                    output_window.update_status("All clones failed", COLORS["error"])
+
+                # Add final buttons
+                output_window.add_final_buttons(
+                    copy_text=(
+                        output_window.text_area.get("1.0", "end-1c")
+                        if output_window.text_area
+                        else ""
+                    ),
+                    additional_buttons=[
+                        {
+                            "text": "Refresh Projects",
+                            "command": lambda: (
+                                self.refresh_projects(),
+                                output_window.destroy(),
+                            ),
+                            "style": "refresh",
+                        }
+                    ],
+                )
+
+            except asyncio.CancelledError:
+                logger.info("Add project was cancelled for %s", project_name)
+                if output_window:
+                    output_window.update_status("Operation cancelled", COLORS["error"])
+                raise
+            except Exception as e:
+                logger.exception("Error adding project %s", project_name)
+                if output_window:
+                    output_window.update_status("Error occurred", COLORS["error"])
+                    output_window.append_output(f"\nError: {str(e)}\n")
+                else:
+                    self.window.after(
+                        0,
+                        lambda: messagebox.showerror(
+                            "Add Project Error", f"Error adding project: {str(e)}"
+                        ),
+                    )
+
+        # Run the async operation
+        task_manager.run_task(
+            add_project_async(), task_name=f"add-project-{project_name}"
         )
 
     def refresh_projects(self):

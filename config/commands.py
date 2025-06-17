@@ -19,10 +19,12 @@ GIT_COMMANDS = {
         "--all",
     ],
     "checkout": ["git", "checkout", "{commit}"],
+    "force_checkout": ["git", "checkout", "--force", "{commit}"],
     "reset_hard": ["git", "reset", "--hard", "HEAD"],
     "clean": ["git", "clean", "-fd"],
     "remote_check": ["git", "remote"],
     "fetch": ["git", "fetch", "--all"],
+    "clone": ["git", "clone", "{repo_url}", "{project_name}"],
 }
 
 # Archive commands by platform

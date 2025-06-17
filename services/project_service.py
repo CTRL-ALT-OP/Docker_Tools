@@ -33,10 +33,10 @@ class ProjectService:
         # Check if parent folder has an alias
         alias = self.get_folder_alias(parent_folder)
         if alias:
-            return f"{project_clean}_{alias}.zip"
+            return f"{project_clean}-{alias}.zip".replace("_", "-")
         # Default behavior for folders without aliases
         parent_clean = parent_folder.replace("-", "")
-        return f"{project_clean}_{parent_clean}.zip"
+        return f"{project_clean}-{parent_clean}.zip".replace("_", "-")
 
     def get_docker_tag(self, parent_folder: str, project_name: str) -> str:
         """Generate Docker tag based on parent folder and project name"""

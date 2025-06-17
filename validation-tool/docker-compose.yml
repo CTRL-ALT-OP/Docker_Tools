@@ -1,0 +1,28 @@
+services:
+  validator:
+    build: .
+    container_name: codebase-validator
+    volumes:
+      # Mount the codebases directory
+      - ./codebases:/app/codebases:ro
+      # Mount the output directory
+      - ./output:/app/output
+      # Mount Docker socket to enable Docker-in-Docker
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["python", "validate_codebases.py", "--output", "/app/output/validation_results.csv", "--verbose"]
+    
+
+  validator-interactive:
+    build: .
+    container_name: codebase-validator-interactive
+    volumes:
+      - ./codebases:/app/codebases:ro
+      - ./output:/app/output
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONUNBUFFERED=1
+    stdin_open: true
+    tty: true
+    entrypoint: ["bash"] 

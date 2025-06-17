@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 
-@dataclass
+@dataclass(frozen=True)
 class Project:
     """Represents a project with its metadata"""
 

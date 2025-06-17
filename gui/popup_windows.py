@@ -441,3 +441,172 @@ class GitCommitWindow:
         """Destroy the window"""
         if self.window:
             self.window.destroy()
+
+
+class AddProjectWindow:
+    """A popup window for adding new projects by cloning from GitHub"""
+
+    def __init__(
+        self, parent_window: tk.Tk, on_add_callback: Callable[[str, str], None]
+    ):
+        self.parent_window = parent_window
+        self.on_add_callback = on_add_callback
+        self.window = None
+        self.repo_url_entry = None
+        self.project_name_entry = None
+        self._last_auto_filled_name = ""
+
+    def create_window(self):
+        """Create the add project window"""
+        if self.window:
+            return
+
+        self.window = tk.Toplevel(self.parent_window)
+        self.window.title("Add New Project")
+        self.window.geometry("500x300")
+        self.window.configure(bg=COLORS["background"])
+
+        # Make window modal and center it
+        self.window.transient(self.parent_window)
+        self.window.grab_set()
+        GuiUtils.center_window(self.window, 500, 300)
+
+        # Create main frame
+        main_frame = GuiUtils.create_styled_frame(self.window)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+
+        # Title
+        title_label = GuiUtils.create_styled_label(
+            main_frame,
+            text="Add New Project from GitHub",
+            font_key="header",
+            fg=COLORS["project_header"],
+        )
+        title_label.pack(pady=(0, 20))
+
+        # Repository URL input
+        repo_frame = GuiUtils.create_styled_frame(main_frame)
+        repo_frame.pack(fill="x", pady=(0, 15))
+
+        repo_label = GuiUtils.create_styled_label(
+            repo_frame, text="GitHub Repository URL:", font_key="info"
+        )
+        repo_label.pack(anchor="w")
+
+        self.repo_url_entry = tk.Entry(
+            repo_frame, font=FONTS["info"], width=60, relief="solid", bd=1
+        )
+        self.repo_url_entry.pack(fill="x", pady=(5, 0))
+        self.repo_url_entry.insert(0, "https://github.com/user/repository.git")
+        self.repo_url_entry.focus()
+
+        # Project name input
+        name_frame = GuiUtils.create_styled_frame(main_frame)
+        name_frame.pack(fill="x", pady=(0, 20))
+
+        name_label = GuiUtils.create_styled_label(
+            name_frame, text="Project Name:", font_key="info"
+        )
+        name_label.pack(anchor="w")
+
+        self.project_name_entry = tk.Entry(
+            name_frame, font=FONTS["info"], width=60, relief="solid", bd=1
+        )
+        self.project_name_entry.pack(fill="x", pady=(5, 0))
+
+        # Auto-fill project name when URL changes
+        self.repo_url_entry.bind("<KeyRelease>", self._auto_fill_project_name)
+
+        # Instructions
+        instructions = GuiUtils.create_styled_label(
+            main_frame,
+            text="This will clone the repository into all project subdirectories\n(pre-edit, post-edit, post-edit2, correct-edit)",
+            font_key="info",
+            fg=COLORS["muted"],
+        )
+        instructions.pack(pady=(0, 20))
+
+        # Buttons frame
+        buttons_frame = GuiUtils.create_styled_frame(main_frame)
+        buttons_frame.pack(fill="x")
+
+        # Cancel button
+        cancel_btn = GuiUtils.create_styled_button(
+            buttons_frame,
+            text="Cancel",
+            command=self._cancel,
+            style="close",
+            font=FONTS["button_large"],
+            padx=20,
+            pady=5,
+        )
+        cancel_btn.pack(side="right", padx=(10, 0))
+
+        # Add button
+        add_btn = GuiUtils.create_styled_button(
+            buttons_frame,
+            text="Add Project",
+            command=self._add_project,
+            style="git",
+            font=FONTS["button_large"],
+            padx=20,
+            pady=5,
+        )
+        add_btn.pack(side="right")
+
+        # Bind Enter key to add project
+        self.window.bind("<Return>", lambda e: self._add_project())
+        self.window.bind("<Escape>", lambda e: self._cancel())
+
+    def _auto_fill_project_name(self, event=None):
+        """Auto-fill project name based on repository URL"""
+        url = self.repo_url_entry.get().strip()
+
+        if url and "/" in url:
+            # Extract project name from URL
+            project_name = url.split("/")[-1]
+            if project_name.endswith(".git"):
+                project_name = project_name[:-4]
+
+            # Clean up project name
+            project_name = project_name.replace("_", "-").lower()
+
+            # Update project name entry if it's empty or contains default text
+            current_name = self.project_name_entry.get().strip()
+            if not current_name or current_name == self._last_auto_filled_name:
+                self.project_name_entry.delete(0, tk.END)
+                self.project_name_entry.insert(0, project_name)
+                self._last_auto_filled_name = project_name
+
+    def _add_project(self):
+        """Handle add project button click"""
+        repo_url = self.repo_url_entry.get().strip()
+        project_name = self.project_name_entry.get().strip()
+
+        # Validate inputs
+        if not repo_url:
+            messagebox.showerror("Error", "Please enter a repository URL")
+            return
+
+        if not project_name:
+            messagebox.showerror("Error", "Please enter a project name")
+            return
+
+        # Basic URL validation
+        if not (repo_url.startswith("https://") or repo_url.startswith("git@")):
+            messagebox.showerror("Error", "Please enter a valid Git repository URL")
+            return
+
+        # Call the callback function
+        self.on_add_callback(repo_url, project_name)
+        self.destroy()
+
+    def _cancel(self):
+        """Handle cancel button click"""
+        self.destroy()
+
+    def destroy(self):
+        """Clean up and destroy the window"""
+        if self.window:
+            self.window.destroy()
+            self.window = None

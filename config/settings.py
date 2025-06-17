@@ -12,18 +12,29 @@ IGNORE_DIRS = [
     ".dist",
     "dist",
     ".trunk",
+    ".benchmarks",
+    "benchmarks",
+    ".vscode",
+    "vscode",
+    ".venv",
+    "venv",
+    "htmlcov",
+]
+
+IGNORE_FILES = [
+    ".coverage",
 ]
 
 # Global dictionary for folder aliases
 FOLDER_ALIASES = {
     "preedit": ["pre-edit", "original"],
-    "da_postedit": ["post-edit", "da", "da_edit"],
-    "sonnet_postedit": ["post-edit2", "sonnet", "sonnet_edit"],
+    "postedit-beetle": ["post-edit", "da", "da_edit", "beetle", "beetle_edit"],
+    "postedit-sonnet": ["post-edit2", "sonnet", "sonnet_edit"],
     "rewrite": ["correct-edit", "rewrite", "correct", "correct_edit"],
 }
 
 # CHANGE THIS TO THE ABSOLUTE PATH OF THE SOURCE DIRECTORY
-SOURCE_DIR = os.getcwd() + "\\Example_source_dir"
+SOURCE_DIR = os.path.join(os.getcwd(), "Example_source_dir")
 
 # GUI Configuration
 WINDOW_TITLE = "Project Control Panel"
@@ -69,6 +80,7 @@ BUTTON_STYLES = {
     "git": {"bg": "#f39c12", "fg": "white"},
     "refresh": {"bg": "#27ae60", "fg": "white"},
     "sync": {"bg": "#16a085", "fg": "white"},
+    "validate": {"bg": "#8e44ad", "fg": "white"},
     "close": {"bg": "#34495e", "fg": "white"},
     "copy": {"bg": "#34495e", "fg": "white"},
 }

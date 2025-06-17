@@ -191,3 +191,32 @@ class GitService:
         return any(
             indicator in error_message.lower() for indicator in local_change_indicators
         )
+
+    async def clone_repository(
+        self, repo_url: str, project_name: str, destination_path: Path
+    ) -> Tuple[bool, str]:
+        """
+        Clone a Git repository to the specified destination
+        Returns (success, message)
+        """
+        try:
+            # Create clone command with repo URL and project name
+            clone_cmd = [
+                (
+                    cmd.format(repo_url=repo_url, project_name=project_name)
+                    if "{repo_url}" in cmd or "{project_name}" in cmd
+                    else cmd
+                )
+                for cmd in GIT_COMMANDS["clone"]
+            ]
+
+            # Perform clone in the destination directory
+            result = await run_subprocess_async(clone_cmd, cwd=str(destination_path))
+
+            if result.returncode == 0:
+                return True, f"Successfully cloned repository to {project_name}"
+            else:
+                return False, f"Clone failed: {result.stderr}"
+
+        except Exception as e:
+            return False, f"Error during clone: {str(e)}"
