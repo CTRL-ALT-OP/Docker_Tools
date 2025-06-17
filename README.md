@@ -7,7 +7,7 @@
 - See `requirements.txt` for details
 
 # Setup
-### You can play around with the app with the example directory. Simply run `general_tools.py`. E.g. `python general_tools.py` after cloning.
+### You can play around with the app with the example directory. It is using git submodules, so you will need to initialize and update them. Simply run `git submodule init`, `git submodule update`, and then `general_tools.py`. E.g. `python general_tools.py` after cloning.
 1. Create a folder that will contain your dockerized projects.
 2. Change the `config/settings.py.SOURCE_DIR` variable to be the path to this folder
 3. Within this folder, create 4 new folders. One will be for the pre-edit version, one for the first post-edit version, one for the second post-edit version, and one for the correct version.
