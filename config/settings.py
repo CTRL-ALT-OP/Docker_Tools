@@ -28,8 +28,8 @@ IGNORE_FILES = [
 # Global dictionary for folder aliases
 FOLDER_ALIASES = {
     "preedit": ["pre-edit", "original"],
-    "da_postedit": ["post-edit", "da", "da_edit"],
-    "sonnet_postedit": ["post-edit2", "sonnet", "sonnet_edit"],
+    "postedit-beetle": ["post-edit", "da", "da_edit", "beetle", "beetle_edit"],
+    "postedit-sonnet": ["post-edit2", "sonnet", "sonnet_edit"],
     "rewrite": ["correct-edit", "rewrite", "correct", "correct_edit"],
 }
 
