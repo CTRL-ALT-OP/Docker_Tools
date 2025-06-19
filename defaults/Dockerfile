@@ -4,6 +4,7 @@ WORKDIR /app
 # your Python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install pytest
 
 # copy in code + tests
 COPY . .

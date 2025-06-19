@@ -15,4 +15,29 @@
 # - typing (type hints)
 # - time, shutil, platform (utilities)
 # - concurrent.futures (thread pool executor for CPU-bound tasks)
-pytest
+
+# Testing Dependencies
+# Core testing framework
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+
+# Test utilities and plugins
+pytest-cov>=4.0.0              # Coverage reporting
+pytest-timeout>=2.1.0          # Test timeouts
+pytest-mock>=3.10.0            # Mocking utilities
+pytest-benchmark>=4.0.0        # Performance testing
+pytest-html>=3.2.0             # HTML test reports
+pytest-json-report>=1.5.0      # JSON test reports
+
+# Coverage tools
+coverage>=7.0.0
+
+# Testing data and mocking
+faker>=18.0.0                  # Generate fake test data
+hypothesis>=6.0.0              # Property-based testing
+
+# Async testing helpers (for Python < 3.8)
+asynctest>=0.13.0 ; python_version < '3.8'
+
+# Time mocking for tests
+freezegun>=1.2.0
