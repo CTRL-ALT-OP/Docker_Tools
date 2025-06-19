@@ -1109,7 +1109,155 @@ class ProjectControlPanel:
     def build_docker_files_for_project_group(self, project_group: ProjectGroup):
         """Build Docker files for a project group based on pre-edit version (async)"""
 
-        pass
+        async def build_docker_files_async():
+            try:
+                # Create synchronization event to coordinate with GUI
+                event_id, window_ready_event = self.async_bridge.create_sync_event()
+
+                # Create terminal output window on main thread
+                terminal_window = None
+
+                def create_window():
+                    nonlocal terminal_window
+                    terminal_window = TerminalOutputWindow(
+                        self.window, f"Build Docker files - {project_group.name}"
+                    )
+                    terminal_window.create_window()
+                    # Signal that window is ready
+                    self.async_bridge.signal_from_gui(event_id)
+
+                self.window.after(0, create_window)
+
+                # Wait for window to be properly created
+                await window_ready_event.wait()
+
+                # Clean up the synchronization event
+                self.async_bridge.cleanup_event(event_id)
+
+                # Update initial status
+                terminal_window.update_status(
+                    "Checking for existing Docker files...", COLORS["warning"]
+                )
+
+                # Check for existing Docker files first
+                pre_edit_project = self.docker_files_service._find_pre_edit_version(
+                    project_group
+                )
+                if not pre_edit_project:
+                    terminal_window.update_status(
+                        "Error: No pre-edit version found", COLORS["error"]
+                    )
+                    terminal_window.append_output(
+                        "❌ No pre-edit version found in project group. Cannot proceed.\n"
+                    )
+                    terminal_window.add_final_buttons(
+                        copy_text="No pre-edit version found"
+                    )
+                    return
+
+                existing_files = (
+                    await self.docker_files_service._check_existing_docker_files(
+                        pre_edit_project, terminal_window.append_output
+                    )
+                )
+
+                if existing_files:
+                    # Prompt user about overwriting existing files
+                    file_list = "\n".join([f"  • {f}" for f in existing_files])
+                    response = messagebox.askyesnocancel(
+                        "Existing Docker Files Found",
+                        f"The following Docker files already exist in the pre-edit version:\n\n{file_list}\n\n"
+                        f"Proceeding will overwrite these files.\n\n"
+                        f"• Yes: Delete existing files and proceed\n"
+                        f"• No: Skip this step and proceed anyway\n"
+                        f"• Cancel: Abort the operation",
+                    )
+
+                    if response is None:  # Cancel
+                        terminal_window.update_status(
+                            "Operation cancelled", COLORS["error"]
+                        )
+                        terminal_window.append_output(
+                            "🚫 Operation cancelled by user\n"
+                        )
+                        terminal_window.add_final_buttons(
+                            copy_text="Operation cancelled"
+                        )
+                        return
+                    elif response:  # Yes - delete existing files
+                        terminal_window.update_status(
+                            "Removing existing files...", COLORS["warning"]
+                        )
+                        removal_success = await self.docker_files_service.remove_existing_docker_files(
+                            pre_edit_project, terminal_window.append_output
+                        )
+                        if not removal_success:
+                            terminal_window.update_status(
+                                "Failed to remove existing files", COLORS["error"]
+                            )
+                            terminal_window.add_final_buttons(
+                                copy_text="Failed to remove existing files"
+                            )
+                            return
+                    # If response is False (No), we proceed without removing files
+
+                # Run Docker files generation process
+                success, message = (
+                    await self.docker_files_service.build_docker_files_for_project_group(
+                        project_group,
+                        terminal_window.append_output,
+                        terminal_window.update_status,
+                    )
+                )
+
+                if success:
+                    # Show completion prompt
+                    self.window.after(
+                        0,
+                        lambda: messagebox.showinfo(
+                            "Docker Files Generated",
+                            f"Docker files have been successfully generated and distributed!\n\n"
+                            f"Project: {project_group.name}\n"
+                            f"Files created: .dockerignore, run_tests.sh, build_docker.sh, Dockerfile\n\n"
+                            f"All versions of the project now have the Docker files.",
+                        ),
+                    )
+
+                # Add final buttons
+                terminal_window.add_final_buttons(
+                    copy_text=(
+                        terminal_window.text_area.get("1.0", "end-1c")
+                        if terminal_window.text_area
+                        else ""
+                    )
+                )
+
+            except asyncio.CancelledError:
+                logger.info(
+                    "Build Docker files was cancelled for %s", project_group.name
+                )
+                raise  # Always re-raise CancelledError
+            except Exception as e:
+                logger.exception(
+                    "Error building Docker files for %s", project_group.name
+                )
+                error_msg = f"Error building Docker files: {str(e)}"
+                if "terminal_window" in locals() and terminal_window:
+                    terminal_window.update_status("Error occurred", COLORS["error"])
+                    terminal_window.append_output(f"❌ {error_msg}\n")
+                    terminal_window.add_final_buttons(copy_text=error_msg)
+                else:
+                    self.window.after(
+                        0,
+                        lambda: messagebox.showerror(
+                            "Build Docker Files Error", error_msg
+                        ),
+                    )
+
+        # Run the async operation with proper task naming
+        task_manager.run_task(
+            build_docker_files_async(), task_name=f"build-docker-{project_group.name}"
+        )
 
     def _extract_validation_id(self, raw_output: str) -> str:
         """
