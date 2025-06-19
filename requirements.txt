@@ -16,3 +16,4 @@
 # - time, shutil, platform (utilities)
 # - concurrent.futures (thread pool executor for CPU-bound tasks)
 pytest
+pytest-asyncio
