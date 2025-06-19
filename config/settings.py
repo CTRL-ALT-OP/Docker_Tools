@@ -81,6 +81,7 @@ BUTTON_STYLES = {
     "refresh": {"bg": "#27ae60", "fg": "white"},
     "sync": {"bg": "#16a085", "fg": "white"},
     "validate": {"bg": "#8e44ad", "fg": "white"},
+    "build_docker": {"bg": "#2980b9", "fg": "white"},
     "close": {"bg": "#34495e", "fg": "white"},
     "copy": {"bg": "#34495e", "fg": "white"},
 }
