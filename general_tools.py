@@ -1049,18 +1049,16 @@ class ProjectControlPanel:
 
                     def open_results():
                         try:
-                            import subprocess
-                            import sys
+                            from services.platform_service import PlatformService
 
-                            if sys.platform.startswith("win"):
-                                subprocess.run(
-                                    ["start", str(results_file)], shell=True, check=True
+                            success, error_msg = (
+                                PlatformService.open_file_with_default_application(
+                                    str(results_file)
                                 )
-                            elif sys.platform.startswith("darwin"):
-                                subprocess.run(["open", str(results_file)], check=True)
-                            else:
-                                subprocess.run(
-                                    ["xdg-open", str(results_file)], check=True
+                            )
+                            if not success:
+                                messagebox.showerror(
+                                    "Error", f"Could not open results file: {error_msg}"
                                 )
                         except Exception as e:
                             messagebox.showerror(

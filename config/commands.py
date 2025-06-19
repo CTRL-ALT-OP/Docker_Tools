@@ -85,3 +85,24 @@ COMMAND_TEMPLATES = {
     "bash_execute": 'bash -c "{command}"',
     "powershell_execute": 'powershell -Command "{command}"',
 }
+
+# File opening commands by platform
+FILE_OPEN_COMMANDS = {
+    "windows": ["start", "{file_path}"],
+    "darwin": ["open", "{file_path}"],
+    "linux": ["xdg-open", "{file_path}"],
+}
+
+# Test execution commands
+TEST_COMMANDS = {
+    "pytest": ["python", "-m", "pytest"],
+    "pytest_verbose": ["python", "-m", "pytest", "-v"],
+    "pytest_with_coverage": ["python", "-m", "pytest", "--cov"],
+    "git_init": ["git", "init", "--quiet"],
+}
+
+# System information commands
+SYSTEM_COMMANDS = {
+    "docker_version": ["docker", "--version"],
+    "pwd": {"windows": ["cd"], "unix": ["pwd"]},
+}

@@ -566,7 +566,9 @@ class TestFileService:
     @pytest.mark.asyncio
     async def test_cleanup_with_symlinks(self):
         """Test cleanup behavior with symbolic links"""
-        if os.name == "nt":  # Skip on Windows due to symlink restrictions
+        from services.platform_service import PlatformService
+
+        if PlatformService.is_windows():  # Skip on Windows due to symlink restrictions
             pytest.skip("Symlink test skipped on Windows")
 
         project_path = Path(self.temp_dir) / "symlink_project"

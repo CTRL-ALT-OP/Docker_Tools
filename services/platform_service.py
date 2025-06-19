@@ -7,7 +7,15 @@ import platform
 import subprocess
 from typing import List, Tuple, Optional
 
-from config.commands import BASH_PATHS, ARCHIVE_COMMANDS, ERROR_MESSAGES, SHELL_COMMANDS
+from config.commands import (
+    BASH_PATHS,
+    ARCHIVE_COMMANDS,
+    ERROR_MESSAGES,
+    SHELL_COMMANDS,
+    FILE_OPEN_COMMANDS,
+    TEST_COMMANDS,
+    SYSTEM_COMMANDS,
+)
 
 
 class PlatformService:
@@ -93,3 +101,97 @@ class PlatformService:
     ) -> subprocess.CompletedProcess:
         """Run a command with platform-appropriate settings"""
         return subprocess.run(cmd, shell=use_shell, **kwargs)
+
+    @staticmethod
+    def create_file_open_command(file_path: str) -> List[str]:
+        """
+        Create platform-specific command to open a file
+        Returns command list for subprocess execution
+        """
+        current_platform = PlatformService.get_platform()
+
+        if current_platform in FILE_OPEN_COMMANDS:
+            cmd_template = FILE_OPEN_COMMANDS[current_platform]
+            # Replace {file_path} placeholder with actual file path
+            return [
+                part.format(file_path=file_path) if "{file_path}" in part else part
+                for part in cmd_template
+            ]
+        else:
+            # Default to linux behavior for unknown platforms
+            cmd_template = FILE_OPEN_COMMANDS["linux"]
+            return [
+                part.format(file_path=file_path) if "{file_path}" in part else part
+                for part in cmd_template
+            ]
+
+    @staticmethod
+    def open_file_with_default_application(file_path: str) -> Tuple[bool, str]:
+        """
+        Open a file with the default system application
+        Returns (success, error_message)
+        """
+        try:
+            cmd = PlatformService.create_file_open_command(file_path)
+            current_platform = PlatformService.get_platform()
+
+            # Windows requires shell=True for the 'start' command
+            use_shell = current_platform == "windows"
+
+            result = PlatformService.run_command(cmd, use_shell=use_shell, check=True)
+            return True, ""
+        except subprocess.CalledProcessError as e:
+            return False, f"Failed to open file: {e}"
+        except Exception as e:
+            return False, f"Error opening file: {str(e)}"
+
+    @staticmethod
+    def is_unix_like() -> bool:
+        """Check if running on a Unix-like system (Linux/macOS)"""
+        return PlatformService.get_platform() in ["linux", "darwin"]
+
+    @staticmethod
+    def get_pwd_command() -> List[str]:
+        """Get platform-specific command to print working directory"""
+        if PlatformService.is_windows():
+            return SYSTEM_COMMANDS["pwd"]["windows"]
+        else:
+            return SYSTEM_COMMANDS["pwd"]["unix"]
+
+    @staticmethod
+    def create_git_init_command() -> List[str]:
+        """Create git initialization command"""
+        return TEST_COMMANDS["git_init"]
+
+    @staticmethod
+    def create_pytest_command(
+        verbose: bool = False, with_coverage: bool = False
+    ) -> List[str]:
+        """
+        Create pytest command based on options
+        Returns command list for subprocess execution
+        """
+        if with_coverage:
+            return TEST_COMMANDS["pytest_with_coverage"].copy()
+        elif verbose:
+            return TEST_COMMANDS["pytest_verbose"].copy()
+        else:
+            return TEST_COMMANDS["pytest"].copy()
+
+    @staticmethod
+    def check_docker_available() -> Tuple[bool, str]:
+        """
+        Check if Docker is available on the system
+        Returns (available, error_message)
+        """
+        try:
+            result = PlatformService.run_command(
+                SYSTEM_COMMANDS["docker_version"], capture_output=True, check=True
+            )
+            return True, ""
+        except subprocess.CalledProcessError:
+            return False, "Docker is not available or not running"
+        except FileNotFoundError:
+            return False, "Docker is not installed"
+        except Exception as e:
+            return False, f"Error checking Docker: {str(e)}"

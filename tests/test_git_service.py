@@ -103,7 +103,11 @@ class TestGitService:
     def create_git_repo(self, path: Path):
         """Helper to create a git repository"""
         path.mkdir(exist_ok=True)
-        os.system(f"cd {path} && git init --quiet")
+        from services.platform_service import PlatformService
+        import subprocess
+
+        cmd = PlatformService.create_git_init_command()
+        subprocess.run(cmd, cwd=str(path), check=True)
         return path
 
     @pytest.mark.asyncio

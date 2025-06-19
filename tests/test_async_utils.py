@@ -35,7 +35,9 @@ class TestRunSubprocessAsync:
     async def test_run_simple_command(self):
         """Test running a simple command"""
         # Use cross-platform commands
-        if os.name == "nt":  # Windows
+        from services.platform_service import PlatformService
+
+        if PlatformService.is_windows():
             result = await run_subprocess_async(
                 ["cmd", "/c", "echo hello"], capture_output=True
             )
@@ -70,8 +72,11 @@ class TestRunSubprocessAsync:
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            from services.platform_service import PlatformService
+
+            cmd = PlatformService.get_pwd_command()
             result = await run_subprocess_async(
-                ["pwd" if os.name != "nt" else "cd"],
+                cmd,
                 shell=True,
                 capture_output=True,
                 cwd=tmpdir,
@@ -85,7 +90,9 @@ class TestRunSubprocessAsync:
     async def test_run_command_encoding(self):
         """Test command with specific encoding"""
         # Use cross-platform commands
-        if os.name == "nt":  # Windows
+        from services.platform_service import PlatformService
+
+        if PlatformService.is_windows():
             result = await run_subprocess_async(
                 ["cmd", "/c", "echo test"],
                 capture_output=True,
@@ -143,9 +150,11 @@ class TestRunSubprocessStreamingAsync:
             output_count += 1
 
         # Use a command that produces multiple lines
+        from services.platform_service import PlatformService
+
         cmd = (
             "for i in 1 2 3; do echo line$i; done"
-            if os.name != "nt"
+            if not PlatformService.is_windows()
             else "echo line1 & echo line2 & echo line3"
         )
 

@@ -333,6 +333,151 @@ class TestPlatformService:
                     # Archive name should be in command
                     assert any(archive_name in str(part) for part in cmd)
 
+    def test_create_file_open_command_windows(self):
+        """Test creating file open command on Windows"""
+        with patch.object(PlatformService, "get_platform") as mock_platform:
+            mock_platform.return_value = "windows"
+
+            file_path = "C:\\test\\file.txt"
+            cmd = PlatformService.create_file_open_command(file_path)
+
+            assert cmd[0] == "start"
+            assert file_path in cmd
+            assert len(cmd) == 2
+
+    def test_create_file_open_command_unix(self):
+        """Test creating file open command on Unix systems"""
+        with patch.object(PlatformService, "get_platform") as mock_platform:
+            # Test Linux
+            mock_platform.return_value = "linux"
+            file_path = "/test/file.txt"
+            cmd = PlatformService.create_file_open_command(file_path)
+
+            assert cmd[0] == "xdg-open"
+            assert file_path in cmd
+
+            # Test macOS
+            mock_platform.return_value = "darwin"
+            cmd = PlatformService.create_file_open_command(file_path)
+
+            assert cmd[0] == "open"
+            assert file_path in cmd
+
+    def test_open_file_with_default_application_success(self):
+        """Test successfully opening a file"""
+        with patch.object(PlatformService, "get_platform") as mock_platform:
+            mock_platform.return_value = "linux"
+
+            with patch.object(PlatformService, "run_command") as mock_run:
+                mock_run.return_value = Mock(returncode=0)
+
+                success, error_msg = PlatformService.open_file_with_default_application(
+                    "/test/file.txt"
+                )
+
+                assert success is True
+                assert error_msg == ""
+                mock_run.assert_called_once()
+
+    def test_open_file_with_default_application_failure(self):
+        """Test failure when opening a file"""
+        with patch.object(PlatformService, "get_platform") as mock_platform:
+            mock_platform.return_value = "linux"
+
+            with patch.object(PlatformService, "run_command") as mock_run:
+                mock_run.side_effect = subprocess.CalledProcessError(1, "xdg-open")
+
+                success, error_msg = PlatformService.open_file_with_default_application(
+                    "/test/file.txt"
+                )
+
+                assert success is False
+                assert "Failed to open file" in error_msg
+
+    def test_is_unix_like(self):
+        """Test Unix-like platform detection"""
+        with patch.object(PlatformService, "get_platform") as mock_platform:
+            # Test Linux
+            mock_platform.return_value = "linux"
+            assert PlatformService.is_unix_like() is True
+
+            # Test macOS
+            mock_platform.return_value = "darwin"
+            assert PlatformService.is_unix_like() is True
+
+            # Test Windows
+            mock_platform.return_value = "windows"
+            assert PlatformService.is_unix_like() is False
+
+    def test_get_pwd_command(self):
+        """Test getting platform-specific pwd command"""
+        with patch.object(PlatformService, "is_windows") as mock_is_windows:
+            # Test Windows
+            mock_is_windows.return_value = True
+            cmd = PlatformService.get_pwd_command()
+            assert cmd == ["cd"]
+
+            # Test Unix
+            mock_is_windows.return_value = False
+            cmd = PlatformService.get_pwd_command()
+            assert cmd == ["pwd"]
+
+    def test_create_git_init_command(self):
+        """Test creating git initialization command"""
+        cmd = PlatformService.create_git_init_command()
+        assert cmd == ["git", "init", "--quiet"]
+
+    def test_create_pytest_command(self):
+        """Test creating pytest commands with different options"""
+        # Basic pytest command
+        cmd = PlatformService.create_pytest_command()
+        assert cmd == ["python", "-m", "pytest"]
+
+        # Verbose pytest command
+        cmd = PlatformService.create_pytest_command(verbose=True)
+        assert cmd == ["python", "-m", "pytest", "-v"]
+
+        # Coverage pytest command
+        cmd = PlatformService.create_pytest_command(with_coverage=True)
+        assert cmd == ["python", "-m", "pytest", "--cov"]
+
+        # Coverage takes precedence over verbose
+        cmd = PlatformService.create_pytest_command(verbose=True, with_coverage=True)
+        assert cmd == ["python", "-m", "pytest", "--cov"]
+
+    def test_check_docker_available_success(self):
+        """Test successful Docker availability check"""
+        with patch.object(PlatformService, "run_command") as mock_run:
+            mock_run.return_value = Mock(returncode=0)
+
+            available, error_msg = PlatformService.check_docker_available()
+
+            assert available is True
+            assert error_msg == ""
+            mock_run.assert_called_once_with(
+                ["docker", "--version"], capture_output=True, check=True
+            )
+
+    def test_check_docker_available_not_running(self):
+        """Test Docker not running"""
+        with patch.object(PlatformService, "run_command") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(1, "docker")
+
+            available, error_msg = PlatformService.check_docker_available()
+
+            assert available is False
+            assert "not available or not running" in error_msg
+
+    def test_check_docker_available_not_installed(self):
+        """Test Docker not installed"""
+        with patch.object(PlatformService, "run_command") as mock_run:
+            mock_run.side_effect = FileNotFoundError("docker command not found")
+
+            available, error_msg = PlatformService.check_docker_available()
+
+            assert available is False
+            assert "not installed" in error_msg
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
