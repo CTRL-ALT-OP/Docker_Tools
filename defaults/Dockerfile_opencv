@@ -10,8 +10,8 @@ RUN apk --no-cache add g++ ${ADDITIONAL_PACKAGE}
 # your Python deps
 COPY requirements.txt .
 
-RUN grep -v "opencv-python" requirements.txt \
-  | xargs -n 1 python3.12 -m pip install --break-system-packages # Install all requirements except OpenCV (already covered)
+RUN grep -vE '^(#|$|.*opencv-python.*)' requirements.txt \
+  | xargs -r -n 1 python3.12 -m pip install --break-system-packages # Install all requirements except OpenCV (already covered)
 
 RUN apk info -L py3-opencv | grep cv2
 RUN python3.12 -c "import sys; print(sys.path)"
