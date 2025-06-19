@@ -19,9 +19,17 @@ class FileService:
     """Service for file operations - Async version"""
 
     def __init__(self):
-        self.cleanup_dirs = IGNORE_DIRS
-        self.cleanup_files = IGNORE_FILES
         self.platform_service = PlatformService()
+
+    @property
+    def cleanup_dirs(self):
+        """Get cleanup directories from configuration"""
+        return IGNORE_DIRS
+
+    @property
+    def cleanup_files(self):
+        """Get cleanup files from configuration"""
+        return IGNORE_FILES
 
     async def scan_for_cleanup_items(
         self, project_path: Path

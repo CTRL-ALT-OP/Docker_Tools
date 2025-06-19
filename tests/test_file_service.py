@@ -58,7 +58,6 @@ class TestFileService:
             "venv",
             ".venv",
             "env",
-            ".coverage",
             "htmlcov",
             ".mypy_cache",
         ]

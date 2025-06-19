@@ -18,6 +18,7 @@ from services.git_service import GitService
 from services.docker_service import DockerService
 from services.sync_service import SyncService
 from services.validation_service import ValidationService
+from services.docker_files_service import DockerFilesService
 from gui.gui_utils import GuiUtils
 from gui.popup_windows import TerminalOutputWindow, GitCommitWindow, AddProjectWindow
 from utils.async_utils import (
@@ -50,6 +51,7 @@ class ProjectControlPanel:
         self.docker_service = DockerService()
         self.sync_service = SyncService()
         self.validation_service = ValidationService()
+        self.docker_files_service = DockerFilesService()
 
         # Initialize GUI
         self.window = tk.Tk()
@@ -313,6 +315,15 @@ class ProjectControlPanel:
             style="validate",
         )
         validate_btn.pack(side="left", padx=(0, 10))
+
+        # Build Docker files button
+        build_docker_btn = GuiUtils.create_styled_button(
+            buttons_container,
+            text="🐳 Build Docker files",
+            command=lambda: self.build_docker_files_for_project_group(project_group),
+            style="build_docker",
+        )
+        build_docker_btn.pack(side="left", padx=(0, 10))
 
     def _create_version_section(self, project: Project):
         """Create a version section for a project"""
@@ -1095,6 +1106,11 @@ class ProjectControlPanel:
             validate_async(), task_name=f"validate-{project_group.name}"
         )
 
+    def build_docker_files_for_project_group(self, project_group: ProjectGroup):
+        """Build Docker files for a project group based on pre-edit version (async)"""
+
+        pass
+
     def _extract_validation_id(self, raw_output: str) -> str:
         """
         Extract the validation ID from the validation output
@@ -1104,9 +1120,7 @@ class ProjectControlPanel:
 
         # Look for the validation ID in the format "UNIQUE VALIDATION ID: xxxxxxxxx"
         pattern = r"UNIQUE VALIDATION ID:\s*([a-f0-9]+)"
-        match = re.search(pattern, raw_output, re.IGNORECASE)
-
-        if match:
+        if match := re.search(pattern, raw_output, re.IGNORECASE):
             return match.group(1)
 
         # Fallback: look for the ID in the box format (standalone hex string)
