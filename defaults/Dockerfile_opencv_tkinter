@@ -17,9 +17,11 @@ COPY requirements.txt .
 
 RUN grep -vE '^(#|$|.*opencv-python.*)' requirements.txt \
   | xargs -r -n 1 python3.12 -m pip install --break-system-packages # Install all requirements except OpenCV (already covered)
+RUN pip install pytest
 
 RUN apk info -L py3-opencv | grep cv2
 RUN python3.12 -c "import sys; print(sys.path)"
+
 
 # copy in code + tests
 COPY . .
