@@ -11,3 +11,5 @@ services/__pycache__
 utils/__pycache__
 general_tools_old.py
 .coverage
+validation-tool/codebases/*
+validation-tool/output/*
