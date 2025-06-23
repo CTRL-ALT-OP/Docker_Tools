@@ -1,25 +1,100 @@
 """
-Service for file operations (cleanup, archiving) - Async version
+File Service - Standardized Async Version
 """
 
 import os
 import shutil
 import logging
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
+from dataclasses import dataclass
 
 from config.settings import IGNORE_DIRS, IGNORE_FILES
 from services.platform_service import PlatformService
+from utils.async_base import (
+    AsyncServiceInterface,
+    ServiceResult,
+    ProcessError,
+    ValidationError,
+    ResourceError,
+    AsyncServiceContext,
+)
 from utils.async_utils import run_in_executor
 
 logger = logging.getLogger(__name__)
 
 
-class FileService:
-    """Service for file operations - Async version"""
+@dataclass
+class CleanupScanResult:
+    """Result of scanning for cleanup items"""
+
+    directories: List[Path]
+    files: List[Path]
+    total_size: int  # Total size in bytes
+    item_count: int
+
+
+@dataclass
+class CleanupResult:
+    """Result of cleanup operation"""
+
+    deleted_directories: List[Path]
+    deleted_files: List[Path]
+    total_deleted_size: int
+    failed_deletions: List[Tuple[Path, str]]  # (path, error_reason)
+
+
+@dataclass
+class ArchiveResult:
+    """Result of archive creation"""
+
+    archive_path: Path
+    archive_size: int
+    files_archived: int
+    compression_ratio: float
+
+
+class FileService(AsyncServiceInterface):
+    """Standardized File service with consistent async interface"""
 
     def __init__(self):
+        super().__init__("FileService")
         self.platform_service = PlatformService()
+
+    async def health_check(self) -> ServiceResult[Dict[str, Any]]:
+        """Check File service health"""
+        async with self.operation_context("health_check", timeout=10.0) as ctx:
+            try:
+                # Check basic file system operations
+                import tempfile
+
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    temp_path = Path(temp_dir)
+
+                    # Test file creation
+                    test_file = temp_path / "test.txt"
+                    test_file.write_text("test content")
+
+                    # Test file reading
+                    content = test_file.read_text()
+
+                    # Test directory operations
+                    test_dir = temp_path / "test_dir"
+                    test_dir.mkdir()
+
+                    return ServiceResult.success(
+                        {
+                            "status": "healthy",
+                            "platform": self.platform_service.get_platform(),
+                            "cleanup_dirs": len(self.cleanup_dirs),
+                            "cleanup_files": len(self.cleanup_files),
+                            "temp_dir_available": True,
+                        }
+                    )
+
+            except Exception as e:
+                error = ResourceError(f"File system operations failed: {str(e)}")
+                return ServiceResult.error(error)
 
     @property
     def cleanup_dirs(self):
@@ -33,136 +108,357 @@ class FileService:
 
     async def scan_for_cleanup_items(
         self, project_path: Path
-    ) -> Tuple[List[str], List[str]]:
+    ) -> ServiceResult[CleanupScanResult]:
         """Scan for directories and files that match cleanup patterns"""
-        return await run_in_executor(self._scan_for_cleanup_items_sync, project_path)
+        # Validate input
+        if not project_path.exists():
+            error = ValidationError(f"Project path does not exist: {project_path}")
+            return ServiceResult.error(error)
 
-    def _scan_for_cleanup_items_sync(
-        self, project_path: Path
-    ) -> Tuple[List[str], List[str]]:
+        if not project_path.is_dir():
+            error = ValidationError(f"Project path is not a directory: {project_path}")
+            return ServiceResult.error(error)
+
+        async with self.operation_context(
+            "scan_for_cleanup_items", timeout=60.0
+        ) as ctx:
+            try:
+                scan_result = await run_in_executor(
+                    self._scan_for_cleanup_items_sync, project_path
+                )
+
+                return ServiceResult.success(
+                    scan_result,
+                    message=f"Scanned {scan_result.item_count} items for cleanup",
+                    metadata={
+                        "project_path": str(project_path),
+                        "total_size_mb": round(
+                            scan_result.total_size / (1024 * 1024), 2
+                        ),
+                    },
+                )
+
+            except PermissionError as e:
+                error = ResourceError(
+                    f"Permission denied scanning {project_path}: {str(e)}"
+                )
+                return ServiceResult.error(error)
+            except Exception as e:
+                self.logger.exception("Unexpected error during cleanup scan")
+                error = ProcessError(f"Failed to scan for cleanup items: {str(e)}")
+                return ServiceResult.error(error)
+
+    def _scan_for_cleanup_items_sync(self, project_path: Path) -> CleanupScanResult:
         """Synchronous implementation of directory and file scanning"""
-        cleanup_needed_dirs = []
-        cleanup_needed_files = []
+        cleanup_dirs = []
+        cleanup_files = []
+        total_size = 0
 
         try:
             for root, dirs, files in os.walk(project_path):
+                root_path = Path(root)
+
                 # Scan for directories to cleanup
-                cleanup_needed_dirs.extend(
-                    os.path.join(root, dir_name)
-                    for dir_name in dirs
-                    if any(pattern in dir_name.lower() for pattern in self.cleanup_dirs)
-                )
+                for dir_name in dirs:
+                    if any(
+                        pattern in dir_name.lower() for pattern in self.cleanup_dirs
+                    ):
+                        dir_path = root_path / dir_name
+                        cleanup_dirs.append(dir_path)
+                        # Calculate directory size
+                        try:
+                            dir_size = sum(
+                                f.stat().st_size
+                                for f in dir_path.rglob("*")
+                                if f.is_file()
+                            )
+                            total_size += dir_size
+                        except (OSError, PermissionError):
+                            pass  # Skip if we can't calculate size
 
                 # Scan for files to cleanup
-                cleanup_needed_files.extend(
-                    os.path.join(root, file_name)
-                    for file_name in files
+                for file_name in files:
                     if any(
                         pattern in file_name.lower() for pattern in self.cleanup_files
-                    )
-                )
+                    ):
+                        file_path = root_path / file_name
+                        cleanup_files.append(file_path)
+                        try:
+                            total_size += file_path.stat().st_size
+                        except (OSError, PermissionError):
+                            pass  # Skip if we can't get file size
+
         except (OSError, PermissionError) as e:
             logger.error("Error scanning directory %s: %s", project_path, e)
-            # Return empty lists on error - let caller handle the situation
+            # Continue with partial results
 
-        return cleanup_needed_dirs, cleanup_needed_files
+        return CleanupScanResult(
+            directories=cleanup_dirs,
+            files=cleanup_files,
+            total_size=total_size,
+            item_count=len(cleanup_dirs) + len(cleanup_files),
+        )
 
-    # Keep the old method for backward compatibility
-    async def scan_for_cleanup_dirs(self, project_path: Path) -> List[str]:
-        """Scan for directories that match cleanup patterns (backward compatibility)"""
-        dirs, _ = await self.scan_for_cleanup_items(project_path)
-        return dirs
+    async def cleanup_project_items(
+        self, project_path: Path
+    ) -> ServiceResult[CleanupResult]:
+        """Clean up specified directories and files in the project"""
+        # Validate input
+        if not project_path.exists():
+            error = ValidationError(f"Project path does not exist: {project_path}")
+            return ServiceResult.error(error)
 
-    def _scan_for_cleanup_dirs_sync(self, project_path: Path) -> List[str]:
-        """Synchronous implementation of directory scanning (backward compatibility)"""
-        dirs, _ = self._scan_for_cleanup_items_sync(project_path)
-        return dirs
+        async with self.operation_context(
+            "cleanup_project_items", timeout=120.0
+        ) as ctx:
+            try:
+                # First scan to get what we're going to clean
+                scan_result_response = await self.scan_for_cleanup_items(project_path)
+                if scan_result_response.is_error:
+                    return ServiceResult.error(scan_result_response.error)
 
-    async def cleanup_project_items(self, project_path: Path) -> List[str]:
-        """
-        Clean up specified directories and files in the project
-        Returns list of deleted items
-        """
-        return await run_in_executor(self._cleanup_project_items_sync, project_path)
+                scan_result = scan_result_response.data
 
-    def _cleanup_project_items_sync(self, project_path: Path) -> List[str]:
+                if scan_result.item_count == 0:
+                    return ServiceResult.success(
+                        CleanupResult(
+                            deleted_directories=[],
+                            deleted_files=[],
+                            total_deleted_size=0,
+                            failed_deletions=[],
+                        ),
+                        message="No items found to clean up",
+                    )
+
+                # Perform cleanup
+                cleanup_result = await run_in_executor(
+                    self._cleanup_project_items_sync, project_path
+                )
+
+                success_count = len(cleanup_result.deleted_directories) + len(
+                    cleanup_result.deleted_files
+                )
+                failed_count = len(cleanup_result.failed_deletions)
+
+                if failed_count == 0:
+                    return ServiceResult.success(
+                        cleanup_result,
+                        message=f"Successfully cleaned up {success_count} items",
+                        metadata={
+                            "deleted_size_mb": round(
+                                cleanup_result.total_deleted_size / (1024 * 1024), 2
+                            )
+                        },
+                    )
+                elif success_count > 0:
+                    # Partial success
+                    error = ResourceError(
+                        f"Failed to delete {failed_count} items",
+                        details={
+                            "failed_items": [
+                                str(path) for path, _ in cleanup_result.failed_deletions
+                            ]
+                        },
+                    )
+                    return ServiceResult.partial(
+                        cleanup_result,
+                        error,
+                        message=f"Partially cleaned up {success_count} items, {failed_count} failed",
+                    )
+                else:
+                    # All failed
+                    error = ResourceError(
+                        f"Failed to delete all {failed_count} items",
+                        details={
+                            "failed_items": [
+                                str(path) for path, _ in cleanup_result.failed_deletions
+                            ]
+                        },
+                    )
+                    return ServiceResult.error(error)
+
+            except Exception as e:
+                self.logger.exception("Unexpected error during cleanup")
+                error = ProcessError(f"Cleanup operation failed: {str(e)}")
+                return ServiceResult.error(error)
+
+    def _cleanup_project_items_sync(self, project_path: Path) -> CleanupResult:
         """Synchronous implementation of directory and file cleanup"""
-        deleted_items = []
+        deleted_dirs = []
+        deleted_files = []
+        failed_deletions = []
+        total_deleted_size = 0
 
         def remove_items_recursive(path):
             """Recursively remove directories and files matching cleanup patterns"""
             try:
                 for root, dirs, files in os.walk(path, topdown=False):
+                    root_path = Path(root)
+
                     # Remove files that match cleanup patterns
-                    for file_name in list(files):
+                    for file_name in files:
                         if any(
                             pattern in file_name.lower()
                             for pattern in self.cleanup_files
                         ):
-                            file_path = os.path.join(root, file_name)
+                            file_path = root_path / file_name
                             try:
-                                os.remove(file_path)
-                                deleted_items.append(file_path)
+                                file_size = file_path.stat().st_size
+                                file_path.unlink()
+                                deleted_files.append(file_path)
+                                nonlocal total_deleted_size
+                                total_deleted_size += file_size
                                 logger.debug("Deleted file: %s", file_path)
                             except PermissionError as e:
+                                failed_deletions.append(
+                                    (file_path, f"Permission denied: {e}")
+                                )
                                 logger.warning(
                                     "Permission denied deleting %s: %s", file_path, e
                                 )
                             except FileNotFoundError:
                                 logger.debug("File already deleted: %s", file_path)
                             except OSError as e:
+                                failed_deletions.append((file_path, f"OS error: {e}"))
                                 logger.error("OS error deleting %s: %s", file_path, e)
 
                     # Remove directories that match cleanup patterns
-                    for dir_name in list(dirs):
+                    for dir_name in dirs:
                         if any(
                             pattern in dir_name.lower() for pattern in self.cleanup_dirs
                         ):
-                            dir_path = os.path.join(root, dir_name)
+                            dir_path = root_path / dir_name
                             try:
+                                # Calculate directory size before deletion
+                                dir_size = sum(
+                                    f.stat().st_size
+                                    for f in dir_path.rglob("*")
+                                    if f.is_file()
+                                )
                                 shutil.rmtree(dir_path)
-                                deleted_items.append(dir_path)
+                                deleted_dirs.append(dir_path)
+                                total_deleted_size += dir_size
                                 logger.debug("Deleted directory: %s", dir_path)
                             except PermissionError as e:
+                                failed_deletions.append(
+                                    (dir_path, f"Permission denied: {e}")
+                                )
                                 logger.warning(
                                     "Permission denied deleting %s: %s", dir_path, e
                                 )
                             except FileNotFoundError:
                                 logger.debug("Directory already deleted: %s", dir_path)
                             except OSError as e:
+                                failed_deletions.append((dir_path, f"OS error: {e}"))
                                 logger.error("OS error deleting %s: %s", dir_path, e)
             except (OSError, PermissionError) as e:
                 logger.error("Error walking directory %s: %s", path, e)
 
         remove_items_recursive(project_path)
-        return deleted_items
 
-    # Keep the old method for backward compatibility
-    async def cleanup_project_dirs(self, project_path: Path) -> List[str]:
-        """
-        Clean up specified directories in the project (backward compatibility)
-        Returns list of deleted items
-        """
-        return await self.cleanup_project_items(project_path)
-
-    def _cleanup_project_dirs_sync(self, project_path: Path) -> List[str]:
-        """Synchronous implementation of directory cleanup (backward compatibility)"""
-        return self._cleanup_project_items_sync(project_path)
+        return CleanupResult(
+            deleted_directories=deleted_dirs,
+            deleted_files=deleted_files,
+            total_deleted_size=total_deleted_size,
+            failed_deletions=failed_deletions,
+        )
 
     async def create_archive(
         self, project_path: Path, archive_name: str
-    ) -> Tuple[bool, str]:
-        """
-        Create archive of the project
-        Returns (success, error_message)
-        """
-        return await run_in_executor(
-            self._create_archive_sync, project_path, archive_name
-        )
+    ) -> ServiceResult[ArchiveResult]:
+        """Create archive of the project with standardized result format"""
+        # Validate input
+        if not project_path.exists():
+            error = ValidationError(f"Project path does not exist: {project_path}")
+            return ServiceResult.error(error)
+
+        if not project_path.is_dir():
+            error = ValidationError(f"Project path is not a directory: {project_path}")
+            return ServiceResult.error(error)
+
+        if not archive_name:
+            error = ValidationError("Archive name cannot be empty")
+            return ServiceResult.error(error)
+
+        async with self.operation_context("create_archive", timeout=300.0) as ctx:
+            try:
+                # Calculate original size
+                original_size = await run_in_executor(
+                    self._calculate_directory_size, project_path
+                )
+
+                # Count files to be archived
+                file_count = await run_in_executor(self._count_files, project_path)
+
+                # Create archive
+                archive_result = await run_in_executor(
+                    self._create_archive_sync, project_path, archive_name
+                )
+
+                if archive_result["success"]:
+                    archive_path = project_path / archive_name
+                    archive_size = (
+                        archive_path.stat().st_size if archive_path.exists() else 0
+                    )
+                    compression_ratio = (
+                        (archive_size / original_size) if original_size > 0 else 0
+                    )
+
+                    result = ArchiveResult(
+                        archive_path=archive_path,
+                        archive_size=archive_size,
+                        files_archived=file_count,
+                        compression_ratio=compression_ratio,
+                    )
+
+                    return ServiceResult.success(
+                        result,
+                        message=f"Successfully created archive: {archive_name}",
+                        metadata={
+                            "original_size_mb": round(original_size / (1024 * 1024), 2),
+                            "archive_size_mb": round(archive_size / (1024 * 1024), 2),
+                            "compression_percent": round(
+                                (1 - compression_ratio) * 100, 1
+                            ),
+                        },
+                    )
+                else:
+                    error = ProcessError(
+                        f"Archive creation failed: {archive_result['error']}",
+                        return_code=archive_result.get("return_code", 1),
+                    )
+                    return ServiceResult.error(error)
+
+            except Exception as e:
+                self.logger.exception("Unexpected error during archive creation")
+                error = ProcessError(f"Archive creation error: {str(e)}")
+                return ServiceResult.error(error)
+
+    def _calculate_directory_size(self, directory: Path) -> int:
+        """Calculate total size of directory contents"""
+        total_size = 0
+        try:
+            for file_path in directory.rglob("*"):
+                if file_path.is_file():
+                    total_size += file_path.stat().st_size
+        except (OSError, PermissionError):
+            pass  # Skip files we can't access
+        return total_size
+
+    def _count_files(self, directory: Path) -> int:
+        """Count total number of files in directory"""
+        file_count = 0
+        try:
+            for file_path in directory.rglob("*"):
+                if file_path.is_file():
+                    file_count += 1
+        except (OSError, PermissionError):
+            pass  # Skip files we can't access
+        return file_count
 
     def _create_archive_sync(
         self, project_path: Path, archive_name: str
-    ) -> Tuple[bool, str]:
+    ) -> Dict[str, Any]:
         """Synchronous implementation of archive creation"""
         original_cwd = None
         try:
@@ -184,32 +480,65 @@ class FileService:
 
             if result.returncode == 0:
                 logger.info("Successfully created archive: %s", archive_name)
-                return True, ""
+                return {
+                    "success": True,
+                    "archive_name": archive_name,
+                    "output": result.stdout,
+                }
+            else:
+                error_msg = result.stderr or result.stdout
+                logger.error("Archive creation failed: %s", error_msg)
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "return_code": result.returncode,
+                }
 
-            error_msg = result.stderr or result.stdout
-            logger.error("Archive creation failed: %s", error_msg)
-            return False, error_msg
-
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             logger.error("Project directory not found: %s", project_path)
-            return False, f"Project directory not found: {project_path}"
+            return {
+                "success": False,
+                "error": f"Project directory not found: {project_path}",
+            }
         except PermissionError as e:
             logger.error(
                 "Permission denied creating archive for %s: %s", project_path, e
             )
-            return False, f"Permission denied: {str(e)}"
-        except OSError as e:
-            logger.error("OS error creating archive for %s: %s", project_path, e)
-            return False, f"File system error: {str(e)}"
+            return {"success": False, "error": f"Permission denied: {str(e)}"}
         except Exception as e:
-            logger.exception("Unexpected error creating archive for %s", project_path)
-            return False, f"Unexpected error: {str(e)}"
+            logger.exception("Unexpected error during archive creation")
+            return {"success": False, "error": f"Unexpected error: {str(e)}"}
         finally:
-            # Always restore original directory
+            # Restore original working directory
             if original_cwd:
                 try:
                     os.chdir(original_cwd)
-                except OSError as e:
-                    logger.error(
-                        "Could not restore original directory %s: %s", original_cwd, e
-                    )
+                except Exception as e:
+                    logger.warning("Failed to restore working directory: %s", e)
+
+    # Backward compatibility methods
+    async def scan_for_cleanup_dirs(
+        self, project_path: Path
+    ) -> ServiceResult[List[Path]]:
+        """Backward compatibility: scan for cleanup directories only"""
+        result = await self.scan_for_cleanup_items(project_path)
+        if result.is_success:
+            return ServiceResult.success(
+                result.data.directories,
+                message=f"Found {len(result.data.directories)} directories to clean",
+            )
+        else:
+            return ServiceResult.error(result.error)
+
+    async def cleanup_project_dirs(
+        self, project_path: Path
+    ) -> ServiceResult[List[Path]]:
+        """Backward compatibility: cleanup and return deleted directory paths"""
+        result = await self.cleanup_project_items(project_path)
+        if result.is_success or result.is_partial:
+            deleted_paths = result.data.deleted_directories + result.data.deleted_files
+            return ServiceResult.success(
+                deleted_paths, message=f"Cleaned up {len(deleted_paths)} items"
+            )
+        else:
+            return ServiceResult.error(result.error)

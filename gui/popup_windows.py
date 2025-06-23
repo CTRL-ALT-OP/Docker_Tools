@@ -413,6 +413,18 @@ class GitCommitWindow:
         self.commit_listbox.insert(tk.END, "Loading commits...")
         self.commit_listbox.config(state="disabled")
 
+    def update_status(self, status_text: str, color: str = None):
+        """Update the status label with real-time progress"""
+        if self.status_label and self.window:
+            try:
+                if self.window.winfo_exists():
+                    self.status_label.config(text=status_text)
+                    if color:
+                        self.status_label.config(fg=color)
+            except tk.TclError:
+                # Window was destroyed - ignore silently
+                pass
+
     def update_with_commits(self, commits):
         """Update window with loaded commits"""
         self.commits = commits

@@ -58,6 +58,8 @@ async def run_subprocess_streaming_async(
     errors: str = "replace",
     cwd: Optional[str] = None,
     output_callback: Optional[Callable[[str], None]] = None,
+    timeout: Optional[float] = None,
+    **kwargs,
 ) -> Tuple[int, str]:
     """
     Run subprocess with streaming output asynchronously using thread pool
@@ -75,7 +77,7 @@ async def run_subprocess_streaming_async(
             else:
                 cmd_to_run = cmd
 
-            # Create subprocess with streaming
+            # Create subprocess with streaming - use unbuffered mode for real-time output
             if shell:
                 process = subprocess.Popen(
                     cmd_to_run,
@@ -86,7 +88,7 @@ async def run_subprocess_streaming_async(
                     encoding=encoding,
                     errors=errors,
                     cwd=cwd,
-                    bufsize=1,
+                    bufsize=0,  # Unbuffered for real-time streaming
                     universal_newlines=True,
                 )
             else:
@@ -98,21 +100,48 @@ async def run_subprocess_streaming_async(
                     encoding=encoding,
                     errors=errors,
                     cwd=cwd,
-                    bufsize=1,
+                    bufsize=0,  # Unbuffered for real-time streaming
                     universal_newlines=True,
                 )
 
             full_output = ""
 
-            # Stream output in real-time
+            # Stream output in real-time with smaller read chunks
+            import select
+            import time
+
             while True:
-                line = process.stdout.readline()
-                if line == "" and process.poll() is not None:
+                # Check if process is still running
+                if process.poll() is not None:
+                    # Process finished, read any remaining output
+                    remaining = process.stdout.read()
+                    if remaining:
+                        full_output += remaining
+                        if output_callback:
+                            output_callback(remaining)
                     break
-                if line:
-                    full_output += line
-                    if output_callback:
-                        output_callback(line)
+
+                # Try to read available data without blocking
+                try:
+                    # Use a small timeout to check for data periodically
+                    line = process.stdout.readline()
+                    if line:
+                        full_output += line
+                        if output_callback:
+                            output_callback(line)
+                    else:
+                        # No data available, small sleep to prevent busy waiting
+                        time.sleep(0.1)
+                except Exception:
+                    # If readline fails, try smaller read
+                    try:
+                        char = process.stdout.read(1)
+                        if char:
+                            full_output += char
+                            if output_callback:
+                                output_callback(char)
+                    except Exception:
+                        time.sleep(0.1)
 
             # Wait for process to complete
             return_code = process.wait()
