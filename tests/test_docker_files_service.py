@@ -636,7 +636,7 @@ class TestProjectControlPanelIntegration:
         with patch("general_tools.task_manager") as mock_task_manager, patch(
             "general_tools.ProjectControlPanel._setup_async_integration"
         ), patch("general_tools.ProjectControlPanel._setup_async_processing"), patch(
-            "general_tools.ProjectControlPanel.create_gui"
+            "general_tools.MainWindow"
         ), patch(
             "general_tools.ProjectControlPanel.load_projects"
         ), patch(
@@ -679,7 +679,7 @@ class TestProjectControlPanelIntegration:
         ), patch(
             "general_tools.ProjectControlPanel._setup_async_processing"
         ), patch(
-            "general_tools.ProjectControlPanel.create_gui"
+            "general_tools.MainWindow"
         ), patch(
             "general_tools.ProjectControlPanel.load_projects"
         ), patch(
@@ -806,7 +806,7 @@ class TestProjectControlPanelIntegration:
         ), patch(
             "general_tools.ProjectControlPanel._setup_async_processing"
         ), patch(
-            "general_tools.ProjectControlPanel.create_gui"
+            "general_tools.MainWindow"
         ), patch(
             "general_tools.ProjectControlPanel.load_projects"
         ), patch(
@@ -926,7 +926,7 @@ class TestProjectControlPanelIntegration:
         ), patch(
             "general_tools.ProjectControlPanel._setup_async_processing"
         ), patch(
-            "general_tools.ProjectControlPanel.create_gui"
+            "general_tools.MainWindow"
         ), patch(
             "general_tools.ProjectControlPanel.load_projects"
         ), patch(

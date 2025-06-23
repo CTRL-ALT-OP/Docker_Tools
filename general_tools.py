@@ -19,8 +19,7 @@ from services.docker_service import DockerService
 from services.sync_service import SyncService
 from services.validation_service import ValidationService
 from services.docker_files_service import DockerFilesService
-from gui.gui_utils import GuiUtils
-from gui.popup_windows import TerminalOutputWindow, GitCommitWindow, AddProjectWindow
+from gui import MainWindow, TerminalOutputWindow, GitCommitWindow, AddProjectWindow
 from utils.async_utils import (
     task_manager,
     shutdown_all,
@@ -54,10 +53,8 @@ class ProjectControlPanel:
         self.docker_files_service = DockerFilesService()
 
         # Initialize GUI
-        self.window = tk.Tk()
-        self.window.title(WINDOW_TITLE)
-        self.window.geometry(MAIN_WINDOW_SIZE)
-        self.window.configure(bg=COLORS["background"])
+        self.main_window = MainWindow(root_dir)
+        self.window = self.main_window.window  # For backward compatibility
 
         # Initialize async bridge for GUI coordination
         self.async_bridge = TkinterAsyncBridge(self.window, task_manager)
@@ -65,15 +62,14 @@ class ProjectControlPanel:
         # Set up proper event loop for async operations
         self._setup_async_integration()
 
+        # Set up GUI callbacks
+        self._setup_gui_callbacks()
+
         # Set up proper cleanup on window close
-        self.window.protocol("WM_DELETE_WINDOW", self._on_window_close)
+        self.main_window.setup_window_protocol(self._on_window_close)
 
-        # GUI components
-        self.scrollable_frame = None
-        self.project_selector = None
-        self.navigation_frame = None
-
-        self.create_gui()
+        # Create GUI and load projects
+        self.main_window.create_gui()
         self.load_projects()
 
         # Setup improved async event processing
@@ -88,6 +84,22 @@ class ProjectControlPanel:
         except Exception as e:
             logger.error("Failed to setup async integration: %s", e)
             # Continue without async support
+
+    def _setup_gui_callbacks(self):
+        """Set up GUI event callbacks"""
+        callbacks = {
+            "on_project_selected": self.on_project_selected,
+            "refresh_projects": self.refresh_projects,
+            "open_add_project_window": self.open_add_project_window,
+            "cleanup_project": self.cleanup_project,
+            "archive_project": self.archive_project,
+            "docker_build_and_test": self.docker_build_and_test,
+            "git_view": self.git_view,
+            "sync_run_tests_from_pre_edit": self.sync_run_tests_from_pre_edit,
+            "validate_project_group": self.validate_project_group,
+            "build_docker_files_for_project_group": self.build_docker_files_for_project_group,
+        }
+        self.main_window.set_callbacks(callbacks)
 
     def _setup_async_processing(self):
         """Setup improved async event processing with better timing"""
@@ -141,61 +153,6 @@ class ProjectControlPanel:
             # Destroy the window
             self.window.destroy()
 
-    def create_gui(self):
-        """Create the main GUI layout"""
-
-        # Create navigation frame
-        self._create_navigation_frame()
-
-        # Create main frame with scrollbar
-        main_frame = GuiUtils.create_styled_frame(self.window)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        # Create scrollable frame
-        canvas, self.scrollable_frame, scrollbar = GuiUtils.create_scrollable_frame(
-            main_frame
-        )
-
-    def _create_navigation_frame(self):
-        """Create the navigation frame with project selector and navigation buttons"""
-        self.navigation_frame = GuiUtils.create_styled_frame(self.window)
-        self.navigation_frame.pack(fill="x", padx=10, pady=(0, 10))
-
-        # Project selection row
-        selection_frame = GuiUtils.create_styled_frame(self.navigation_frame)
-        selection_frame.pack(fill="x", pady=5)
-
-        # Project selector label
-        selector_label = GuiUtils.create_styled_label(
-            selection_frame, text="Project:", font_key="project_name"
-        )
-        selector_label.pack(side="left", padx=(0, 10))
-
-        # Project selector dropdown
-        self.project_selector = ttk.Combobox(
-            selection_frame, state="readonly", font=FONTS["project_name"], width=30
-        )
-        self.project_selector.pack(side="left", padx=(0, 10))
-        self.project_selector.bind("<<ComboboxSelected>>", self.on_project_selected)
-
-        # Refresh button
-        refresh_btn = GuiUtils.create_styled_button(
-            selection_frame,
-            text="🔄 Refresh",
-            command=self.refresh_projects,
-            style="refresh",
-        )
-        refresh_btn.pack(side="right")
-
-        # Add Project button
-        add_project_btn = GuiUtils.create_styled_button(
-            selection_frame,
-            text="➕ Add Project",
-            command=self.open_add_project_window,
-            style="git",
-        )
-        add_project_btn.pack(side="right", padx=(0, 10))
-
     def load_projects(self):
         """Load and populate project groups"""
         self.project_group_service.load_project_groups()
@@ -205,19 +162,18 @@ class ProjectControlPanel:
     def update_project_selector(self):
         """Update the project selector dropdown with available projects"""
         group_names = self.project_group_service.get_group_names()
+        current_group_name = self.project_group_service.get_current_group_name()
 
-        # Update combobox values
-        self.project_selector["values"] = group_names
+        # Update the main window's project selector
+        self.main_window.update_project_selector(group_names, current_group_name)
 
-        if current_group_name := self.project_group_service.get_current_group_name():
-            self.project_selector.set(current_group_name)
-        elif group_names:
-            self.project_selector.set(group_names[0])
+        # Set default if no current group but groups exist
+        if not current_group_name and group_names:
             self.project_group_service.set_current_group_by_name(group_names[0])
 
     def on_project_selected(self, event=None):
         """Handle project selection from dropdown"""
-        selected_name = self.project_selector.get()
+        selected_name = self.main_window.get_selected_project()
         if selected_name and self.project_group_service.set_current_group_by_name(
             selected_name
         ):
@@ -226,206 +182,33 @@ class ProjectControlPanel:
     def populate_current_project(self):
         """Populate the GUI with the current project group"""
         # Clear existing content
-        for widget in self.scrollable_frame.winfo_children():
-            widget.destroy()
+        self.main_window.clear_content()
 
         current_group = self.project_group_service.get_current_group()
 
         if not current_group:
-            no_projects_label = GuiUtils.create_styled_label(
-                self.scrollable_frame,
-                text=f"No projects found in:\n{self.root_dir}",
-                font_key="project_name",
-            )
-            no_projects_label.pack(pady=20)
+            self.main_window.show_no_projects_message()
             return
 
         # Create project header
-        self._create_project_header(current_group)
+        self.main_window.create_project_header(current_group)
 
         # Create project actions frame
-        self._create_project_actions_frame(current_group)
+        self.main_window.create_project_actions_frame(current_group)
 
         # Display all versions of the current project
         versions = current_group.get_all_versions()
 
         if not versions:
-            no_versions_label = GuiUtils.create_styled_label(
-                self.scrollable_frame,
-                text="No versions found for this project",
-                font_key="project_name",
-            )
-            no_versions_label.pack(pady=20)
+            self.main_window.show_no_versions_message()
             return
 
         # Group versions for better display
         for i, project in enumerate(versions):
             if i > 0:  # Add spacing between versions
-                tk.Frame(
-                    self.scrollable_frame, height=10, bg=COLORS["background"]
-                ).pack()
+                self.main_window.add_version_spacing()
 
-            self._create_version_section(project)
-
-    def _create_project_header(self, project_group: ProjectGroup):
-        """Create a header for the current project group"""
-        header_frame = GuiUtils.create_styled_frame(
-            self.scrollable_frame, bg_color="white", relief="raised", bd=2
-        )
-        header_frame.pack(fill="x", padx=20, pady=(10, 0))
-
-        # Project name
-        name_label = GuiUtils.create_styled_label(
-            header_frame,
-            text=f"📁 Project: {project_group.name}",
-            font_key="title",
-            color_key="project_header",
-            bg=COLORS["white"],
-        )
-        name_label.pack(pady=15)
-
-    def _create_project_actions_frame(self, project_group: ProjectGroup):
-        """Create a frame for project-level action buttons"""
-        actions_frame = GuiUtils.create_styled_frame(
-            self.scrollable_frame, bg_color="background", relief="flat"
-        )
-        actions_frame.pack(fill="x", padx=20, pady=(0, 10))
-
-        # Buttons container
-        buttons_container = GuiUtils.create_styled_frame(
-            actions_frame,
-            bg_color="background",
-        )
-        buttons_container.pack(fill="x")
-
-        # Sync button
-        sync_btn = GuiUtils.create_styled_button(
-            buttons_container,
-            text="🔄 Sync run_tests.sh",
-            command=lambda: self.sync_run_tests_from_pre_edit(project_group),
-            style="sync",
-        )
-        sync_btn.pack(side="left", padx=(0, 10))
-
-        # Validation button
-        validate_btn = GuiUtils.create_styled_button(
-            buttons_container,
-            text="🔍 Validate All",
-            command=lambda: self.validate_project_group(project_group),
-            style="validate",
-        )
-        validate_btn.pack(side="left", padx=(0, 10))
-
-        # Build Docker files button
-        build_docker_btn = GuiUtils.create_styled_button(
-            buttons_container,
-            text="🐳 Build Docker files",
-            command=lambda: self.build_docker_files_for_project_group(project_group),
-            style="build_docker",
-        )
-        build_docker_btn.pack(side="left", padx=(0, 10))
-
-    def _create_version_section(self, project: Project):
-        """Create a version section for a project"""
-        # Get alias for better display
-        alias = self.project_service.get_folder_alias(project.parent)
-
-        # Version header
-        version_header_frame = GuiUtils.create_styled_frame(self.scrollable_frame)
-        version_header_frame.pack(anchor="w", padx=30, pady=(10, 5))
-
-        # Main version name
-        version_label = GuiUtils.create_styled_label(
-            version_header_frame,
-            text=f"📂 {project.parent}",
-            font_key="header",
-            color_key="project_header",
-        )
-        version_label.pack(side="left")
-
-        # Alias in faded text if it exists
-        if alias:
-            alias_label = GuiUtils.create_styled_label(
-                version_header_frame,
-                text=f" ({alias})",
-                font_key="info",
-                color_key="muted",
-            )
-            alias_label.pack(side="left")
-
-        # Project row
-        self._create_project_row(project)
-
-    def _create_project_row(self, project: Project):
-        """Create a project row with buttons"""
-        # Create project frame
-        project_frame = GuiUtils.create_styled_frame(
-            self.scrollable_frame, bg_color="white", relief="raised", bd=1
-        )
-        project_frame.pack(fill="x", padx=40, pady=2)
-
-        # Project info
-        info_frame = GuiUtils.create_styled_frame(project_frame, bg_color="white")
-        info_frame.pack(side="left", fill="x", expand=True, padx=10, pady=8)
-
-        name_label = GuiUtils.create_styled_label(
-            info_frame, text=project.name, font_key="project_name", bg=COLORS["white"]
-        )
-        name_label.pack(anchor="w")
-
-        path_label = GuiUtils.create_styled_label(
-            info_frame,
-            text=f"Path: {project.relative_path}",
-            font_key="info",
-            color_key="muted",
-            bg=COLORS["white"],
-        )
-        path_label.pack(anchor="w")
-
-        # Buttons frame
-        buttons_frame = GuiUtils.create_styled_frame(project_frame, bg_color="white")
-        buttons_frame.pack(side="right", padx=10, pady=8)
-
-        # Create buttons
-        self._create_project_buttons(buttons_frame, project)
-
-    def _create_project_buttons(self, parent, project: Project):
-        """Create the action buttons for a project"""
-        # Cleanup button
-        cleanup_btn = GuiUtils.create_styled_button(
-            parent,
-            text="🧹 Cleanup",
-            command=lambda: self.cleanup_project(project),
-            style="cleanup",
-        )
-        cleanup_btn.pack(side="left", padx=(0, 5))
-
-        # Archive button
-        archive_btn = GuiUtils.create_styled_button(
-            parent,
-            text="📦 Archive",
-            command=lambda: self.archive_project(project),
-            style="archive",
-        )
-        archive_btn.pack(side="left", padx=(0, 5))
-
-        # Docker button
-        docker_btn = GuiUtils.create_styled_button(
-            parent,
-            text="🐳 Docker",
-            command=lambda: self.docker_build_and_test(project),
-            style="docker",
-        )
-        docker_btn.pack(side="left", padx=(0, 5))
-
-        # Git View button
-        git_btn = GuiUtils.create_styled_button(
-            parent,
-            text="🔀 Git View",
-            command=lambda: self.git_view(project),
-            style="git",
-        )
-        git_btn.pack(side="left")
+            self.main_window.create_version_section(project, self.project_service)
 
     def cleanup_project(self, project: Project):
         """Create cleanup of the project (async)"""
@@ -1436,16 +1219,15 @@ class ProjectControlPanel:
 
     def refresh_projects(self):
         """Refresh the project list"""
-        # Clear existing widgets
-        for widget in self.scrollable_frame.winfo_children():
-            widget.destroy()
+        # Clear existing widgets using MainWindow's interface
+        self.main_window.clear_content()
 
         # Repopulate
         self.load_projects()
 
     def run(self):
         """Start the GUI"""
-        self.window.mainloop()
+        self.main_window.run()
 
 
 def main():
