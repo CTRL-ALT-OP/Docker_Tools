@@ -1,7 +1,8 @@
 *
 !requirements.txt
-!**/*.py
+!*.py
 !validation-tool/*
 validation-tool/codebases/*
 validation-tool/output/*
 !defaults/*
+!*.md
