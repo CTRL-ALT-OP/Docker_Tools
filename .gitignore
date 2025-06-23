@@ -1,5 +1,6 @@
 *
 !requirements.txt
+!*/
 !*.py
 !validation-tool/*
 validation-tool/codebases/*
