@@ -36,6 +36,13 @@ FOLDER_ALIASES = {
 # CHANGE THIS TO THE ABSOLUTE PATH OF THE SOURCE DIRECTORY
 SOURCE_DIR = os.path.join(os.getcwd(), "Example_source_dir")
 
+
+# Language detection configuration for Docker files service
+LANGUAGE_EXTENSIONS = {}
+
+# Required files for each language
+LANGUAGE_REQUIRED_FILES = {}
+
 # GUI Configuration
 WINDOW_TITLE = "Project Control Panel"
 MAIN_WINDOW_SIZE = "750x650"

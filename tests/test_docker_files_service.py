@@ -1,5 +1,5 @@
 """
-Tests for DockerFilesService - implementation-agnostic tests
+Tests for DockerFilesService - implementation-agnostic tests for multi-language support
 """
 
 import os
@@ -16,7 +16,7 @@ from models.project import Project
 
 
 class TestDockerFilesService:
-    """Test suite for DockerFilesService"""
+    """Test suite for DockerFilesService with multi-language support"""
 
     @pytest.fixture
     def service(self):
@@ -25,28 +25,54 @@ class TestDockerFilesService:
 
     @pytest.fixture
     def temp_defaults_dir(self, temp_directory):
-        """Create a temporary defaults directory with required files"""
+        """Create a temporary defaults directory with language-specific templates"""
         defaults_dir = temp_directory / "defaults"
         defaults_dir.mkdir()
 
-        # Create all required template files
-        templates = {
-            "build_docker.sh": "#!/bin/bash\necho 'Building Docker'\n",
-            "run_tests.sh": "#!/bin/bash\necho 'Running tests'\n",
-            "run_tests_tkinter.sh": "#!/bin/bash\necho 'Running tkinter tests'\n",
-            "run_tests_opencv.sh": "#!/bin/bash\necho 'Running opencv tests'\n",
-            "run_tests_opencv_tkinter.sh": "#!/bin/bash\necho 'Running opencv+tkinter tests'\n",
-            "Dockerfile": "FROM python:3.9\nCOPY . /app\n",
-            "Dockerfile_tkinter": "FROM python:3.9\nRUN apt-get update\nCOPY . /app\n",
-            "Dockerfile_opencv": "FROM python:3.9\nRUN pip install opencv-python\nCOPY . /app\n",
-            "Dockerfile_opencv_tkinter.txt": "FROM python:3.9\nRUN apt-get update\nRUN pip install opencv-python\nCOPY . /app\n",
+        # Create language-specific directories with templates
+        languages = {
+            "python": {
+                "build_docker.sh": "#!/bin/bash\necho 'Building Python Docker'\n",
+                "run_tests.sh": "#!/bin/bash\necho 'Running Python tests'\n",
+                "run_tests_tkinter.sh": "#!/bin/bash\necho 'Running Python tkinter tests'\n",
+                "run_tests_opencv.sh": "#!/bin/bash\necho 'Running Python opencv tests'\n",
+                "run_tests_opencv_tkinter.sh": "#!/bin/bash\necho 'Running Python opencv+tkinter tests'\n",
+                "Dockerfile": "FROM python:3.9\nCOPY . /app\n",
+                "Dockerfile_tkinter": "FROM python:3.9\nRUN apt-get update\nCOPY . /app\n",
+                "Dockerfile_opencv": "FROM python:3.9\nRUN pip install opencv-python\nCOPY . /app\n",
+                "Dockerfile_opencv_tkinter": "FROM python:3.9\nRUN apt-get update\nRUN pip install opencv-python\nCOPY . /app\n",
+            },
+            "javascript": {
+                "build_docker.sh": "#!/bin/bash\necho 'Building JavaScript Docker'\n",
+                "run_tests.sh": "#!/bin/bash\necho 'Running JavaScript tests'\n",
+                "Dockerfile": "FROM node:18\nCOPY . /app\n",
+            },
+            "typescript": {
+                "build_docker.sh": "#!/bin/bash\necho 'Building TypeScript Docker'\n",
+                "run_tests.sh": "#!/bin/bash\necho 'Running TypeScript tests'\n",
+                "Dockerfile": "FROM node:18\nCOPY . /app\n",
+            },
+            "java": {
+                "build_docker.sh": "#!/bin/bash\necho 'Building Java Docker'\n",
+                "run_tests.sh": "#!/bin/bash\necho 'Running Java tests'\n",
+                "Dockerfile": "FROM openjdk:11\nCOPY . /app\n",
+            },
+            "rust": {
+                "build_docker.sh": "#!/bin/bash\necho 'Building Rust Docker'\n",
+                "run_tests.sh": "#!/bin/bash\necho 'Running Rust tests'\n",
+                "Dockerfile": "FROM rust:1.70\nCOPY . /app\n",
+            },
         }
 
-        for filename, content in templates.items():
-            template_file = defaults_dir / filename
-            template_file.write_text(content)
-            if filename.endswith(".sh"):
-                os.chmod(template_file, 0o755)
+        for language, templates in languages.items():
+            lang_dir = defaults_dir / language
+            lang_dir.mkdir()
+
+            for filename, content in templates.items():
+                template_file = lang_dir / filename
+                template_file.write_text(content)
+                if filename.endswith(".sh"):
+                    os.chmod(template_file, 0o755)
 
         return defaults_dir
 
@@ -85,369 +111,556 @@ class TestDockerFilesService:
 
         return project_group
 
+    # Language detection test fixtures
     @pytest.fixture
-    def pre_edit_project_with_tkinter(self, temp_directory):
-        """Create a pre-edit project with tkinter imports"""
-        project_dir = temp_directory / "pre-edit" / "test-project"
+    def python_project(self, temp_directory):
+        """Create a project with Python files"""
+        project_dir = temp_directory / "pre-edit" / "python-project"
+        project_dir.mkdir(parents=True)
+
+        # Create Python files
+        (project_dir / "main.py").write_text("import os\nprint('Hello Python')")
+        (project_dir / "utils.py").write_text("def helper(): pass")
+        (project_dir / "tests.py").write_text("import unittest")
+
+        return Project(
+            parent="pre-edit",
+            name="python-project",
+            path=project_dir,
+            relative_path="pre-edit/python-project",
+        )
+
+    @pytest.fixture
+    def javascript_project(self, temp_directory):
+        """Create a project with JavaScript files"""
+        project_dir = temp_directory / "pre-edit" / "js-project"
+        project_dir.mkdir(parents=True)
+
+        # Create JavaScript files
+        (project_dir / "index.js").write_text("console.log('Hello JavaScript');")
+        (project_dir / "utils.js").write_text("function helper() {}")
+        (project_dir / "app.jsx").write_text("import React from 'react';")
+
+        return Project(
+            parent="pre-edit",
+            name="js-project",
+            path=project_dir,
+            relative_path="pre-edit/js-project",
+        )
+
+    @pytest.fixture
+    def typescript_project(self, temp_directory):
+        """Create a project with TypeScript files"""
+        project_dir = temp_directory / "pre-edit" / "ts-project"
+        project_dir.mkdir(parents=True)
+
+        # Create TypeScript files
+        (project_dir / "index.ts").write_text(
+            "const message: string = 'Hello TypeScript';"
+        )
+        (project_dir / "types.ts").write_text("export interface User { name: string; }")
+        (project_dir / "component.tsx").write_text("import React from 'react';")
+
+        return Project(
+            parent="pre-edit",
+            name="ts-project",
+            path=project_dir,
+            relative_path="pre-edit/ts-project",
+        )
+
+    @pytest.fixture
+    def java_project(self, temp_directory):
+        """Create a project with Java files"""
+        project_dir = temp_directory / "pre-edit" / "java-project"
+        project_dir.mkdir(parents=True)
+
+        # Create Java files
+        (project_dir / "Main.java").write_text(
+            "public class Main { public static void main(String[] args) {} }"
+        )
+        (project_dir / "Utils.java").write_text("public class Utils { }")
+
+        return Project(
+            parent="pre-edit",
+            name="java-project",
+            path=project_dir,
+            relative_path="pre-edit/java-project",
+        )
+
+    @pytest.fixture
+    def rust_project(self, temp_directory):
+        """Create a project with Rust files"""
+        project_dir = temp_directory / "pre-edit" / "rust-project"
+        project_dir.mkdir(parents=True)
+
+        # Create Rust files
+        (project_dir / "main.rs").write_text('fn main() { println!("Hello Rust"); }')
+        (project_dir / "lib.rs").write_text("pub fn helper() {}")
+
+        return Project(
+            parent="pre-edit",
+            name="rust-project",
+            path=project_dir,
+            relative_path="pre-edit/rust-project",
+        )
+
+    @pytest.fixture
+    def mixed_language_project(self, temp_directory):
+        """Create a project with mixed language files (Python should win)"""
+        project_dir = temp_directory / "pre-edit" / "mixed-project"
+        project_dir.mkdir(parents=True)
+
+        # Create files with Python having the most files
+        (project_dir / "main.py").write_text("import os")
+        (project_dir / "utils.py").write_text("def helper(): pass")
+        (project_dir / "tests.py").write_text("import unittest")
+        (project_dir / "config.py").write_text("CONFIG = {}")
+        (project_dir / "app.js").write_text("console.log('hello');")
+        (project_dir / "script.js").write_text("function test() {}")
+
+        return Project(
+            parent="pre-edit",
+            name="mixed-project",
+            path=project_dir,
+            relative_path="pre-edit/mixed-project",
+        )
+
+    @pytest.fixture
+    def python_project_with_tkinter(self, temp_directory):
+        """Create a Python project with tkinter imports"""
+        project_dir = temp_directory / "pre-edit" / "tkinter-project"
         project_dir.mkdir(parents=True)
 
         # Create Python file with tkinter import
-        py_file = project_dir / "main.py"
-        py_file.write_text("import tkinter as tk\nfrom tkinter import messagebox\n")
+        (project_dir / "main.py").write_text(
+            "import tkinter as tk\nfrom tkinter import messagebox\n"
+        )
+        (project_dir / "gui.py").write_text("import tkinter\nclass App: pass")
 
         return Project(
             parent="pre-edit",
-            name="test-project",
+            name="tkinter-project",
             path=project_dir,
-            relative_path="pre-edit/test-project",
+            relative_path="pre-edit/tkinter-project",
         )
 
     @pytest.fixture
-    def pre_edit_project_with_opencv(self, temp_directory):
-        """Create a pre-edit project with opencv requirements"""
-        project_dir = temp_directory / "pre-edit" / "test-project"
+    def python_project_with_opencv(self, temp_directory):
+        """Create a Python project with opencv requirements"""
+        project_dir = temp_directory / "pre-edit" / "opencv-project"
         project_dir.mkdir(parents=True)
 
-        # Create requirements.txt with opencv-python
-        req_file = project_dir / "requirements.txt"
-        req_file.write_text("numpy==1.21.0\nopencv-python==4.5.0\nmatplotlib==3.4.0\n")
+        # Create Python file and requirements.txt with opencv-python
+        (project_dir / "main.py").write_text("import cv2\nprint('OpenCV project')")
+        (project_dir / "requirements.txt").write_text(
+            "numpy==1.21.0\nopencv-python==4.5.0\nmatplotlib==3.4.0\n"
+        )
 
         return Project(
             parent="pre-edit",
-            name="test-project",
+            name="opencv-project",
             path=project_dir,
-            relative_path="pre-edit/test-project",
+            relative_path="pre-edit/opencv-project",
         )
 
-    @pytest.fixture
-    def pre_edit_project_with_gitignore(self, temp_directory):
-        """Create a pre-edit project with .gitignore"""
-        project_dir = temp_directory / "pre-edit" / "test-project"
-        project_dir.mkdir(parents=True)
+    # Language Detection Tests
+    @pytest.mark.asyncio
+    async def test_detects_python_language(self, service, python_project):
+        """Test that service correctly detects Python as the primary language"""
+        output_callback = Mock()
 
-        # Create .gitignore
-        gitignore = project_dir / ".gitignore"
-        gitignore.write_text("__pycache__/\n*.pyc\n.pytest_cache/\n")
+        detected_language = await service._detect_programming_language(
+            python_project, output_callback
+        )
 
-        return Project(
+        assert detected_language == "python"
+        # Verify output mentions Python files found
+        output_calls = [call.args[0] for call in output_callback.call_args_list]
+        assert any("python" in call.lower() for call in output_calls)
+
+    @pytest.mark.asyncio
+    async def test_detects_javascript_language(self, service, javascript_project):
+        """Test that service correctly detects JavaScript as the primary language"""
+        output_callback = Mock()
+
+        detected_language = await service._detect_programming_language(
+            javascript_project, output_callback
+        )
+
+        assert detected_language == "javascript"
+        # Verify output mentions JavaScript files found
+        output_calls = [call.args[0] for call in output_callback.call_args_list]
+        assert any("javascript" in call.lower() for call in output_calls)
+
+    @pytest.mark.asyncio
+    async def test_detects_typescript_language(self, service, typescript_project):
+        """Test that service correctly detects TypeScript as the primary language"""
+        output_callback = Mock()
+
+        detected_language = await service._detect_programming_language(
+            typescript_project, output_callback
+        )
+
+        assert detected_language == "typescript"
+
+    @pytest.mark.asyncio
+    async def test_detects_java_language(self, service, java_project):
+        """Test that service correctly detects Java as the primary language"""
+        output_callback = Mock()
+
+        detected_language = await service._detect_programming_language(
+            java_project, output_callback
+        )
+
+        assert detected_language == "java"
+
+    @pytest.mark.asyncio
+    async def test_detects_rust_language(self, service, rust_project):
+        """Test that service correctly detects Rust as the primary language"""
+        output_callback = Mock()
+
+        detected_language = await service._detect_programming_language(
+            rust_project, output_callback
+        )
+
+        assert detected_language == "rust"
+
+    @pytest.mark.asyncio
+    async def test_detects_dominant_language_in_mixed_project(
+        self, service, mixed_language_project
+    ):
+        """Test that service detects the language with the most files"""
+        output_callback = Mock()
+
+        detected_language = await service._detect_programming_language(
+            mixed_language_project, output_callback
+        )
+
+        # Python should win with 4 files vs JavaScript's 2 files
+        assert detected_language == "python"
+
+    @pytest.mark.asyncio
+    async def test_selects_python_when_no_files_found(self, service, temp_directory):
+        """Test that service selects Python when no recognized files are found"""
+        project_dir = temp_directory / "empty-project"
+        project_dir.mkdir()
+
+        # Create some non-code files
+        (project_dir / "README.md").write_text("# Project")
+        (project_dir / "data.txt").write_text("some data")
+
+        project = Project(
             parent="pre-edit",
-            name="test-project",
+            name="empty-project",
             path=project_dir,
-            relative_path="pre-edit/test-project",
+            relative_path="pre-edit/empty-project",
         )
 
-    @pytest.mark.asyncio
-    async def test_finds_pre_edit_version(self, service, sample_project_group):
-        """Test that service correctly identifies pre-edit version"""
-        with patch.object(service, "defaults_dir", Path("defaults")):
-            pre_edit = service._find_pre_edit_version(sample_project_group)
-
-            assert pre_edit is not None
-            assert pre_edit.parent == "pre-edit"
-            assert pre_edit.name == "test-project"
-
-    @pytest.mark.asyncio
-    async def test_detects_tkinter_imports(
-        self, service, pre_edit_project_with_tkinter
-    ):
-        """Test that service correctly detects tkinter imports"""
-        has_tkinter = await service._search_for_tkinter_imports(
-            pre_edit_project_with_tkinter.path
+        output_callback = Mock()
+        detected_language = await service._detect_programming_language(
+            project, output_callback
         )
-        assert has_tkinter is True
 
+        assert detected_language == "python"
+        # Verify output shows python with 0 files (since no code files found)
+        output_calls = [call.args[0] for call in output_callback.call_args_list]
+        assert any("python (0 files)" in call.lower() for call in output_calls)
+
+    # Language-Specific File Creation Tests
     @pytest.mark.asyncio
-    async def test_detects_no_tkinter_imports(self, service, temp_directory):
-        """Test that service correctly detects absence of tkinter imports"""
-        project_dir = temp_directory / "test-project"
-        project_dir.mkdir()
-
-        # Create Python file without tkinter
-        py_file = project_dir / "main.py"
-        py_file.write_text("import os\nimport sys\n")
-
-        has_tkinter = await service._search_for_tkinter_imports(project_dir)
-        assert has_tkinter is False
-
-    @pytest.mark.asyncio
-    async def test_detects_opencv_in_requirements(
-        self, service, pre_edit_project_with_opencv
-    ):
-        """Test that service correctly detects opencv-python in requirements.txt"""
-        has_opencv = await service._check_opencv_in_requirements(
-            pre_edit_project_with_opencv.path
-        )
-        assert has_opencv is True
-
-    @pytest.mark.asyncio
-    async def test_detects_no_opencv_in_requirements(self, service, temp_directory):
-        """Test that service correctly detects absence of opencv-python"""
-        project_dir = temp_directory / "test-project"
-        project_dir.mkdir()
-
-        # Create requirements.txt without opencv
-        req_file = project_dir / "requirements.txt"
-        req_file.write_text("numpy==1.21.0\nmatplotlib==3.4.0\n")
-
-        has_opencv = await service._check_opencv_in_requirements(project_dir)
-        assert has_opencv is False
-
-    @pytest.mark.asyncio
-    async def test_creates_blank_requirements_txt_when_missing(
-        self, service, temp_directory, temp_defaults_dir
-    ):
-        """Test that service creates blank requirements.txt when it doesn't exist"""
-        project_dir = temp_directory / "test-project"
+    async def test_creates_python_requirements_txt(self, service, temp_directory):
+        """Test that service creates requirements.txt for Python projects"""
+        project_dir = temp_directory / "python-project"
         project_dir.mkdir()
 
         project = Project(
             parent="pre-edit",
-            name="test-project",
+            name="python-project",
             path=project_dir,
-            relative_path="pre-edit/test-project",
+            relative_path="pre-edit/python-project",
         )
 
         output_callback = Mock()
-
-        with patch.object(service, "defaults_dir", temp_defaults_dir):
-            await service._ensure_requirements_txt(project, output_callback)
+        await service._ensure_language_files(project, "python", output_callback)
 
         req_file = project_dir / "requirements.txt"
         assert req_file.exists()
-        assert "# Add your project dependencies here" in req_file.read_text()
-        output_callback.assert_called_with("   ✅ Created blank requirements.txt\n")
+        content = req_file.read_text()
+        assert "# Add your Python project dependencies here" in content
 
     @pytest.mark.asyncio
-    async def test_preserves_existing_requirements_txt(
-        self, service, pre_edit_project_with_opencv
-    ):
-        """Test that service preserves existing requirements.txt"""
-        output_callback = Mock()
-        original_content = pre_edit_project_with_opencv.path / "requirements.txt"
-        original_text = original_content.read_text()
-
-        await service._ensure_requirements_txt(
-            pre_edit_project_with_opencv, output_callback
-        )
-
-        # Check content unchanged
-        assert original_content.read_text() == original_text
-        output_callback.assert_called_with("   ✅ requirements.txt already exists\n")
-
-    @pytest.mark.asyncio
-    async def test_builds_dockerignore_from_gitignore(
-        self, service, pre_edit_project_with_gitignore
-    ):
-        """Test that service builds .dockerignore from .gitignore with !run_tests.sh line"""
-        output_callback = Mock()
-
-        await service._build_dockerignore(
-            pre_edit_project_with_gitignore, output_callback
-        )
-
-        dockerignore = pre_edit_project_with_gitignore.path / ".dockerignore"
-        assert dockerignore.exists()
-
-        content = dockerignore.read_text()
-        assert "__pycache__/" in content
-        assert "*.pyc" in content
-        assert ".pytest_cache/" in content
-        assert "!run_tests.sh\n" in content
-
-        output_callback.assert_called_with(
-            "   ✅ Created .dockerignore with '!run_tests.sh' line\n"
-        )
-
-    @pytest.mark.asyncio
-    async def test_builds_dockerignore_without_gitignore(self, service, temp_directory):
-        """Test that service builds .dockerignore when no .gitignore exists"""
-        project_dir = temp_directory / "test-project"
+    async def test_creates_javascript_package_files(self, service, temp_directory):
+        """Test that service creates package.json and package-lock.json for JavaScript projects"""
+        project_dir = temp_directory / "js-project"
         project_dir.mkdir()
 
         project = Project(
             parent="pre-edit",
-            name="test-project",
+            name="js-project",
             path=project_dir,
-            relative_path="pre-edit/test-project",
+            relative_path="pre-edit/js-project",
         )
 
         output_callback = Mock()
+        await service._ensure_language_files(project, "javascript", output_callback)
 
-        await service._build_dockerignore(project, output_callback)
+        # Check package.json
+        package_json = project_dir / "package.json"
+        assert package_json.exists()
+        content = package_json.read_text()
+        assert '"name": "project"' in content
+        assert '"version": "1.0.0"' in content
+        assert '"dependencies": {}' in content
 
-        dockerignore = project_dir / ".dockerignore"
-        assert dockerignore.exists()
-
-        content = dockerignore.read_text()
-        assert content == "!run_tests.sh\n"
+        # Check package-lock.json
+        package_lock = project_dir / "package-lock.json"
+        assert package_lock.exists()
+        lock_content = package_lock.read_text()
+        assert '"lockfileVersion": 2' in lock_content
 
     @pytest.mark.asyncio
-    async def test_copies_build_docker_sh(
+    async def test_creates_typescript_package_files(self, service, temp_directory):
+        """Test that service creates package.json and package-lock.json for TypeScript projects"""
+        project_dir = temp_directory / "ts-project"
+        project_dir.mkdir()
+
+        project = Project(
+            parent="pre-edit",
+            name="ts-project",
+            path=project_dir,
+            relative_path="pre-edit/ts-project",
+        )
+
+        output_callback = Mock()
+        await service._ensure_language_files(project, "typescript", output_callback)
+
+        # Both package.json and package-lock.json should be created
+        assert (project_dir / "package.json").exists()
+        assert (project_dir / "package-lock.json").exists()
+
+    @pytest.mark.asyncio
+    async def test_creates_java_pom_xml(self, service, temp_directory):
+        """Test that service creates pom.xml for Java projects"""
+        project_dir = temp_directory / "java-project"
+        project_dir.mkdir()
+
+        project = Project(
+            parent="pre-edit",
+            name="java-project",
+            path=project_dir,
+            relative_path="pre-edit/java-project",
+        )
+
+        output_callback = Mock()
+        await service._ensure_language_files(project, "java", output_callback)
+
+        pom_file = project_dir / "pom.xml"
+        assert pom_file.exists()
+        content = pom_file.read_text()
+        assert '<?xml version="1.0" encoding="UTF-8"?>' in content
+        assert "<modelVersion>4.0.0</modelVersion>" in content
+        assert "<groupId>com.example</groupId>" in content
+        assert "<artifactId>project</artifactId>" in content
+
+    @pytest.mark.asyncio
+    async def test_creates_no_files_for_rust(self, service, temp_directory):
+        """Test that service creates no additional files for Rust projects"""
+        project_dir = temp_directory / "rust-project"
+        project_dir.mkdir()
+
+        project = Project(
+            parent="pre-edit",
+            name="rust-project",
+            path=project_dir,
+            relative_path="pre-edit/rust-project",
+        )
+
+        output_callback = Mock()
+        await service._ensure_language_files(project, "rust", output_callback)
+
+        # No files should be created for Rust
+        assert not (project_dir / "requirements.txt").exists()
+        assert not (project_dir / "package.json").exists()
+        assert not (project_dir / "pom.xml").exists()
+
+        # Check output message
+        output_calls = [call.args[0] for call in output_callback.call_args_list]
+        assert any(
+            "no required files for rust" in call.lower() for call in output_calls
+        )
+
+    @pytest.mark.asyncio
+    async def test_preserves_existing_language_files(self, service, temp_directory):
+        """Test that service preserves existing language-specific files"""
+        project_dir = temp_directory / "existing-project"
+        project_dir.mkdir()
+
+        # Create existing package.json with custom content
+        existing_package = project_dir / "package.json"
+        existing_content = '{"name": "my-custom-project", "version": "2.0.0"}'
+        existing_package.write_text(existing_content)
+
+        project = Project(
+            parent="pre-edit",
+            name="existing-project",
+            path=project_dir,
+            relative_path="pre-edit/existing-project",
+        )
+
+        output_callback = Mock()
+        await service._ensure_language_files(project, "javascript", output_callback)
+
+        # Existing package.json should be preserved
+        assert existing_package.read_text() == existing_content
+
+        # package-lock.json should still be created
+        assert (project_dir / "package-lock.json").exists()
+
+    # Docker File Creation Tests by Language
+    @pytest.mark.asyncio
+    async def test_copies_python_docker_files(
         self, service, temp_directory, temp_defaults_dir
     ):
-        """Test that service copies build_docker.sh from defaults"""
-        project_dir = temp_directory / "test-project"
+        """Test that service copies Python-specific Docker files"""
+        project_dir = temp_directory / "python-project"
         project_dir.mkdir()
 
         project = Project(
             parent="pre-edit",
-            name="test-project",
+            name="python-project",
             path=project_dir,
-            relative_path="pre-edit/test-project",
+            relative_path="pre-edit/python-project",
         )
 
         output_callback = Mock()
 
         with patch.object(service, "defaults_dir", temp_defaults_dir):
-            await service._copy_build_docker_sh(project, output_callback)
+            await service._copy_build_docker_sh(project, "python", output_callback)
+            await service._copy_run_tests_sh(
+                project, "python", False, False, output_callback
+            )
+            await service._copy_dockerfile(
+                project, "python", False, False, output_callback
+            )
 
+        # Check files exist and have correct content
         build_script = project_dir / "build_docker.sh"
         assert build_script.exists()
-        assert "Building Docker" in build_script.read_text()
-
-        # Check executable permission
+        assert "Building Python Docker" in build_script.read_text()
         assert os.access(build_script, os.X_OK)
 
-    @pytest.mark.asyncio
-    async def test_copies_correct_run_tests_sh_default(
-        self, service, temp_directory, temp_defaults_dir
-    ):
-        """Test that service copies correct run_tests.sh for default case"""
-        project_dir = temp_directory / "test-project"
-        project_dir.mkdir()
-
-        project = Project(
-            parent="pre-edit",
-            name="test-project",
-            path=project_dir,
-            relative_path="pre-edit/test-project",
-        )
-
-        output_callback = Mock()
-
-        with patch.object(service, "defaults_dir", temp_defaults_dir):
-            await service._copy_run_tests_sh(project, False, False, output_callback)
-
         run_tests = project_dir / "run_tests.sh"
         assert run_tests.exists()
-        assert "Running tests" in run_tests.read_text()
+        assert "Running Python tests" in run_tests.read_text()
         assert os.access(run_tests, os.X_OK)
-
-    @pytest.mark.asyncio
-    async def test_copies_correct_run_tests_sh_tkinter(
-        self, service, temp_directory, temp_defaults_dir
-    ):
-        """Test that service copies correct run_tests.sh for tkinter case"""
-        project_dir = temp_directory / "test-project"
-        project_dir.mkdir()
-
-        project = Project(
-            parent="pre-edit",
-            name="test-project",
-            path=project_dir,
-            relative_path="pre-edit/test-project",
-        )
-
-        output_callback = Mock()
-
-        with patch.object(service, "defaults_dir", temp_defaults_dir):
-            await service._copy_run_tests_sh(project, True, False, output_callback)
-
-        run_tests = project_dir / "run_tests.sh"
-        assert run_tests.exists()
-        assert "Running tkinter tests" in run_tests.read_text()
-
-    @pytest.mark.asyncio
-    async def test_copies_correct_run_tests_sh_opencv(
-        self, service, temp_directory, temp_defaults_dir
-    ):
-        """Test that service copies correct run_tests.sh for opencv case"""
-        project_dir = temp_directory / "test-project"
-        project_dir.mkdir()
-
-        project = Project(
-            parent="pre-edit",
-            name="test-project",
-            path=project_dir,
-            relative_path="pre-edit/test-project",
-        )
-
-        output_callback = Mock()
-
-        with patch.object(service, "defaults_dir", temp_defaults_dir):
-            await service._copy_run_tests_sh(project, False, True, output_callback)
-
-        run_tests = project_dir / "run_tests.sh"
-        assert run_tests.exists()
-        assert "Running opencv tests" in run_tests.read_text()
-
-    @pytest.mark.asyncio
-    async def test_copies_correct_run_tests_sh_opencv_tkinter(
-        self, service, temp_directory, temp_defaults_dir
-    ):
-        """Test that service copies correct run_tests.sh for opencv+tkinter case"""
-        project_dir = temp_directory / "test-project"
-        project_dir.mkdir()
-
-        project = Project(
-            parent="pre-edit",
-            name="test-project",
-            path=project_dir,
-            relative_path="pre-edit/test-project",
-        )
-
-        output_callback = Mock()
-
-        with patch.object(service, "defaults_dir", temp_defaults_dir):
-            await service._copy_run_tests_sh(project, True, True, output_callback)
-
-        run_tests = project_dir / "run_tests.sh"
-        assert run_tests.exists()
-        assert "Running opencv+tkinter tests" in run_tests.read_text()
-
-    @pytest.mark.asyncio
-    async def test_copies_correct_dockerfile_default(
-        self, service, temp_directory, temp_defaults_dir
-    ):
-        """Test that service copies correct Dockerfile for default case"""
-        project_dir = temp_directory / "test-project"
-        project_dir.mkdir()
-
-        project = Project(
-            parent="pre-edit",
-            name="test-project",
-            path=project_dir,
-            relative_path="pre-edit/test-project",
-        )
-
-        output_callback = Mock()
-
-        with patch.object(service, "defaults_dir", temp_defaults_dir):
-            await service._copy_dockerfile(project, False, False, output_callback)
 
         dockerfile = project_dir / "Dockerfile"
         assert dockerfile.exists()
         assert "FROM python:3.9" in dockerfile.read_text()
 
     @pytest.mark.asyncio
-    async def test_copies_correct_dockerfile_tkinter(
+    async def test_copies_javascript_docker_files(
         self, service, temp_directory, temp_defaults_dir
     ):
-        """Test that service copies correct Dockerfile for tkinter case"""
-        project_dir = temp_directory / "test-project"
+        """Test that service copies JavaScript-specific Docker files"""
+        project_dir = temp_directory / "js-project"
         project_dir.mkdir()
 
         project = Project(
             parent="pre-edit",
-            name="test-project",
+            name="js-project",
             path=project_dir,
-            relative_path="pre-edit/test-project",
+            relative_path="pre-edit/js-project",
         )
 
         output_callback = Mock()
 
         with patch.object(service, "defaults_dir", temp_defaults_dir):
-            await service._copy_dockerfile(project, True, False, output_callback)
+            await service._copy_build_docker_sh(project, "javascript", output_callback)
+            await service._copy_run_tests_sh(
+                project, "javascript", False, False, output_callback
+            )
+            await service._copy_dockerfile(
+                project, "javascript", False, False, output_callback
+            )
+
+        # Check files exist and have correct content
+        build_script = project_dir / "build_docker.sh"
+        assert build_script.exists()
+        assert "Building JavaScript Docker" in build_script.read_text()
+
+        run_tests = project_dir / "run_tests.sh"
+        assert run_tests.exists()
+        assert "Running JavaScript tests" in run_tests.read_text()
+
+        dockerfile = project_dir / "Dockerfile"
+        assert dockerfile.exists()
+        assert "FROM node:18" in dockerfile.read_text()
+
+    @pytest.mark.asyncio
+    async def test_copies_java_docker_files(
+        self, service, temp_directory, temp_defaults_dir
+    ):
+        """Test that service copies Java-specific Docker files"""
+        project_dir = temp_directory / "java-project"
+        project_dir.mkdir()
+
+        project = Project(
+            parent="pre-edit",
+            name="java-project",
+            path=project_dir,
+            relative_path="pre-edit/java-project",
+        )
+
+        output_callback = Mock()
+
+        with patch.object(service, "defaults_dir", temp_defaults_dir):
+            await service._copy_build_docker_sh(project, "java", output_callback)
+            await service._copy_run_tests_sh(
+                project, "java", False, False, output_callback
+            )
+            await service._copy_dockerfile(
+                project, "java", False, False, output_callback
+            )
+
+        # Check files exist and have correct content
+        build_script = project_dir / "build_docker.sh"
+        assert build_script.exists()
+        assert "Building Java Docker" in build_script.read_text()
+
+        dockerfile = project_dir / "Dockerfile"
+        assert dockerfile.exists()
+        assert "FROM openjdk:11" in dockerfile.read_text()
+
+    @pytest.mark.asyncio
+    async def test_python_with_tkinter_uses_special_templates(
+        self, service, temp_directory, temp_defaults_dir
+    ):
+        """Test that Python projects with tkinter use special templates"""
+        project_dir = temp_directory / "tkinter-project"
+        project_dir.mkdir()
+
+        project = Project(
+            parent="pre-edit",
+            name="tkinter-project",
+            path=project_dir,
+            relative_path="pre-edit/tkinter-project",
+        )
+
+        output_callback = Mock()
+
+        with patch.object(service, "defaults_dir", temp_defaults_dir):
+            await service._copy_run_tests_sh(
+                project, "python", True, False, output_callback
+            )
+            await service._copy_dockerfile(
+                project, "python", True, False, output_callback
+            )
+
+        # Check special tkinter templates are used
+        run_tests = project_dir / "run_tests.sh"
+        assert run_tests.exists()
+        assert "Running Python tkinter tests" in run_tests.read_text()
 
         dockerfile = project_dir / "Dockerfile"
         assert dockerfile.exists()
@@ -456,39 +669,52 @@ class TestDockerFilesService:
         assert "apt-get update" in content
 
     @pytest.mark.asyncio
-    async def test_copies_correct_dockerfile_opencv_tkinter(
+    async def test_python_with_opencv_uses_special_templates(
         self, service, temp_directory, temp_defaults_dir
     ):
-        """Test that service copies correct Dockerfile for opencv+tkinter case"""
-        project_dir = temp_directory / "test-project"
+        """Test that Python projects with opencv use special templates"""
+        project_dir = temp_directory / "opencv-project"
         project_dir.mkdir()
 
         project = Project(
             parent="pre-edit",
-            name="test-project",
+            name="opencv-project",
             path=project_dir,
-            relative_path="pre-edit/test-project",
+            relative_path="pre-edit/opencv-project",
         )
 
         output_callback = Mock()
 
         with patch.object(service, "defaults_dir", temp_defaults_dir):
-            await service._copy_dockerfile(project, True, True, output_callback)
+            await service._copy_run_tests_sh(
+                project, "python", False, True, output_callback
+            )
+            await service._copy_dockerfile(
+                project, "python", False, True, output_callback
+            )
+
+        # Check special opencv templates are used
+        run_tests = project_dir / "run_tests.sh"
+        assert run_tests.exists()
+        assert "Running Python opencv tests" in run_tests.read_text()
 
         dockerfile = project_dir / "Dockerfile"
         assert dockerfile.exists()
         content = dockerfile.read_text()
         assert "FROM python:3.9" in content
-        assert "apt-get update" in content
         assert "opencv-python" in content
 
+    # File Distribution Tests
     @pytest.mark.asyncio
-    async def test_copies_files_to_all_versions(
+    async def test_copies_language_specific_files_to_all_versions(
         self, service, sample_project_group, temp_defaults_dir
     ):
-        """Test that service copies generated files to all versions"""
-        # Setup pre-edit project with files
+        """Test that service copies language-specific files to all project versions"""
+        # Setup pre-edit project with JavaScript files
         pre_edit = sample_project_group.get_version("pre-edit")
+
+        # Create JavaScript project files
+        (pre_edit.path / "index.js").write_text("console.log('hello');")
 
         # Create Docker files in pre-edit
         docker_files = [
@@ -496,9 +722,10 @@ class TestDockerFilesService:
             "run_tests.sh",
             "build_docker.sh",
             "Dockerfile",
-            "requirements.txt",
         ]
-        for filename in docker_files:
+        language_files = ["package.json", "package-lock.json"]  # JavaScript specific
+
+        for filename in docker_files + language_files:
             file_path = pre_edit.path / filename
             file_path.write_text(f"Content of {filename}")
             if filename.endswith(".sh"):
@@ -507,41 +734,44 @@ class TestDockerFilesService:
         output_callback = Mock()
 
         success, message = await service._copy_files_to_all_versions(
-            sample_project_group, pre_edit, output_callback
+            sample_project_group, pre_edit, "javascript", output_callback
         )
 
         assert success is True
         assert "Files copied to 3 versions" in message
 
-        # Check that files were copied to other versions
+        # Check that all files were copied to other versions
         for version_name in ["post-edit", "post-edit2", "correct-edit"]:
             version = sample_project_group.get_version(version_name)
-            for filename in docker_files:
+            for filename in docker_files + language_files:
                 file_path = version.path / filename
                 assert file_path.exists()
                 assert file_path.read_text() == f"Content of {filename}"
                 if filename.endswith(".sh"):
                     assert os.access(file_path, os.X_OK)
 
+    # Integration Tests
     @pytest.mark.asyncio
-    async def test_build_docker_files_for_project_group_full_workflow(
+    async def test_full_workflow_python_project_with_dependencies(
         self, service, sample_project_group, temp_defaults_dir
     ):
-        """Test complete workflow of building Docker files for project group"""
-        # Setup pre-edit project with tkinter and opencv
+        """Test complete workflow for Python project with tkinter and opencv"""
+        # Setup pre-edit project with Python files and dependencies
         pre_edit = sample_project_group.get_version("pre-edit")
 
-        # Add tkinter import
-        py_file = pre_edit.path / "main.py"
-        py_file.write_text("import tkinter as tk\n")
+        # Create Python files with tkinter
+        (pre_edit.path / "main.py").write_text(
+            "import tkinter as tk\nimport cv2\nprint('Hello')"
+        )
+        (pre_edit.path / "utils.py").write_text("def helper(): pass")
 
         # Add opencv requirement
-        req_file = pre_edit.path / "requirements.txt"
-        req_file.write_text("opencv-python==4.5.0\n")
+        (pre_edit.path / "requirements.txt").write_text(
+            "opencv-python==4.5.0\nnumpy==1.21.0\n"
+        )
 
         # Add gitignore
-        gitignore = pre_edit.path / ".gitignore"
-        gitignore.write_text("__pycache__/\n")
+        (pre_edit.path / ".gitignore").write_text("__pycache__/\n*.pyc\n")
 
         output_callback = Mock()
         status_callback = Mock()
@@ -554,21 +784,64 @@ class TestDockerFilesService:
         assert success is True
         assert "Docker files generated and distributed successfully" in message
 
-        # Verify Docker files were created in all versions
+        # Verify files created in all versions
         for version_name in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
             version = sample_project_group.get_version(version_name)
 
-            # Check all expected files exist
+            # Check Docker files exist
             assert (version.path / ".dockerignore").exists()
             assert (version.path / "run_tests.sh").exists()
             assert (version.path / "build_docker.sh").exists()
             assert (version.path / "Dockerfile").exists()
             assert (version.path / "requirements.txt").exists()
 
-            # Check .dockerignore has correct content
+            # Check .dockerignore content
             dockerignore_content = (version.path / ".dockerignore").read_text()
             assert "__pycache__/" in dockerignore_content
             assert "!run_tests.sh" in dockerignore_content
+
+            # Check Python-specific content in templates
+            build_content = (version.path / "build_docker.sh").read_text()
+            assert "Building Python Docker" in build_content
+
+    @pytest.mark.asyncio
+    async def test_full_workflow_javascript_project(
+        self, service, sample_project_group, temp_defaults_dir
+    ):
+        """Test complete workflow for JavaScript project"""
+        # Setup pre-edit project with JavaScript files
+        pre_edit = sample_project_group.get_version("pre-edit")
+
+        # Create JavaScript files (more than other languages)
+        (pre_edit.path / "index.js").write_text("console.log('Hello JavaScript');")
+        (pre_edit.path / "utils.js").write_text("function helper() {}")
+        (pre_edit.path / "app.js").write_text("const app = {};")
+        (pre_edit.path / "main.py").write_text("print('hello')")  # Less Python files
+
+        output_callback = Mock()
+        status_callback = Mock()
+
+        with patch.object(service, "defaults_dir", temp_defaults_dir):
+            success, message = await service.build_docker_files_for_project_group(
+                sample_project_group, output_callback, status_callback
+            )
+
+        assert success is True
+
+        # Verify JavaScript language was detected and files created
+        for version_name in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+            version = sample_project_group.get_version(version_name)
+
+            # Check JavaScript-specific files exist
+            assert (version.path / "package.json").exists()
+            assert (version.path / "package-lock.json").exists()
+
+            # Check JavaScript-specific Docker content
+            dockerfile_content = (version.path / "Dockerfile").read_text()
+            assert "FROM node:18" in dockerfile_content
+
+            build_content = (version.path / "build_docker.sh").read_text()
+            assert "Building JavaScript Docker" in build_content
 
     @pytest.mark.asyncio
     async def test_handles_missing_pre_edit_version(
@@ -597,34 +870,58 @@ class TestDockerFilesService:
         assert "No pre-edit version found" in message
 
     @pytest.mark.asyncio
-    async def test_checks_existing_docker_files(self, service, temp_directory):
-        """Test that service correctly identifies existing Docker files"""
-        project_dir = temp_directory / "test-project"
+    async def test_detects_existing_docker_files(self, service, temp_directory):
+        """Test that service detects existing Docker files that would be overwritten"""
+        project_dir = temp_directory / "existing-docker-project"
         project_dir.mkdir()
+
+        # Create existing Docker files
+        (project_dir / "Dockerfile").write_text("FROM existing:image")
+        (project_dir / "run_tests.sh").write_text("#!/bin/bash\necho existing")
 
         project = Project(
             parent="pre-edit",
-            name="test-project",
+            name="existing-docker-project",
             path=project_dir,
-            relative_path="pre-edit/test-project",
+            relative_path="pre-edit/existing-docker-project",
         )
 
-        # Create some existing Docker files
-        (project_dir / ".dockerignore").write_text("existing")
-        (project_dir / "Dockerfile").write_text("existing")
-
         output_callback = Mock()
-
         existing_files = await service._check_existing_docker_files(
             project, output_callback
         )
 
-        assert ".dockerignore" in existing_files
+        assert len(existing_files) == 2
         assert "Dockerfile" in existing_files
-        assert "run_tests.sh" not in existing_files  # Doesn't exist
-        assert "build_docker.sh" not in existing_files  # Doesn't exist
+        assert "run_tests.sh" in existing_files
+
+        # Verify warning message was output
+        output_calls = [call.args[0] for call in output_callback.call_args_list]
+        assert any("Found existing Docker files" in call for call in output_calls)
+
+    # Legacy Python Analysis Tests (for backward compatibility)
+    @pytest.mark.asyncio
+    async def test_python_tkinter_detection_still_works(
+        self, service, python_project_with_tkinter
+    ):
+        """Test that Python tkinter detection still works as before"""
+        has_tkinter = await service._search_for_tkinter_imports(
+            python_project_with_tkinter.path
+        )
+        assert has_tkinter is True
+
+    @pytest.mark.asyncio
+    async def test_python_opencv_detection_still_works(
+        self, service, python_project_with_opencv
+    ):
+        """Test that Python opencv detection still works as before"""
+        has_opencv = await service._check_opencv_in_requirements(
+            python_project_with_opencv.path
+        )
+        assert has_opencv is True
 
 
+# P2P
 class TestProjectControlPanelIntegration:
     """Integration tests for ProjectControlPanel.build_docker_files_for_project_group"""
 

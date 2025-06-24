@@ -76,7 +76,7 @@ class DockerFilesService:
             # Copy files to all versions
             status_callback("Copying files to all project versions...", "#f39c12")
             copy_success, copy_message = await self._copy_files_to_all_versions(
-                project_group, pre_edit_project, output_callback
+                project_group, pre_edit_project, None, output_callback
             )
 
             if not copy_success:
@@ -126,6 +126,11 @@ class DockerFilesService:
             )
 
         return existing_files
+
+    async def _detect_programming_language(
+        self, project: Project, output_callback: Callable[[str], None]
+    ) -> str:
+        pass
 
     async def _analyze_codebase(
         self, project: Project, output_callback: Callable[[str], None]
@@ -210,7 +215,7 @@ class DockerFilesService:
         try:
             # 0.5. Create blank requirements.txt if it doesn't exist
             output_callback("📝 Checking requirements.txt...\n")
-            await self._ensure_requirements_txt(project, output_callback)
+            await self._ensure_language_files(project, None, output_callback)
 
             # 1. Build .dockerignore from .gitignore
             output_callback("📝 Building .dockerignore...\n")
@@ -218,12 +223,12 @@ class DockerFilesService:
 
             # 2. Copy build_docker.sh
             output_callback("📝 Copying build_docker.sh...\n")
-            await self._copy_build_docker_sh(project, output_callback)
+            await self._copy_build_docker_sh(project, None, output_callback)
 
             # 3. Copy appropriate run_tests.sh
             output_callback("📝 Copying run_tests.sh...\n")
             await self._copy_run_tests_sh(
-                project, has_tkinter, has_opencv, output_callback
+                project, None, has_tkinter, has_opencv, output_callback
             )
 
             # 4. Copy appropriate Dockerfile
@@ -264,8 +269,8 @@ class DockerFilesService:
 
         output_callback("   ✅ Created .dockerignore with '!run_tests.sh' line\n")
 
-    async def _ensure_requirements_txt(
-        self, project: Project, output_callback: Callable[[str], None]
+    async def _ensure_language_files(
+        self, project: Project, language: str, output_callback: Callable[[str], None]
     ):
         """Ensure requirements.txt exists, create blank one if it doesn't"""
         requirements_path = project.path / "requirements.txt"
@@ -279,7 +284,7 @@ class DockerFilesService:
             output_callback("   ✅ Created blank requirements.txt\n")
 
     async def _copy_build_docker_sh(
-        self, project: Project, output_callback: Callable[[str], None]
+        self, project: Project, language: str, output_callback: Callable[[str], None]
     ):
         """Copy build_docker.sh from defaults"""
         source = self.defaults_dir / "build_docker.sh"
@@ -296,6 +301,7 @@ class DockerFilesService:
     async def _copy_run_tests_sh(
         self,
         project: Project,
+        language: str,
         has_tkinter: bool,
         has_opencv: bool,
         output_callback: Callable[[str], None],
@@ -361,6 +367,7 @@ class DockerFilesService:
         self,
         project_group: ProjectGroup,
         source_project: Project,
+        language: str,
         output_callback: Callable[[str], None],
     ) -> Tuple[bool, str]:
         """Copy generated Docker files to all other versions of the project"""
