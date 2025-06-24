@@ -364,9 +364,7 @@ class GitService(AsyncServiceInterface):
                     if self.has_local_changes(project_path, result.stderr):
                         error = ResourceError(
                             f"Cannot checkout due to local changes: {result.stderr}",
-                            details={
-                                "uncommitted_changes": repo_info.uncommitted_changes
-                            },
+                            resource_path=str(project_path),
                         )
                     else:
                         error = ProcessError(
