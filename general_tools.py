@@ -19,7 +19,13 @@ from services.docker_service import DockerService
 from services.sync_service import SyncService
 from services.validation_service import ValidationService
 from services.docker_files_service import DockerFilesService
-from gui import MainWindow, TerminalOutputWindow, GitCommitWindow, AddProjectWindow
+from gui import (
+    MainWindow,
+    TerminalOutputWindow,
+    GitCommitWindow,
+    GitCheckoutAllWindow,
+    AddProjectWindow,
+)
 from utils.async_utils import (
     task_manager,
     shutdown_all,
@@ -32,6 +38,7 @@ from utils.async_commands import (
     ArchiveProjectCommand,
     DockerBuildAndTestCommand,
     GitViewCommand,
+    GitCheckoutAllCommand,
     SyncRunTestsCommand,
     ValidateProjectGroupCommand,
     BuildDockerFilesCommand,
@@ -111,6 +118,7 @@ class ProjectControlPanel:
             "sync_run_tests_from_pre_edit": self.sync_run_tests_from_pre_edit,
             "validate_project_group": self.validate_project_group,
             "build_docker_files_for_project_group": self.build_docker_files_for_project_group,
+            "git_checkout_all": self.git_checkout_all,
         }
         self.main_window.set_callbacks(callbacks)
 
@@ -602,6 +610,59 @@ class ProjectControlPanel:
         # Run with proper task naming
         task_manager.run_task(
             checkout_async(), task_name=f"checkout-{project_name}-{commit_hash[:8]}"
+        )
+
+    def git_checkout_all(self, project_group: ProjectGroup):
+        """Standardized async Git checkout all operation using command pattern"""
+        command = GitCheckoutAllCommand(
+            project_group=project_group,
+            git_service=self.git_service,
+            window=self.window,
+            progress_callback=self._update_status,
+            completion_callback=self._handle_git_checkout_all_completion,
+        )
+
+        # Standard async execution
+        task_manager.run_task(
+            command.run_with_progress(),
+            task_name=f"git-checkout-all-{project_group.name}",
+        )
+
+    def _handle_git_checkout_all_completion(self, result):
+        """Standard completion callback for Git checkout all operations"""
+        # Check if the command already created a git window
+        if result.data and result.data.get("git_window_created", False):
+            # Git window already exists with real-time output, no need for additional handling
+            return
+
+        # Only show messages if the command didn't create a window
+        if result.is_success:
+            self._show_git_checkout_all_success(result.data)
+        else:
+            self._show_git_checkout_all_error(result.error)
+
+    def _show_git_checkout_all_success(self, data):
+        """Show Git checkout all success message"""
+        commits_count = len(data.get("commits", []))
+        versions_count = len(data.get("all_versions", []))
+        fetch_success = data.get("fetch_success", False)
+        fetch_message = data.get("fetch_message", "")
+
+        if not fetch_success and "No remote repository" not in fetch_message:
+            self.window.after(
+                0,
+                lambda: messagebox.showwarning(
+                    "Fetch Warning",
+                    f"Could not fetch latest commits:\n{fetch_message}\n\n"
+                    f"Showing local commits only for {versions_count} versions.",
+                ),
+            )
+
+    def _show_git_checkout_all_error(self, error):
+        """Show Git checkout all error message"""
+        error_message = f"Error accessing git repository: {error.message}"
+        self.window.after(
+            0, lambda: messagebox.showerror("Git Checkout All Error", error_message)
         )
 
     def sync_run_tests_from_pre_edit(self, project_group: ProjectGroup):

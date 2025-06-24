@@ -31,27 +31,24 @@ class MainWindow:
         self.project_selector = None
         self.navigation_frame = None
 
-        # Callback functions (to be set by the controller)
-        self.on_project_selected_callback: Optional[Callable] = None
-        self.refresh_projects_callback: Optional[Callable] = None
-        self.open_add_project_callback: Optional[Callable] = None
-
-        # Project action callbacks
-        self.cleanup_project_callback: Optional[Callable] = None
-        self.archive_project_callback: Optional[Callable] = None
-        self.docker_build_callback: Optional[Callable] = None
-        self.git_view_callback: Optional[Callable] = None
-
-        # Project group action callbacks
-        self.sync_run_tests_callback: Optional[Callable] = None
-        self.validate_project_group_callback: Optional[Callable] = None
-        self.build_docker_files_callback: Optional[Callable] = None
+        # Callbacks for main window operations
+        self.on_project_selected_callback = None
+        self.refresh_projects_callback = None
+        self.open_add_project_window_callback = None
+        self.cleanup_project_callback = None
+        self.archive_project_callback = None
+        self.docker_build_callback = None
+        self.git_view_callback = None
+        self.sync_run_tests_callback = None
+        self.validate_project_group_callback = None
+        self.build_docker_files_callback = None
+        self.git_checkout_all_callback = None
 
     def set_callbacks(self, callbacks: Dict[str, Callable]):
         """Set callback functions for GUI events"""
         self.on_project_selected_callback = callbacks.get("on_project_selected")
         self.refresh_projects_callback = callbacks.get("refresh_projects")
-        self.open_add_project_callback = callbacks.get("open_add_project_window")
+        self.open_add_project_window_callback = callbacks.get("open_add_project_window")
 
         self.cleanup_project_callback = callbacks.get("cleanup_project")
         self.archive_project_callback = callbacks.get("archive_project")
@@ -63,6 +60,7 @@ class MainWindow:
         self.build_docker_files_callback = callbacks.get(
             "build_docker_files_for_project_group"
         )
+        self.git_checkout_all_callback = callbacks.get("git_checkout_all")
 
     def setup_window_protocol(self, on_close_callback: Callable):
         """Set up window close protocol"""
@@ -134,8 +132,8 @@ class MainWindow:
 
     def _open_add_project_window(self):
         """Handle add project button click"""
-        if self.open_add_project_callback:
-            self.open_add_project_callback()
+        if self.open_add_project_window_callback:
+            self.open_add_project_window_callback()
 
     def update_project_selector(
         self, group_names: List[str], current_group_name: Optional[str] = None
@@ -235,6 +233,15 @@ class MainWindow:
         )
         build_docker_btn.pack(side="left", padx=(0, 10))
 
+        # Git Checkout All button
+        git_checkout_all_btn = GuiUtils.create_styled_button(
+            buttons_container,
+            text="🔀 Git Checkout All",
+            command=lambda: self._git_checkout_all(project_group),
+            style="git",
+        )
+        git_checkout_all_btn.pack(side="left", padx=(0, 10))
+
     def _sync_run_tests(self, project_group: ProjectGroup):
         """Handle sync run tests button click"""
         if self.sync_run_tests_callback:
@@ -249,6 +256,11 @@ class MainWindow:
         """Handle build docker files button click"""
         if self.build_docker_files_callback:
             self.build_docker_files_callback(project_group)
+
+    def _git_checkout_all(self, project_group: ProjectGroup):
+        """Handle git checkout all button click"""
+        if self.git_checkout_all_callback:
+            self.git_checkout_all_callback(project_group)
 
     def create_version_section(self, project: Project, project_service):
         """Create a version section for a project"""
