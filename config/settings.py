@@ -38,10 +38,22 @@ SOURCE_DIR = os.path.join(os.getcwd(), "Example_source_dir")
 
 
 # Language detection configuration for Docker files service
-LANGUAGE_EXTENSIONS = {}
+LANGUAGE_EXTENSIONS = {
+    "python": [".py", ".pyw", ".pyi", ".pyx", ".pyd", ".pywz", ".pyz"],
+    "javascript": [".js", ".jsx", ".mjs", ".cjs"],
+    "typescript": [".ts", ".tsx", ".cts", ".mts"],
+    "java": [".java", ".class"],
+    "rust": [".rs"],
+}
 
 # Required files for each language
-LANGUAGE_REQUIRED_FILES = {}
+LANGUAGE_REQUIRED_FILES = {
+    "python": ["requirements.txt"],
+    "javascript": ["package.json", "package-lock.json"],
+    "typescript": ["package.json", "package-lock.json"],
+    "java": ["pom.xml"],
+    "rust": [],  # No files need ensuring for Rust
+}
 
 # GUI Configuration
 WINDOW_TITLE = "Project Control Panel"

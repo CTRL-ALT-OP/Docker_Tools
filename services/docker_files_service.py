@@ -7,8 +7,9 @@ import shutil
 import asyncio
 from pathlib import Path
 from typing import Tuple, List, Callable, Optional
+from collections import Counter
 
-from config.settings import FOLDER_ALIASES
+from config.settings import FOLDER_ALIASES, LANGUAGE_EXTENSIONS, LANGUAGE_REQUIRED_FILES
 from services.project_group_service import ProjectGroup
 from models.project import Project
 
@@ -58,16 +59,33 @@ class DockerFilesService:
                     f"Existing Docker files found: {', '.join(existing_files)}",
                 )
 
-            # Analyze codebase for dependencies
-            status_callback("Analyzing codebase for dependencies...", "#f39c12")
-            has_tkinter, has_opencv = await self._analyze_codebase(
+            # Detect programming language
+            status_callback("Detecting programming language...", "#f39c12")
+            detected_language = await self._detect_programming_language(
                 pre_edit_project, output_callback
             )
+            output_callback(f"🔍 Detected language: {detected_language}\n")
+
+            # Analyze codebase for language-specific dependencies
+            status_callback("Analyzing codebase for dependencies...", "#f39c12")
+            if detected_language == "python":
+                has_tkinter, has_opencv = await self._analyze_python_codebase(
+                    pre_edit_project, output_callback
+                )
+            else:
+                has_tkinter, has_opencv = False, False
+                output_callback(
+                    f"📊 Skipping Python-specific analysis for {detected_language} project\n"
+                )
 
             # Build Docker files
             status_callback("Building Docker files...", "#f39c12")
             success, message = await self._build_docker_files(
-                pre_edit_project, has_tkinter, has_opencv, output_callback
+                pre_edit_project,
+                detected_language,
+                has_tkinter,
+                has_opencv,
+                output_callback,
             )
 
             if not success:
@@ -76,7 +94,7 @@ class DockerFilesService:
             # Copy files to all versions
             status_callback("Copying files to all project versions...", "#f39c12")
             copy_success, copy_message = await self._copy_files_to_all_versions(
-                project_group, pre_edit_project, None, output_callback
+                project_group, pre_edit_project, detected_language, output_callback
             )
 
             if not copy_success:
@@ -130,9 +148,31 @@ class DockerFilesService:
     async def _detect_programming_language(
         self, project: Project, output_callback: Callable[[str], None]
     ) -> str:
-        pass
+        """Detect the programming language based on file extensions"""
+        language_counts = Counter()
 
-    async def _analyze_codebase(
+        # Count files for each language
+        for language, extensions in LANGUAGE_EXTENSIONS.items():
+            count = 0
+            for ext in extensions:
+                count += len(list(project.path.rglob(f"*{ext}")))
+            language_counts[language] = count
+            if count > 0:
+                output_callback(f"   📁 Found {count} {language} files\n")
+
+        # Find the language with the most files
+        if language_counts:
+            detected_language = language_counts.most_common(1)[0][0]
+            total_files = language_counts[detected_language]
+            output_callback(
+                f"   🎯 Language with most files: {detected_language} ({total_files} files)\n"
+            )
+            return detected_language
+        else:
+            output_callback("   ⚠️  No recognized files found, defaulting to python\n")
+            return "python"
+
+    async def _analyze_python_codebase(
         self, project: Project, output_callback: Callable[[str], None]
     ) -> Tuple[bool, bool]:
         """Analyze codebase for tkinter and opencv dependencies"""
@@ -207,34 +247,35 @@ class DockerFilesService:
     async def _build_docker_files(
         self,
         project: Project,
+        language: str,
         has_tkinter: bool,
         has_opencv: bool,
         output_callback: Callable[[str], None],
     ) -> Tuple[bool, str]:
         """Build the Docker files based on analysis"""
         try:
-            # 0.5. Create blank requirements.txt if it doesn't exist
-            output_callback("📝 Checking requirements.txt...\n")
-            await self._ensure_language_files(project, None, output_callback)
+            # 1. Ensure language-specific required files exist
+            output_callback(f"📝 Ensuring {language} required files...\n")
+            await self._ensure_language_files(project, language, output_callback)
 
-            # 1. Build .dockerignore from .gitignore
+            # 2. Build .dockerignore from .gitignore
             output_callback("📝 Building .dockerignore...\n")
             await self._build_dockerignore(project, output_callback)
 
-            # 2. Copy build_docker.sh
+            # 3. Copy build_docker.sh
             output_callback("📝 Copying build_docker.sh...\n")
-            await self._copy_build_docker_sh(project, None, output_callback)
+            await self._copy_build_docker_sh(project, language, output_callback)
 
-            # 3. Copy appropriate run_tests.sh
+            # 4. Copy appropriate run_tests.sh
             output_callback("📝 Copying run_tests.sh...\n")
             await self._copy_run_tests_sh(
-                project, None, has_tkinter, has_opencv, output_callback
+                project, language, has_tkinter, has_opencv, output_callback
             )
 
-            # 4. Copy appropriate Dockerfile
+            # 5. Copy appropriate Dockerfile
             output_callback("📝 Copying Dockerfile...\n")
             await self._copy_dockerfile(
-                project, has_tkinter, has_opencv, output_callback
+                project, language, has_tkinter, has_opencv, output_callback
             )
 
             return True, "Docker files built successfully"
@@ -272,22 +313,107 @@ class DockerFilesService:
     async def _ensure_language_files(
         self, project: Project, language: str, output_callback: Callable[[str], None]
     ):
-        """Ensure requirements.txt exists, create blank one if it doesn't"""
-        requirements_path = project.path / "requirements.txt"
+        """Ensure language-specific required files exist"""
+        required_files = LANGUAGE_REQUIRED_FILES.get(language, [])
 
-        if requirements_path.exists():
-            output_callback("   ✅ requirements.txt already exists\n")
-        else:
-            # Create blank requirements.txt
-            with open(requirements_path, "w", encoding="utf-8") as f:
-                f.write("# Add your project dependencies here\n")
-            output_callback("   ✅ Created blank requirements.txt\n")
+        if not required_files:
+            output_callback(f"   ➖ No required files for {language}\n")
+            return
+
+        for file_name in required_files:
+            file_path = project.path / file_name
+
+            if file_path.exists():
+                output_callback(f"   ✅ {file_name} already exists\n")
+            else:
+                # Create the required file with appropriate content
+                await self._create_language_file(
+                    project, file_name, language, output_callback
+                )
+
+    async def _create_language_file(
+        self,
+        project: Project,
+        file_name: str,
+        language: str,
+        output_callback: Callable[[str], None],
+    ):
+        """Create a language-specific required file with appropriate content"""
+        file_path = project.path / file_name
+
+        if file_name == "requirements.txt":
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write("# Add your Python project dependencies here\n")
+            output_callback(f"   ✅ Created blank {file_name}\n")
+
+        elif file_name == "package.json":
+            content = """{
+  "name": "project",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \\"Error: no test specified\\" && exit 1"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
+"""
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            output_callback(f"   ✅ Created {file_name}\n")
+
+        elif file_name == "package-lock.json":
+            content = """{
+  "name": "project",
+  "version": "1.0.0",
+  "lockfileVersion": 2,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "project",
+      "version": "1.0.0"
+    }
+  }
+}
+"""
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            output_callback(f"   ✅ Created {file_name}\n")
+
+        elif file_name == "pom.xml":
+            content = """<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    
+    <groupId>com.example</groupId>
+    <artifactId>project</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+    
+    <dependencies>
+        <!-- Add your dependencies here -->
+    </dependencies>
+</project>
+"""
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            output_callback(f"   ✅ Created {file_name}\n")
 
     async def _copy_build_docker_sh(
         self, project: Project, language: str, output_callback: Callable[[str], None]
     ):
-        """Copy build_docker.sh from defaults"""
-        source = self.defaults_dir / "build_docker.sh"
+        """Copy build_docker.sh from language-specific defaults"""
+        source = self.defaults_dir / language / "build_docker.sh"
         dest = project.path / "build_docker.sh"
 
         if not source.exists():
@@ -296,7 +422,9 @@ class DockerFilesService:
         shutil.copy2(source, dest)
         # Make it executable
         os.chmod(dest, 0o755)
-        output_callback("   ✅ Copied and made executable: build_docker.sh\n")
+        output_callback(
+            f"   ✅ Copied {language} build_docker.sh and made executable\n"
+        )
 
     async def _copy_run_tests_sh(
         self,
@@ -306,22 +434,27 @@ class DockerFilesService:
         has_opencv: bool,
         output_callback: Callable[[str], None],
     ):
-        """Copy appropriate run_tests.sh based on flags"""
-        # Determine which template to use
-        if has_tkinter and has_opencv:
-            template_name = "run_tests_opencv_tkinter.sh"
-            description = "opencv + tkinter version"
-        elif has_tkinter:
-            template_name = "run_tests_tkinter.sh"
-            description = "tkinter version"
-        elif has_opencv:
-            template_name = "run_tests_opencv.sh"
-            description = "opencv version"
+        """Copy appropriate run_tests.sh based on language and flags"""
+        # For Python projects, use the old logic with tkinter/opencv variants
+        if language == "python":
+            if has_tkinter and has_opencv:
+                template_name = "run_tests_opencv_tkinter.sh"
+                description = "python opencv + tkinter version"
+            elif has_tkinter:
+                template_name = "run_tests_tkinter.sh"
+                description = "python tkinter version"
+            elif has_opencv:
+                template_name = "run_tests_opencv.sh"
+                description = "python opencv version"
+            else:
+                template_name = "run_tests.sh"
+                description = "python default version"
         else:
+            # For other languages, use the default run_tests.sh from their language directory
             template_name = "run_tests.sh"
-            description = "default version"
+            description = f"{language} version"
 
-        source = self.defaults_dir / template_name
+        source = self.defaults_dir / language / template_name
         dest = project.path / "run_tests.sh"
 
         if not source.exists():
@@ -335,26 +468,32 @@ class DockerFilesService:
     async def _copy_dockerfile(
         self,
         project: Project,
+        language: str,
         has_tkinter: bool,
         has_opencv: bool,
         output_callback: Callable[[str], None],
     ):
-        """Copy appropriate Dockerfile based on flags"""
-        # Determine which template to use
-        if has_tkinter and has_opencv:
-            template_name = "Dockerfile_opencv_tkinter.txt"
-            description = "opencv + tkinter version"
-        elif has_tkinter:
-            template_name = "Dockerfile_tkinter"
-            description = "tkinter version"
-        elif has_opencv:
-            template_name = "Dockerfile_opencv"
-            description = "opencv version"
+        """Copy appropriate Dockerfile based on language and flags"""
+        # For Python projects, use the old logic with tkinter/opencv variants
+        if language == "python":
+            if has_tkinter and has_opencv:
+                template_name = "Dockerfile_opencv_tkinter"
+                description = "python opencv + tkinter version"
+            elif has_tkinter:
+                template_name = "Dockerfile_tkinter"
+                description = "python tkinter version"
+            elif has_opencv:
+                template_name = "Dockerfile_opencv"
+                description = "python opencv version"
+            else:
+                template_name = "Dockerfile"
+                description = "python default version"
         else:
+            # For other languages, use the default Dockerfile from their language directory
             template_name = "Dockerfile"
-            description = "default version"
+            description = f"{language} version"
 
-        source = self.defaults_dir / template_name
+        source = self.defaults_dir / language / template_name
         dest = project.path / "Dockerfile"
 
         if not source.exists():
@@ -376,8 +515,11 @@ class DockerFilesService:
             "run_tests.sh",
             "build_docker.sh",
             "Dockerfile",
-            "requirements.txt",
         ]
+
+        # Add language-specific files that should be copied
+        required_files = LANGUAGE_REQUIRED_FILES.get(language, [])
+        docker_files.extend(required_files)
         all_versions = project_group.get_all_versions()
 
         # Filter out the source project
