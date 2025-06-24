@@ -27,11 +27,7 @@ class GuiUtils:
             "padx": 10,
             "pady": 4,
             **button_style,
-        }
-
-        # Override with any custom kwargs
-        default_config.update(kwargs)
-
+        } | kwargs
         return tk.Button(parent, **default_config)
 
     @staticmethod
@@ -44,17 +40,13 @@ class GuiUtils:
             "font": FONTS[font_key],
             "bg": COLORS["background"],
             "fg": COLORS[color_key],
-        }
-
-        default_config.update(kwargs)
+        } | kwargs
         return tk.Label(parent, **default_config)
 
     @staticmethod
     def create_styled_frame(parent, bg_color: str = "background", **kwargs) -> tk.Frame:
         """Create a frame with predefined styling"""
-        default_config = {"bg": COLORS[bg_color]}
-
-        default_config.update(kwargs)
+        default_config = {"bg": COLORS[bg_color]} | kwargs
         return tk.Frame(parent, **default_config)
 
     @staticmethod

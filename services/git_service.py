@@ -78,13 +78,12 @@ class GitService(AsyncServiceInterface):
                             "available_commands": list(GIT_COMMANDS.keys()),
                         }
                     )
-                else:
-                    error = ProcessError(
-                        "Git is not available",
-                        return_code=result.returncode,
-                        stderr=result.stderr,
-                    )
-                    return ServiceResult.error(error)
+                error = ProcessError(
+                    "Git is not available",
+                    return_code=result.returncode,
+                    stderr=result.stderr,
+                )
+                return ServiceResult.error(error)
 
             except Exception as e:
                 error = ProcessError(f"Failed to check Git availability: {str(e)}")
@@ -217,13 +216,12 @@ class GitService(AsyncServiceInterface):
                             "fetch_output": fetch_result.stdout,
                         },
                     )
-                else:
-                    error = ProcessError(
-                        f"Fetch failed: {fetch_result.stderr}",
-                        return_code=fetch_result.returncode,
-                        stderr=fetch_result.stderr,
-                    )
-                    return ServiceResult.error(error)
+                error = ProcessError(
+                    f"Fetch failed: {fetch_result.stderr}",
+                    return_code=fetch_result.returncode,
+                    stderr=fetch_result.stderr,
+                )
+                return ServiceResult.error(error)
 
             except Exception as e:
                 self.logger.exception("Unexpected error during fetch")
@@ -359,20 +357,20 @@ class GitService(AsyncServiceInterface):
                             "checkout_output": result.stdout,
                         },
                     )
-                else:
                     # Check if this is due to local changes
-                    if self.has_local_changes(project_path, result.stderr):
-                        error = ResourceError(
-                            f"Cannot checkout due to local changes: {result.stderr}",
-                            resource_path=str(project_path),
-                        )
-                    else:
-                        error = ProcessError(
-                            f"Checkout failed: {result.stderr}",
-                            return_code=result.returncode,
-                            stderr=result.stderr,
-                        )
-                    return ServiceResult.error(error)
+                error = (
+                    ResourceError(
+                        f"Cannot checkout due to local changes: {result.stderr}",
+                        resource_path=str(project_path),
+                    )
+                    if self.has_local_changes(project_path, result.stderr)
+                    else ProcessError(
+                        f"Checkout failed: {result.stderr}",
+                        return_code=result.returncode,
+                        stderr=result.stderr,
+                    )
+                )
+                return ServiceResult.error(error)
 
             except Exception as e:
                 self.logger.exception("Unexpected error during checkout")
@@ -431,13 +429,12 @@ class GitService(AsyncServiceInterface):
                             "clean_output": clean_result.stdout,
                         },
                     )
-                else:
-                    error = ProcessError(
-                        f"Force checkout failed: {force_result.stderr}",
-                        return_code=force_result.returncode,
-                        stderr=force_result.stderr,
-                    )
-                    return ServiceResult.error(error)
+                error = ProcessError(
+                    f"Force checkout failed: {force_result.stderr}",
+                    return_code=force_result.returncode,
+                    stderr=force_result.stderr,
+                )
+                return ServiceResult.error(error)
 
             except Exception as e:
                 self.logger.exception("Unexpected error during force checkout")
@@ -499,13 +496,12 @@ class GitService(AsyncServiceInterface):
                             "clone_output": result.stdout,
                         },
                     )
-                else:
-                    error = ProcessError(
-                        f"Clone failed: {result.stderr}",
-                        return_code=result.returncode,
-                        stderr=result.stderr,
-                    )
-                    return ServiceResult.error(error)
+                error = ProcessError(
+                    f"Clone failed: {result.stderr}",
+                    return_code=result.returncode,
+                    stderr=result.stderr,
+                )
+                return ServiceResult.error(error)
 
             except Exception as e:
                 self.logger.exception("Unexpected error during repository clone")

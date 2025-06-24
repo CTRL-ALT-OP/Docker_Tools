@@ -45,13 +45,12 @@ class DockerService(AsyncServiceInterface):
                             "platform": self.platform_service.get_platform(),
                         }
                     )
-                else:
-                    error = ProcessError(
-                        "Docker is not available",
-                        return_code=result.returncode,
-                        stderr=result.stderr,
-                    )
-                    return ServiceResult.error(error)
+                error = ProcessError(
+                    "Docker is not available",
+                    return_code=result.returncode,
+                    stderr=result.stderr,
+                )
+                return ServiceResult.error(error)
 
             except Exception as e:
                 error = ProcessError(f"Failed to check Docker availability: {str(e)}")
@@ -203,15 +202,14 @@ class DockerService(AsyncServiceInterface):
                             "project_path": str(project_path),
                         },
                     )
-                else:
-                    # Partial success - tests ran but some failed
-                    error = ProcessError(
-                        f"Tests failed: {test_status}",
-                        return_code=return_code,
-                        stdout=test_output,
-                        stderr="",
-                    )
-                    return ServiceResult.partial(test_data, error)
+                # Partial success - tests ran but some failed
+                error = ProcessError(
+                    f"Tests failed: {test_status}",
+                    return_code=return_code,
+                    stdout=test_output,
+                    stderr="",
+                )
+                return ServiceResult.partial(test_data, error)
 
             except Exception as e:
                 self.logger.exception("Unexpected error during test execution")
@@ -246,7 +244,7 @@ class DockerService(AsyncServiceInterface):
                 # Combine results
                 combined_data = {
                     "build_data": build_result.data,
-                    "test_data": test_result.data if test_result.data else {},
+                    "test_data": test_result.data or {},
                     "docker_tag": docker_tag,
                     "project_path": str(project_path),
                 }

@@ -461,10 +461,10 @@ class ImprovedAsyncTaskManager:
                 if cancelled_tasks:
                     time.sleep(0.1)
 
-            if cancelled_tasks:
-                logger.warning(
-                    "%d tasks did not cancel within timeout", len(cancelled_tasks)
-                )
+        if cancelled_tasks:
+            logger.warning(
+                "%d tasks did not cancel within timeout", len(cancelled_tasks)
+            )
 
         # Clear the set after cancellation
         self._tasks.clear()
@@ -479,7 +479,7 @@ class ImprovedAsyncTaskManager:
     def get_task_stats(self) -> dict:
         """Get detailed task statistics"""
         total = len(self._tasks)
-        completed = sum(1 for task in self._tasks if task.done())
+        completed = sum(bool(task.done()) for task in self._tasks)
         running = total - completed
 
         return {"total": total, "running": running, "completed": completed}
@@ -643,11 +643,10 @@ class AsyncResourceManager:
                 elapsed,
                 exc_val,
             )
-        else:
-            if self.log_timing:
-                logger.debug(
-                    "Async operation completed: %s (%.2fs)", self.resource_name, elapsed
-                )
+        elif self.log_timing:
+            logger.debug(
+                "Async operation completed: %s (%.2fs)", self.resource_name, elapsed
+            )
 
         # Don't suppress exceptions
         return False

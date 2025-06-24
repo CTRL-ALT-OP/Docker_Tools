@@ -147,7 +147,7 @@ class SyncService(AsyncServiceInterface):
                     is_readable=False,
                     last_modified=0.0,
                 )
-        except (OSError, PermissionError):
+        except OSError:
             return FileSyncInfo(
                 file_path=file_path,
                 file_size=0,
@@ -319,8 +319,7 @@ class SyncService(AsyncServiceInterface):
                     )
                     results.append(
                         sync_result.data
-                        if sync_result.data
-                        else SyncOperationResult(
+                        or SyncOperationResult(
                             source_project="unknown",
                             target_projects=[],
                             file_name=file_name,
@@ -408,9 +407,8 @@ class SyncService(AsyncServiceInterface):
                     return ServiceResult.success(
                         True, message=f"Successfully copied {file_name}"
                     )
-                else:
-                    error = ProcessError(f"Failed to copy {file_name}")
-                    return ServiceResult.error(error)
+                error = ProcessError(f"Failed to copy {file_name}")
+                return ServiceResult.error(error)
 
             except Exception as e:
                 self.logger.exception("Unexpected error during file copy")

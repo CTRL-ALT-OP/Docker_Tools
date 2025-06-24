@@ -108,11 +108,10 @@ class ValidationService(AsyncServiceInterface):
 
                 if health_info["status"] == "healthy":
                     return ServiceResult.success(health_info)
-                else:
-                    error = ResourceError(
-                        "Validation service is in degraded state", details=health_info
-                    )
-                    return ServiceResult.error(error)
+                error = ResourceError(
+                    "Validation service is in degraded state", details=health_info
+                )
+                return ServiceResult.error(error)
 
             except Exception as e:
                 error = ProcessError(
@@ -519,12 +518,11 @@ class ValidationService(AsyncServiceInterface):
 
             if return_code == 0:
                 return ServiceResult.success((output, validation_errors))
-            else:
-                error = ProcessError(
-                    f"Validation script failed with exit code {return_code}",
-                    return_code=return_code,
-                )
-                return ServiceResult.error(error)
+            error = ProcessError(
+                f"Validation script failed with exit code {return_code}",
+                return_code=return_code,
+            )
+            return ServiceResult.error(error)
 
         except Exception as e:
             error = ProcessError(f"Failed to run validation script: {str(e)}")

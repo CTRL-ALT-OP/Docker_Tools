@@ -270,11 +270,9 @@ class ProjectControlPanel:
     def _show_cleanup_success(self, data):
         """Show cleanup success message"""
         message = data.get("message", "Cleanup completed successfully")
-        deleted_items = data.get("deleted_directories", []) + data.get(
+        if deleted_items := data.get("deleted_directories", []) + data.get(
             "deleted_files", []
-        )
-
-        if deleted_items:
+        ):
             item_list = "\n".join(
                 [f"  • {item}" for item in deleted_items[:10]]
             )  # Show first 10

@@ -112,18 +112,15 @@ class PlatformService:
 
         if current_platform in FILE_OPEN_COMMANDS:
             cmd_template = FILE_OPEN_COMMANDS[current_platform]
-            # Replace {file_path} placeholder with actual file path
-            return [
-                part.format(file_path=file_path) if "{file_path}" in part else part
-                for part in cmd_template
-            ]
         else:
             # Default to linux behavior for unknown platforms
             cmd_template = FILE_OPEN_COMMANDS["linux"]
-            return [
-                part.format(file_path=file_path) if "{file_path}" in part else part
-                for part in cmd_template
-            ]
+
+        # Replace {file_path} placeholder with actual file path
+        return [
+            part.format(file_path=file_path) if "{file_path}" in part else part
+            for part in cmd_template
+        ]
 
     @staticmethod
     def open_file_with_default_application(file_path: str) -> Tuple[bool, str]:

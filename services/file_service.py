@@ -355,7 +355,7 @@ class FileService(AsyncServiceInterface):
                             except OSError as e:
                                 failed_deletions.append((dir_path, f"OS error: {e}"))
                                 logger.error("OS error deleting %s: %s", dir_path, e)
-            except (OSError, PermissionError) as e:
+            except OSError as e:
                 logger.error("Error walking directory %s: %s", path, e)
 
         remove_items_recursive(project_path)
@@ -539,10 +539,9 @@ class FileService(AsyncServiceInterface):
     ) -> ServiceResult[List[Path]]:
         """Backward compatibility: cleanup and return deleted directory paths"""
         result = await self.cleanup_project_items(project_path)
-        if result.is_success or result.is_partial:
-            deleted_paths = result.data.deleted_directories + result.data.deleted_files
-            return ServiceResult.success(
-                deleted_paths, message=f"Cleaned up {len(deleted_paths)} items"
-            )
-        else:
+        if not result.is_success and not result.is_partial:
             return ServiceResult.error(result.error)
+        deleted_paths = result.data.deleted_directories + result.data.deleted_files
+        return ServiceResult.success(
+            deleted_paths, message=f"Cleaned up {len(deleted_paths)} items"
+        )

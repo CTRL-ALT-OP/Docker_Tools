@@ -346,9 +346,12 @@ class GitViewCommand(AsyncCommand):
                 fetch_result.error.message if fetch_result.error else "Unknown error"
             )
 
-            if not fetch_success and "No remote repository" not in fetch_message:
-                if self.git_window:
-                    self.git_window.update_status(f"Fetch warning: {fetch_message}")
+            if (
+                not fetch_success
+                and "No remote repository" not in fetch_message
+                and self.git_window
+            ):
+                self.git_window.update_status(f"Fetch warning: {fetch_message}")
 
             # Update status to show loading commits
             if self.git_window:
@@ -575,14 +578,13 @@ class ValidateProjectGroupCommand(AsyncCommand):
                 return AsyncResult.error_result(validation_result.error)
 
             # Handle partial results (validation completed with issues)
-            if validation_result.is_partial:
-                if self.terminal_window:
-                    self.terminal_window.update_status(
-                        "Validation completed with issues", "#f39c12"
-                    )
-                    self.terminal_window.append_output(
-                        f"\n⚠️ Validation completed with some issues: {validation_result.error.message}\n"
-                    )
+            if validation_result.is_partial and self.terminal_window:
+                self.terminal_window.update_status(
+                    "Validation completed with issues", "#f39c12"
+                )
+                self.terminal_window.append_output(
+                    f"\n⚠️ Validation completed with some issues: {validation_result.error.message}\n"
+                )
 
             # Combine all captured output for validation ID extraction
             full_output = "".join(captured_output)
@@ -707,7 +709,7 @@ class ValidateProjectGroupCommand(AsyncCommand):
                         "1.0", "end-1c"
                     )
 
-                copy_text = terminal_content if terminal_content else raw_output
+                copy_text = terminal_content or raw_output
                 self.terminal_window.add_final_buttons(
                     copy_text=copy_text, additional_buttons=additional_buttons
                 )

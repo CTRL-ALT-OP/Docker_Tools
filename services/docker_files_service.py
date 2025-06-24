@@ -153,9 +153,7 @@ class DockerFilesService:
 
         # Count files for each language
         for language, extensions in LANGUAGE_EXTENSIONS.items():
-            count = 0
-            for ext in extensions:
-                count += len(list(project.path.rglob(f"*{ext}")))
+            count = sum(len(list(project.path.rglob(f"*{ext}"))) for ext in extensions)
             language_counts[language] = count
             if count > 0:
                 output_callback(f"   📁 Found {count} {language} files\n")
@@ -341,10 +339,23 @@ class DockerFilesService:
         """Create a language-specific required file with appropriate content"""
         file_path = project.path / file_name
 
-        if file_name == "requirements.txt":
+        if file_name == "package-lock.json":
+            content = """{
+  "name": "project",
+  "version": "1.0.0",
+  "lockfileVersion": 2,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "project",
+      "version": "1.0.0"
+    }
+  }
+}
+"""
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write("# Add your Python project dependencies here\n")
-            output_callback(f"   ✅ Created blank {file_name}\n")
+                f.write(content)
+            output_callback(f"   ✅ Created {file_name}\n")
 
         elif file_name == "package.json":
             content = """{
@@ -357,24 +368,6 @@ class DockerFilesService:
   },
   "dependencies": {},
   "devDependencies": {}
-}
-"""
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            output_callback(f"   ✅ Created {file_name}\n")
-
-        elif file_name == "package-lock.json":
-            content = """{
-  "name": "project",
-  "version": "1.0.0",
-  "lockfileVersion": 2,
-  "requires": true,
-  "packages": {
-    "": {
-      "name": "project",
-      "version": "1.0.0"
-    }
-  }
 }
 """
             with open(file_path, "w", encoding="utf-8") as f:
@@ -408,6 +401,10 @@ class DockerFilesService:
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
             output_callback(f"   ✅ Created {file_name}\n")
+        elif file_name == "requirements.txt":
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write("# Add your Python project dependencies here\n")
+            output_callback(f"   ✅ Created blank {file_name}\n")
 
     async def _copy_build_docker_sh(
         self, project: Project, language: str, output_callback: Callable[[str], None]
