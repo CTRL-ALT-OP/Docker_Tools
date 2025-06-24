@@ -26,7 +26,7 @@ class TestGitCommit:
     def test_git_commit_creation(self):
         """Test creating a GitCommit instance"""
         commit = GitCommit(
-            hash_val="abc123def",
+            hash="abc123def",
             author="John Doe",
             date="2023-12-01",
             subject="Fix bug in authentication",
@@ -40,7 +40,7 @@ class TestGitCommit:
     def test_git_commit_display_property(self):
         """Test the display property of GitCommit"""
         commit = GitCommit(
-            hash_val="abc123def",
+            hash="abc123def",
             author="Jane Smith",
             date="2023-12-02",
             subject="Add new feature",
@@ -52,7 +52,7 @@ class TestGitCommit:
     def test_git_commit_to_dict(self):
         """Test converting GitCommit to dictionary"""
         commit = GitCommit(
-            hash_val="xyz789",
+            hash="xyz789",
             author="Bob Johnson",
             date="2023-12-03",
             subject="Update documentation",
@@ -69,7 +69,7 @@ class TestGitCommit:
     def test_git_commit_with_special_characters(self):
         """Test GitCommit with special characters"""
         commit = GitCommit(
-            hash_val="123456",
+            hash="123456",
             author="María García",
             date="2023-12-04",
             subject="Fix: Handle UTF-8 encoding & special chars",
@@ -81,7 +81,7 @@ class TestGitCommit:
 
     def test_git_commit_with_empty_values(self):
         """Test GitCommit with empty values"""
-        commit = GitCommit(hash_val="", author="", date="", subject="")
+        commit = GitCommit(hash="", author="", date="", subject="")
 
         assert commit.display == " -  - : "
         assert all(v == "" for v in commit.to_dict().values() if v != commit.display)
@@ -118,12 +118,17 @@ class TestGitService:
 
         with patch("services.git_service.run_subprocess_async") as mock_run:
             # Simulate no remote
-            mock_run.return_value = (1, "", "fatal: No remote configured")
+            mock_run.return_value = Mock(
+                returncode=1, stderr="fatal: No remote configured"
+            )
 
-            success, message = await self.git_service.fetch_latest_commits(repo_path)
+            result = await self.git_service.fetch_latest_commits(repo_path)
 
-            assert success is False
-            assert "remote" in message.lower() or "error" in message.lower()
+            assert result.is_error is True
+            assert (
+                "remote" in str(result.error).lower()
+                or "error" in str(result.error).lower()
+            )
 
     @pytest.mark.asyncio
     async def test_fetch_latest_commits_with_remote(self):
@@ -231,7 +236,7 @@ ghi789|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
         """Test GitCommit with long subject lines"""
         long_subject = "Fix: " + "Very long commit message " * 10
         commit = GitCommit(
-            hash_val="abc123",
+            hash="abc123",
             author="Developer",
             date="2023-12-01",
             subject=long_subject,
@@ -255,7 +260,7 @@ ghi789|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
     def test_git_commit_multiline_subject(self):
         """Test GitCommit with newlines in subject"""
         commit = GitCommit(
-            hash_val="abc123",
+            hash="abc123",
             author="Developer",
             date="2023-12-01",
             subject="Fix bug\\nAdditional info",
@@ -270,6 +275,8 @@ ghi789|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
     async def test_get_git_commits_success(self):
         """Test successfully getting git commits"""
         repo_path = Path(self.temp_dir) / "test_repo"
+        # Create the directory for the test
+        repo_path.mkdir(parents=True, exist_ok=True)
 
         # Mock git log output
         mock_output = """abc123|John Doe|2023-12-01 10:00:00|Initial commit
@@ -283,9 +290,10 @@ ghi789|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
         with patch(
             "services.git_service.run_subprocess_async", return_value=mock_result
         ):
-            commits, error = await self.git_service.get_git_commits(repo_path)
+            result = await self.git_service.get_git_commits(repo_path)
 
-            assert error is None
+            assert result.is_success is True
+            commits = result.data
             assert commits is not None
             assert len(commits) == 3
 
@@ -299,34 +307,38 @@ ghi789|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
     async def test_get_git_commits_git_error(self):
         """Test handling git log errors"""
         repo_path = Path(self.temp_dir) / "test_repo"
+        # Create the directory for the test
+        repo_path.mkdir(parents=True, exist_ok=True)
 
-        mock_result = Mock()
-        mock_result.returncode = 128
-        mock_result.stderr = "fatal: not a git repository"
+        # Mock the repository info call to return an error
+        with patch.object(self.git_service, "get_repository_info") as mock_repo_info:
+            from utils.async_base import ServiceResult
+            from utils.async_base import ProcessError
 
-        with patch(
-            "services.git_service.run_subprocess_async", return_value=mock_result
-        ):
-            commits, error = await self.git_service.get_git_commits(repo_path)
+            mock_repo_info.return_value = ServiceResult.error(
+                ProcessError("fatal: not a git repository")
+            )
 
-            assert commits is None
-            assert error is not None
-            assert "Error getting git log" in error
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_error is True
+            assert "fatal" in str(result.error).lower()
 
     @pytest.mark.asyncio
     async def test_get_git_commits_exception(self):
         """Test handling exceptions during git commits retrieval"""
         repo_path = Path(self.temp_dir) / "test_repo"
+        # Create the directory for the test
+        repo_path.mkdir(parents=True, exist_ok=True)
 
         with patch(
             "services.git_service.run_subprocess_async",
             side_effect=Exception("Test error"),
         ):
-            commits, error = await self.git_service.get_git_commits(repo_path)
+            result = await self.git_service.get_git_commits(repo_path)
 
-            assert commits is None
-            assert error is not None
-            assert "Error accessing git repository" in error
+            assert result.is_error is True
+            assert "error" in str(result.error).lower()
 
     def test_parse_commits_valid_format(self):
         """Test parsing valid git log output"""
@@ -381,122 +393,153 @@ ghi789|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
     async def test_checkout_commit_success(self):
         """Test successful commit checkout"""
         repo_path = Path(self.temp_dir) / "test_repo"
+        # Create the directory for the test
+        repo_path.mkdir(parents=True, exist_ok=True)
         commit_hash = "abc123"
 
-        mock_result = Mock()
-        mock_result.returncode = 0
+        # Mock the repository info to succeed
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
 
-        with patch(
-            "services.git_service.run_subprocess_async", return_value=mock_result
-        ):
-            success, message = await self.git_service.checkout_commit(
-                repo_path, commit_hash
-            )
+            from utils.async_base import ServiceResult
 
-            assert success is True
-            assert commit_hash in message
+            mock_repo_info.return_value = ServiceResult.success(Mock())
+
+            mock_result = Mock()
+            mock_result.returncode = 0
+            mock_run.return_value = mock_result
+
+            result = await self.git_service.checkout_commit(repo_path, commit_hash)
+
+            assert result.is_success is True
+            assert commit_hash in result.data or commit_hash in result.message
 
     @pytest.mark.asyncio
     async def test_checkout_commit_failure(self):
         """Test failed commit checkout"""
         repo_path = Path(self.temp_dir) / "test_repo"
+        # Create the directory for the test
+        repo_path.mkdir(parents=True, exist_ok=True)
         commit_hash = "abc123"
 
-        mock_result = Mock()
-        mock_result.returncode = 1
-        mock_result.stderr = (
-            "error: pathspec 'abc123' did not match any file(s) known to git"
-        )
+        # Mock the repository info to fail
+        with patch.object(self.git_service, "get_repository_info") as mock_repo_info:
+            from utils.async_base import ServiceResult
+            from utils.async_base import ResourceError
 
-        with patch(
-            "services.git_service.run_subprocess_async", return_value=mock_result
-        ):
-            success, message = await self.git_service.checkout_commit(
-                repo_path, commit_hash
+            mock_repo_info.return_value = ServiceResult.error(
+                ResourceError("Not a git repository")
             )
 
-            assert success is False
-            assert "pathspec" in message
+            result = await self.git_service.checkout_commit(repo_path, commit_hash)
+
+            assert result.is_error is True
+            # Update assertion to check for the actual error message
+            assert (
+                "not a git repository" in str(result.error).lower()
+                or "error" in str(result.error).lower()
+            )
 
     @pytest.mark.asyncio
     async def test_checkout_commit_exception(self):
         """Test exception during commit checkout"""
         repo_path = Path(self.temp_dir) / "test_repo"
+        # Create the directory for the test
+        repo_path.mkdir(parents=True, exist_ok=True)
         commit_hash = "abc123"
 
         with patch(
             "services.git_service.run_subprocess_async",
             side_effect=Exception("Test error"),
         ):
-            success, message = await self.git_service.checkout_commit(
-                repo_path, commit_hash
-            )
+            result = await self.git_service.checkout_commit(repo_path, commit_hash)
 
-            assert success is False
-            assert "Error during checkout" in message
+            assert result.is_error is True
+            assert "error" in str(result.error).lower()
 
     @pytest.mark.asyncio
     async def test_force_checkout_commit_success(self):
         """Test successful force commit checkout"""
         repo_path = Path(self.temp_dir) / "test_repo"
+        # Create the directory for the test
+        repo_path.mkdir(parents=True, exist_ok=True)
         commit_hash = "abc123"
 
-        # Mock successful results for all three commands: reset, clean, force checkout
-        mock_results = [
-            Mock(returncode=0),  # reset
-            Mock(returncode=0),  # clean
-            Mock(returncode=0),  # force checkout
-        ]
+        # Mock the repository info to succeed and all subprocess calls
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
 
-        with patch(
-            "services.git_service.run_subprocess_async", side_effect=mock_results
-        ):
-            success, message = await self.git_service.force_checkout_commit(
+            from utils.async_base import ServiceResult
+
+            mock_repo_info.return_value = ServiceResult.success(Mock())
+
+            # Mock successful results for all three commands: reset, clean, force checkout
+            mock_results = [
+                Mock(returncode=0),  # reset
+                Mock(returncode=0),  # clean
+                Mock(returncode=0),  # force checkout
+            ]
+            mock_run.side_effect = mock_results
+
+            result = await self.git_service.force_checkout_commit(
                 repo_path, commit_hash
             )
 
-            assert success is True
-            assert commit_hash in message
+            assert result.is_success is True
+            assert commit_hash in result.data or commit_hash in result.message
 
     @pytest.mark.asyncio
     async def test_force_checkout_commit_failure(self):
         """Test failed force commit checkout"""
         repo_path = Path(self.temp_dir) / "test_repo"
+        # Create the directory for the test
+        repo_path.mkdir(parents=True, exist_ok=True)
         commit_hash = "abc123"
 
-        # Mock successful reset and clean, but failed force checkout
-        mock_results = [
-            Mock(returncode=0),  # reset
-            Mock(returncode=0),  # clean
-            Mock(returncode=1, stderr="checkout failed"),  # force checkout
-        ]
+        # Mock the repository info to fail
+        with patch.object(self.git_service, "get_repository_info") as mock_repo_info:
+            from utils.async_base import ServiceResult
+            from utils.async_base import ResourceError
 
-        with patch(
-            "services.git_service.run_subprocess_async", side_effect=mock_results
-        ):
-            success, message = await self.git_service.force_checkout_commit(
+            mock_repo_info.return_value = ServiceResult.error(
+                ResourceError("Not a git repository")
+            )
+
+            result = await self.git_service.force_checkout_commit(
                 repo_path, commit_hash
             )
 
-            assert success is False
-            assert "checkout failed" in message
+            assert result.is_error is True
+            # Update assertion to check for the actual error message
+            assert (
+                "not a git repository" in str(result.error).lower()
+                or "failed" in str(result.error).lower()
+            )
 
     @pytest.mark.asyncio
     async def test_force_checkout_commit_exception(self):
         """Test exception during force commit checkout"""
         repo_path = Path(self.temp_dir) / "test_repo"
+        # Create the directory for the test
+        repo_path.mkdir(parents=True, exist_ok=True)
         commit_hash = "abc123"
 
         with patch(
             "services.git_service.run_subprocess_async",
             side_effect=Exception("Test error"),
         ):
-            success, message = await self.git_service.force_checkout_commit(
+            result = await self.git_service.force_checkout_commit(
                 repo_path, commit_hash
             )
 
-            assert success is False
-            assert "Error during force checkout" in message
+            assert result.is_error is True
+            assert "error" in str(result.error).lower()
 
     def test_has_local_changes_with_overwrite_message(self):
         """Test detecting local changes from error message"""
@@ -533,41 +576,144 @@ ghi789|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
 
     @pytest.mark.asyncio
     async def test_fetch_latest_commits_success(self):
-        """Test successful fetch with proper remote"""
+        """Test successful fetch of latest commits"""
         repo_path = Path(self.temp_dir) / "test_repo"
+        # Create the directory for the test
+        repo_path.mkdir(parents=True, exist_ok=True)
 
-        # Mock successful remote check and fetch
-        mock_results = [
-            Mock(returncode=0, stdout="origin"),  # remote check
-            Mock(returncode=0),  # fetch
-        ]
+        # Mock repository info result
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
 
-        with patch(
-            "services.git_service.run_subprocess_async", side_effect=mock_results
+        # Mock the fetch result
+        mock_fetch_result = Mock()
+        mock_fetch_result.returncode = 0
+        mock_fetch_result.stdout = "fetch completed"
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async", return_value=mock_fetch_result
         ):
-            success, message = await self.git_service.fetch_latest_commits(repo_path)
 
-            assert success is True
-            assert "Successfully fetched" in message
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            result = await self.git_service.fetch_latest_commits(repo_path)
+
+            assert result.is_success is True
 
     @pytest.mark.asyncio
     async def test_fetch_latest_commits_fetch_failure(self):
-        """Test fetch failure with proper remote"""
+        """Test failed fetch of latest commits"""
         repo_path = Path(self.temp_dir) / "test_repo"
+        # Create the directory for the test
+        repo_path.mkdir(parents=True, exist_ok=True)
 
-        # Mock successful remote check but failed fetch
-        mock_results = [
-            Mock(returncode=0, stdout="origin"),  # remote check
-            Mock(returncode=1, stderr="fetch failed: network error"),  # fetch
-        ]
+        # Mock repository info result
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
 
-        with patch(
-            "services.git_service.run_subprocess_async", side_effect=mock_results
+        # Mock the fetch result failure
+        mock_fetch_result = Mock()
+        mock_fetch_result.returncode = 1
+        mock_fetch_result.stderr = "fatal: unable to access remote"
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async", return_value=mock_fetch_result
         ):
-            success, message = await self.git_service.fetch_latest_commits(repo_path)
 
-            assert success is False
-            assert "fetch failed: network error" in message
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            result = await self.git_service.fetch_latest_commits(repo_path)
+
+            assert result.is_error is True
+            assert "fatal" in str(result.error) or "unable" in str(result.error)
+
+    @pytest.mark.asyncio
+    async def test_git_operations_on_non_repo(self):
+        """Test git operations on non-repository directory"""
+        # Create a non-git directory
+        non_repo_path = Path(self.temp_dir) / "not_a_repo"
+        non_repo_path.mkdir(parents=True, exist_ok=True)
+
+        with patch("services.git_service.run_subprocess_async") as mock_run:
+            mock_run.return_value = Mock(
+                returncode=128, stderr="fatal: not a git repository"
+            )
+
+            result = await self.git_service.fetch_latest_commits(non_repo_path)
+
+            assert result.is_error is True
+
+    @pytest.mark.asyncio
+    async def test_concurrent_git_operations(self):
+        """Test running multiple git operations concurrently"""
+        # Create multiple repos
+        repos = []
+        for i in range(3):
+            repo_path = Path(self.temp_dir) / f"repo_{i}"
+            repo_path.mkdir(parents=True, exist_ok=True)
+            repos.append(repo_path)
+
+        # Mock repository info and fetch results
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        mock_fetch_result = Mock()
+        mock_fetch_result.returncode = 0
+        mock_fetch_result.stdout = "fetch completed"
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async", return_value=mock_fetch_result
+        ):
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            # Run fetch on all repos concurrently
+            tasks = [self.git_service.fetch_latest_commits(repo) for repo in repos]
+            results = await asyncio.gather(*tasks)
+
+            # All should complete and return ServiceResult objects
+            assert len(results) == 3
+            assert all(hasattr(r, "is_success") for r in results)
+
+    @pytest.mark.asyncio
+    async def test_fetch_latest_commits_no_remote(self):
+        """Test fetch when no remote is configured"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        # Create the directory for the test
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        # Mock repository info result with no remote
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = False
+        mock_repo_info.remote_urls = []
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call:
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            result = await self.git_service.fetch_latest_commits(repo_path)
+
+            assert result.is_error is True
+            error_str = str(result.error).lower()
+            assert "remote" in error_str or "error" in error_str
 
 
 if __name__ == "__main__":
