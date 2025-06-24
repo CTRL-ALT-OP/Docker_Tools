@@ -161,23 +161,16 @@ class DockerService(AsyncServiceInterface):
                 if progress_callback:
                     progress_callback(f"Command: {test_cmd}\n\n")
 
-                test_result = await run_subprocess_async(
-                    test_cmd, shell=True, cwd=str(project_path)
+                # Use streaming subprocess for real-time output
+                return_code, test_output = await run_subprocess_streaming_async(
+                    test_cmd,
+                    shell=True,
+                    cwd=str(project_path),
+                    output_callback=progress_callback,
                 )
-
-                # Prepare raw test output
-                raw_test_output = ""
-                if test_result.stdout:
-                    raw_test_output += test_result.stdout
-                if test_result.stderr:
-                    if raw_test_output:
-                        raw_test_output += "\n"
-                    raw_test_output += test_result.stderr
 
                 # Analyze test results
-                test_status = self._analyze_test_results(
-                    test_result.stdout, test_result.stderr, test_result.returncode
-                )
+                test_status = self._analyze_test_results(test_output, "", return_code)
 
                 # Determine status color
                 final_color = (
@@ -190,23 +183,18 @@ class DockerService(AsyncServiceInterface):
                     status_callback(test_status, final_color)
 
                 if progress_callback:
-                    progress_callback(f"Test Status: {test_status}\n")
-                    progress_callback(f"Exit Code: {test_result.returncode}\n\n")
-
-                    if test_result.stdout:
-                        progress_callback(f"Test Output:\n{test_result.stdout}\n")
-                    if test_result.stderr:
-                        progress_callback(f"Test Errors:\n{test_result.stderr}\n")
+                    progress_callback(f"\nTest Status: {test_status}\n")
+                    progress_callback(f"Exit Code: {return_code}\n")
 
                 test_data = {
                     "status": test_status,
-                    "return_code": test_result.returncode,
-                    "raw_output": raw_test_output,
-                    "stdout": test_result.stdout,
-                    "stderr": test_result.stderr,
+                    "return_code": return_code,
+                    "raw_output": test_output,
+                    "stdout": test_output,
+                    "stderr": "",
                 }
 
-                if test_result.returncode == 0:
+                if return_code == 0:
                     return ServiceResult.success(
                         test_data,
                         message=f"Tests completed: {test_status}",
@@ -219,9 +207,9 @@ class DockerService(AsyncServiceInterface):
                     # Partial success - tests ran but some failed
                     error = ProcessError(
                         f"Tests failed: {test_status}",
-                        return_code=test_result.returncode,
-                        stdout=test_result.stdout,
-                        stderr=test_result.stderr,
+                        return_code=return_code,
+                        stdout=test_output,
+                        stderr="",
                     )
                     return ServiceResult.partial(test_data, error)
 
@@ -299,8 +287,17 @@ class DockerService(AsyncServiceInterface):
             ]
         ):
             return "FAILED TO RUN" if return_code != 0 else "COMPLETED (No Output)"
-        if "failed" in output_text and "passed" in output_text:
-            return "COMPLETED (Some Tests Failed)"
+
+        # Check for specific patterns first
+        if "passed" in output_text and "failed" in output_text:
+            # Look for patterns like "X failed" or "0 failed"
+            import re
+
+            failed_match = re.search(r"(\d+)\s+failed", output_text)
+            if failed_match and int(failed_match.group(1)) == 0:
+                return "COMPLETED (All Tests Passed)"
+            else:
+                return "COMPLETED (Some Tests Failed)"
         elif "failed" in output_text:
             return "COMPLETED (All Tests Failed)"
         elif "passed" in output_text:

@@ -77,6 +77,13 @@ async def run_subprocess_streaming_async(
             else:
                 cmd_to_run = cmd
 
+            # Prepare environment to force unbuffered output
+            import os
+
+            env = os.environ.copy()
+            env["PYTHONUNBUFFERED"] = "1"  # Force Python to unbuffer stdout/stderr
+            env["PYTHONIOENCODING"] = "utf-8"  # Ensure proper encoding
+
             # Create subprocess with streaming - use unbuffered mode for real-time output
             if shell:
                 process = subprocess.Popen(
@@ -90,6 +97,7 @@ async def run_subprocess_streaming_async(
                     cwd=cwd,
                     bufsize=0,  # Unbuffered for real-time streaming
                     universal_newlines=True,
+                    env=env,  # Pass modified environment
                 )
             else:
                 process = subprocess.Popen(
@@ -102,13 +110,16 @@ async def run_subprocess_streaming_async(
                     cwd=cwd,
                     bufsize=0,  # Unbuffered for real-time streaming
                     universal_newlines=True,
+                    env=env,  # Pass modified environment
                 )
 
             full_output = ""
+            buffer = ""  # Buffer to batch small chunks
 
-            # Stream output in real-time with smaller read chunks
+            # Stream output in real-time with batched updates
             import select
             import time
+            import sys
 
             while True:
                 # Check if process is still running
@@ -117,31 +128,61 @@ async def run_subprocess_streaming_async(
                     remaining = process.stdout.read()
                     if remaining:
                         full_output += remaining
-                        if output_callback:
-                            output_callback(remaining)
+                        buffer += remaining
+                    # Send final buffer
+                    if buffer and output_callback:
+                        output_callback(buffer)
                     break
 
-                # Try to read available data without blocking
+                # Read data in small chunks but batch for GUI updates
                 try:
-                    # Use a small timeout to check for data periodically
-                    line = process.stdout.readline()
-                    if line:
-                        full_output += line
-                        if output_callback:
-                            output_callback(line)
+                    # Check if data is available without blocking
+                    if sys.platform != "win32":
+                        # On Unix systems, use select to check for available data
+                        import select
+
+                        ready, _, _ = select.select([process.stdout], [], [], 0.1)
+                        if ready:
+                            chunk = process.stdout.read(64)  # Read larger chunks
+                            if chunk:
+                                full_output += chunk
+                                buffer += chunk
+
+                                # Send buffer when we have enough data or encounter newlines
+                                if len(buffer) > 100 or "\n" in buffer:
+                                    if output_callback:
+                                        output_callback(buffer)
+                                    buffer = ""
+                        else:
+                            # No data available - send any pending buffer
+                            if buffer and output_callback:
+                                output_callback(buffer)
+                                buffer = ""
+                            time.sleep(0.1)  # Wait a bit longer if no data
                     else:
-                        # No data available, small sleep to prevent busy waiting
-                        time.sleep(0.1)
+                        # On Windows, read line by line for better batching
+                        try:
+                            line = process.stdout.readline()
+                            if line:
+                                full_output += line
+                                buffer += line
+
+                                # Send buffer when we have a complete line or buffer is large
+                                if "\n" in buffer or len(buffer) > 100:
+                                    if output_callback:
+                                        output_callback(buffer)
+                                    buffer = ""
+                            else:
+                                # No data - send any pending buffer
+                                if buffer and output_callback:
+                                    output_callback(buffer)
+                                    buffer = ""
+                                time.sleep(0.1)
+                        except Exception:
+                            time.sleep(0.1)
+
                 except Exception:
-                    # If readline fails, try smaller read
-                    try:
-                        char = process.stdout.read(1)
-                        if char:
-                            full_output += char
-                            if output_callback:
-                                output_callback(char)
-                    except Exception:
-                        time.sleep(0.1)
+                    time.sleep(0.1)
 
             # Wait for process to complete
             return_code = process.wait()

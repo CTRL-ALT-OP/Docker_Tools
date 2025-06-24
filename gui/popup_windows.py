@@ -95,7 +95,6 @@ class TerminalOutputWindow:
                 self.text_area.insert(tk.END, text)
                 self.text_area.see(tk.END)
                 self.text_area.config(state=tk.DISABLED)
-                self.text_area.update()
 
             except tk.TclError:
                 # Widget was destroyed - ignore silently

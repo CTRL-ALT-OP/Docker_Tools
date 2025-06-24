@@ -240,8 +240,7 @@ class SyncService(AsyncServiceInterface):
                 elif result.success_count > 0:
                     # Partial success
                     error = ResourceError(
-                        f"Failed to sync file to {len(result.failed_syncs)} target(s)",
-                        details={"failed_targets": result.failed_syncs},
+                        f"Failed to sync file to {len(result.failed_syncs)} target(s): {', '.join(result.failed_syncs)}"
                     )
                     return ServiceResult.partial(
                         result,
@@ -251,8 +250,7 @@ class SyncService(AsyncServiceInterface):
                 else:
                     # All failed
                     error = ResourceError(
-                        f"Failed to sync file '{file_name}' to any target versions",
-                        details={"failed_targets": result.failed_syncs},
+                        f"Failed to sync file '{file_name}' to any target versions: {', '.join(result.failed_syncs)}"
                     )
                     return ServiceResult.error(error)
 
@@ -349,12 +347,7 @@ class SyncService(AsyncServiceInterface):
                     )
                 elif successful_files > 0:
                     error = ResourceError(
-                        f"Failed to sync {total_files - successful_files} files",
-                        details={
-                            "failed_files": [
-                                r.file_name for r in results if r.success_count == 0
-                            ]
-                        },
+                        f"Failed to sync {total_files - successful_files} files"
                     )
                     return ServiceResult.partial(
                         results,

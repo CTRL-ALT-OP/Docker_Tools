@@ -188,9 +188,13 @@ class FileService(AsyncServiceInterface):
                         except (OSError, PermissionError):
                             pass  # Skip if we can't get file size
 
-        except (OSError, PermissionError) as e:
-            logger.error("Error scanning directory %s: %s", project_path, e)
-            # Continue with partial results
+        except PermissionError as e:
+            logger.error("Permission denied scanning directory %s: %s", project_path, e)
+            # Re-raise so the async method can handle it properly
+            raise
+        except OSError as e:
+            logger.error("OS error scanning directory %s: %s", project_path, e)
+            # Continue with partial results for other OS errors
 
         return CleanupScanResult(
             directories=cleanup_dirs,
