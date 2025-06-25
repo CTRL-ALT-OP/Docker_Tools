@@ -76,6 +76,7 @@ Both scripts support the same options:
 - `--postedit-beetle` - Validate only postedit-beetle codebase  
 - `--postedit-sonnet` - Validate only postedit-sonnet codebase
 - `--rewrite` - Validate only rewrite codebase
+- `--platform` - Specify Docker platform (e.g., linux/amd64, linux/arm64) - auto-detected if not provided
 - `--help` or `-h` - Show help message
 
 ## Codebase Structure Requirements
@@ -93,11 +94,17 @@ your-codebase.zip
 ### Required Scripts
 
 #### `build_docker.sh`
-Must build a Docker image. Example:
+Must build a Docker image. The script receives two arguments:
+1. Image name (e.g., "my-app")  
+2. Platform (e.g., "linux/arm64" or "linux/amd64")
+
+Example:
 ```bash
 #!/bin/bash
-IMAGE_NAME="my-app"
-docker build -t $IMAGE_NAME .
+DOCKER_TAG=${1:-my-app}
+DOCKER_DEFAULT_PLATFORM=${2:-linux/amd64}
+
+docker build --platform $DOCKER_DEFAULT_PLATFORM -t $DOCKER_TAG .
 ```
 
 #### `run_tests.sh`
@@ -207,6 +214,31 @@ docker info
 - Check that your `Dockerfile` is valid
 - Ensure `build_docker.sh` script works locally
 - Review build output in the CSV results file
+
+### Platform/Architecture Errors
+If you get errors about platform mismatches (e.g., "should be linux/amd64 but running linux/arm64"):
+
+**Automatic Fix (Recommended)**:
+The tool automatically detects your platform and passes it to your `build_docker.sh` script as the second argument.
+
+**Manual Override**:
+```bash
+# For Intel/AMD processors
+./run_validation.sh --platform linux/amd64
+
+# For Apple Silicon (M1/M2) or ARM processors  
+./run_validation.sh --platform linux/arm64
+
+# Windows
+run_validation.bat --platform linux/amd64
+```
+
+**Note**: Your `build_docker.sh` script should accept the platform as the second argument:
+```bash
+DOCKER_TAG=${1:-my-app}
+DOCKER_DEFAULT_PLATFORM=${2:-linux/amd64}
+docker build --platform $DOCKER_DEFAULT_PLATFORM -t $DOCKER_TAG .
+```
 
 ### Test Failures  
 - Verify `run_tests.sh` script runs correctly

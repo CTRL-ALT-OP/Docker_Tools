@@ -9,6 +9,7 @@ show_usage() {
     echo "  --postedit-beetle   Validate only postedit-beetle codebase"
     echo "  --postedit-sonnet   Validate only postedit-sonnet codebase"
     echo "  --rewrite           Validate only rewrite codebase"
+    echo "  --platform PLATFORM Docker platform (e.g., linux/amd64, linux/arm64)"
     echo "  --version           Show version information"
     echo "  --help, -h          Show this help message"
     echo ""
@@ -34,6 +35,7 @@ run_docker_compose() {
 # Parse command line arguments
 CODEBASE_FILTER=""
 FILTER_TYPE=""
+PLATFORM_ARG=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -57,8 +59,18 @@ while [[ $# -gt 0 ]]; do
             FILTER_TYPE="rewrite"
             shift
             ;;
+        --platform)
+            if [[ -n "$2" && "$2" != --* ]]; then
+                PLATFORM_ARG="--platform $2"
+                shift 2
+            else
+                echo "❌ --platform requires a value (e.g., linux/amd64, linux/arm64)"
+                show_usage
+                exit 1
+            fi
+            ;;
         --version)
-            echo "Codebase Validation Tool v061425_2215"
+            echo "Codebase Validation Tool v062325_0840"
             exit 0
             ;;
         --help|-h)
@@ -118,18 +130,21 @@ if [ -n "$FILTER_TYPE" ]; then
 fi
 echo ""
 
-# Build the Docker command with optional filter
+# Build the Docker command with optional filter and platform
 DOCKER_CMD="python validate_codebases.py --output /app/output/validation_results.csv --verbose"
 if [ -n "$CODEBASE_FILTER" ]; then
     DOCKER_CMD="$DOCKER_CMD $CODEBASE_FILTER"
 fi
+if [ -n "$PLATFORM_ARG" ]; then
+    DOCKER_CMD="$DOCKER_CMD $PLATFORM_ARG"
+fi
 
 # Run the validation with real-time output
 echo "⏳ Building image and running Docker containers and tests..."
-if [ -n "$CODEBASE_FILTER" ]; then
+if [ -n "$CODEBASE_FILTER" ] || [ -n "$PLATFORM_ARG" ]; then
     # Build the image first, then use the regular validator service with custom command
     run_docker_compose build validator
-    run_docker_compose run --rm validator python validate_codebases.py --output /app/output/validation_results.csv --verbose $CODEBASE_FILTER
+    run_docker_compose run --rm validator $DOCKER_CMD
 else
     # Use the regular service for default validation
     run_docker_compose up --build validator

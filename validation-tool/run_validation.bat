@@ -12,6 +12,7 @@ echo   --preedit           Validate only preedit codebase
 echo   --postedit-beetle   Validate only postedit-beetle codebase
 echo   --postedit-sonnet   Validate only postedit-sonnet codebase
 echo   --rewrite           Validate only rewrite codebase
+echo   --platform PLATFORM Docker platform (e.g., linux/amd64, linux/arm64)
 echo   --version           Show version information
 echo   --help, -h          Show this help message
 echo.
@@ -44,6 +45,7 @@ exit /b 1
 REM Parse command line arguments
 set CODEBASE_FILTER=
 set FILTER_TYPE=
+set PLATFORM_ARG=
 
 :parse_args
 if "%~1"=="" goto :args_done
@@ -71,8 +73,20 @@ if "%~1"=="--rewrite" (
     shift
     goto :parse_args
 )
+if "%~1"=="--platform" (
+    if "%~2"=="" (
+        echo ERROR: --platform requires a value (e.g., linux/amd64, linux/arm64)
+        call :show_usage
+        pause
+        exit /b 1
+    )
+    set PLATFORM_ARG=--platform %~2
+    shift
+    shift
+    goto :parse_args
+)
 if "%~1"=="--version" (
-    echo Codebase Validation Tool v061425_2215
+    echo Codebase Validation Tool v062325_0840
     pause
     exit /b 0
 )
@@ -146,12 +160,25 @@ if not "%FILTER_TYPE%"=="" (
 )
 echo.
 
+REM Build the Docker command with optional filter and platform
+set DOCKER_CMD=python validate_codebases.py --output /app/output/validation_results.csv --verbose
+if not "%CODEBASE_FILTER%"=="" (
+    set DOCKER_CMD=%DOCKER_CMD% %CODEBASE_FILTER%
+)
+if not "%PLATFORM_ARG%"=="" (
+    set DOCKER_CMD=%DOCKER_CMD% %PLATFORM_ARG%
+)
+
 REM Run the validation with real-time output
 echo Building image and running Docker containers and tests...
 if not "%CODEBASE_FILTER%"=="" (
     REM Build the image first, then use the regular validator service with custom command
     call :run_docker_compose build validator
-    call :run_docker_compose run --rm validator python validate_codebases.py --output /app/output/validation_results.csv --verbose %CODEBASE_FILTER%
+    call :run_docker_compose run --rm validator %DOCKER_CMD%
+) else if not "%PLATFORM_ARG%"=="" (
+    REM Build the image first, then use the regular validator service with custom command
+    call :run_docker_compose build validator
+    call :run_docker_compose run --rm validator %DOCKER_CMD%
 ) else (
     REM Use the regular service for default validation
     call :run_docker_compose up --build validator

@@ -1,6 +1,11 @@
 services:
   validator:
-    build: .
+    build: 
+      context: .
+      platforms:
+        - linux/amd64
+        - linux/arm64
+    platform: linux/amd64
     container_name: codebase-validator
     volumes:
       # Mount the codebases directory
@@ -11,11 +16,17 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PYTHONUNBUFFERED=1
+      - DOCKER_BUILDKIT=1
     command: ["python", "validate_codebases.py", "--output", "/app/output/validation_results.csv", "--verbose"]
     
 
   validator-interactive:
-    build: .
+    build: 
+      context: .
+      platforms:
+        - linux/amd64
+        - linux/arm64
+    platform: linux/amd64
     container_name: codebase-validator-interactive
     volumes:
       - ./codebases:/app/codebases:ro
@@ -23,6 +34,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PYTHONUNBUFFERED=1
+      - DOCKER_BUILDKIT=1
     stdin_open: true
     tty: true
     entrypoint: ["bash"] 
