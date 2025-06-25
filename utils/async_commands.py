@@ -623,14 +623,44 @@ class GitCheckoutAllCommand(AsyncCommand):
                 # Checkout each version
                 for i, project in enumerate(all_versions):
                     terminal_window.update_status(
-                        f"Checking out {project.parent}/{project.name} ({i+1}/{len(all_versions)})",
+                        f"Processing {project.parent}/{project.name} ({i+1}/{len(all_versions)})",
                         "#f39c12",
                     )
                     terminal_window.append_output(
-                        f"📁 Checking out {project.parent}/{project.name}...\n"
+                        f"📁 Processing {project.parent}/{project.name}...\n"
                     )
 
-                    # Perform the checkout
+                    # First, fetch the latest commits to ensure this version knows about the target commit
+                    terminal_window.append_output(f"   🔄 Fetching latest commits...\n")
+                    fetch_result = await self.git_service.fetch_latest_commits(
+                        project.path
+                    )
+
+                    if fetch_result.is_success:
+                        terminal_window.append_output(f"   ✅ Fetch completed\n")
+                    else:
+                        # Fetch failed, but we can still try to checkout if it's a local commit
+                        fetch_error = (
+                            fetch_result.error.message
+                            if fetch_result.error
+                            else "Unknown fetch error"
+                        )
+                        if "No remote repository" in fetch_error:
+                            terminal_window.append_output(
+                                f"   ℹ️  No remote configured, proceeding with local commits\n"
+                            )
+                        else:
+                            terminal_window.append_output(
+                                f"   ⚠️  Fetch failed: {fetch_error}\n"
+                            )
+                            terminal_window.append_output(
+                                f"   ℹ️  Attempting checkout with existing commits...\n"
+                            )
+
+                    # Now perform the checkout
+                    terminal_window.append_output(
+                        f"   🔀 Checking out to {commit_hash}...\n"
+                    )
                     checkout_result = await self.git_service.checkout_commit(
                         project.path, commit_hash
                     )
@@ -645,8 +675,19 @@ class GitCheckoutAllCommand(AsyncCommand):
                         terminal_window.append_output(f"   ✅ {message}\n")
                         successful_checkouts.append(f"{project.parent}/{project.name}")
                     else:
-                        # Check if the error is due to local changes
+                        # Check if the error is due to unknown commit (after fetch failure)
                         if (
+                            "pathspec" in message.lower()
+                            and "did not match" in message.lower()
+                        ):
+                            terminal_window.append_output(
+                                f"   ❌ Commit {commit_hash} not found in this version\n"
+                            )
+                            failed_checkouts.append(
+                                f"{project.parent}/{project.name} (commit not found)"
+                            )
+                        # Check if the error is due to local changes
+                        elif (
                             "would be overwritten" in message
                             or "local changes" in message.lower()
                         ):
@@ -712,7 +753,11 @@ class GitCheckoutAllCommand(AsyncCommand):
 
                 # Final summary
                 terminal_window.append_output("\n" + "=" * 50 + "\n")
-                terminal_window.append_output("CHECKOUT SUMMARY:\n")
+                terminal_window.append_output("CHECKOUT ALL SUMMARY:\n")
+                terminal_window.append_output(f"🎯 Target commit: {commit_hash}\n")
+                terminal_window.append_output(
+                    f"📊 Total versions processed: {len(all_versions)}\n"
+                )
                 terminal_window.append_output(
                     f"✅ Successful checkouts: {len(successful_checkouts)}\n"
                 )
@@ -729,6 +774,14 @@ class GitCheckoutAllCommand(AsyncCommand):
                     terminal_window.append_output("\nFailed/skipped checkouts:\n")
                     for checkout in failed_checkouts:
                         terminal_window.append_output(f"  • {checkout}\n")
+
+                # Add helpful note about the operation
+                terminal_window.append_output(
+                    f"\n💡 Note: Each version was updated with latest commits before checkout\n"
+                )
+                terminal_window.append_output(
+                    f"📋 All versions that could be updated are now at commit {commit_hash}\n"
+                )
 
                 # Update final status
                 if len(successful_checkouts) == len(all_versions):
