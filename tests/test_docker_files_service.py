@@ -62,6 +62,11 @@ class TestDockerFilesService:
                 "run_tests.sh": "#!/bin/bash\necho 'Running Rust tests'\n",
                 "Dockerfile": "FROM rust:1.70\nCOPY . /app\n",
             },
+            "c": {
+                "build_docker.sh": "#!/bin/bash\necho 'Building C Docker'\n",
+                "run_tests.sh": "#!/bin/bash\necho 'Running C tests'\n",
+                "Dockerfile": "FROM alpine:3.21\nRUN apk add --no-cache alpine-sdk cmake\nCOPY . /app\n",
+            },
         }
 
         for language, templates in languages.items():
@@ -205,6 +210,34 @@ class TestDockerFilesService:
         )
 
     @pytest.fixture
+    def c_project(self, temp_directory):
+        """Create a project with C/C++ files"""
+        project_dir = temp_directory / "pre-edit" / "c-project"
+        project_dir.mkdir(parents=True)
+
+        # Create C/C++ files
+        (project_dir / "main.c").write_text(
+            '#include <stdio.h>\nint main() { printf("Hello C"); return 0; }'
+        )
+        (project_dir / "utils.c").write_text('#include "utils.h"\nvoid helper() {}')
+        (project_dir / "utils.h").write_text(
+            "#ifndef UTILS_H\n#define UTILS_H\nvoid helper();\n#endif"
+        )
+        (project_dir / "app.cpp").write_text(
+            '#include <iostream>\nint main() { std::cout << "Hello C++"; }'
+        )
+        (project_dir / "classes.hpp").write_text(
+            "#ifndef CLASSES_HPP\n#define CLASSES_HPP\nclass MyClass {};\n#endif"
+        )
+
+        return Project(
+            parent="pre-edit",
+            name="c-project",
+            path=project_dir,
+            relative_path="pre-edit/c-project",
+        )
+
+    @pytest.fixture
     def mixed_language_project(self, temp_directory):
         """Create a project with mixed language files (Python should win)"""
         project_dir = temp_directory / "pre-edit" / "mixed-project"
@@ -324,6 +357,20 @@ class TestDockerFilesService:
         )
 
         assert detected_language == "rust"
+
+    @pytest.mark.asyncio
+    async def test_detects_c_language(self, service, c_project):
+        """Test that service correctly detects C as the primary language"""
+        output_callback = Mock()
+
+        detected_language = await service._detect_programming_language(
+            c_project, output_callback
+        )
+
+        assert detected_language == "c"
+        # Verify output mentions C files found
+        output_calls = [call.args[0] for call in output_callback.call_args_list]
+        assert any("c files" in call.lower() for call in output_calls)
 
     @pytest.mark.asyncio
     async def test_detects_dominant_language_in_mixed_project(
@@ -490,6 +537,38 @@ class TestDockerFilesService:
         )
 
     @pytest.mark.asyncio
+    async def test_creates_c_cmake_file(self, service, temp_directory):
+        """Test that service creates CMakeLists.txt for C projects"""
+        project_dir = temp_directory / "c-project"
+        project_dir.mkdir()
+
+        project = Project(
+            parent="pre-edit",
+            name="c-project",
+            path=project_dir,
+            relative_path="pre-edit/c-project",
+        )
+
+        output_callback = Mock()
+        await service._ensure_language_files(project, "c", output_callback)
+
+        cmake_file = project_dir / "CMakeLists.txt"
+        assert cmake_file.exists()
+        content = cmake_file.read_text()
+
+        # Check that the CMakeLists.txt contains expected content
+        assert "cmake_minimum_required(VERSION 3.10)" in content
+        assert "project(MyProject)" in content
+        assert "set(CMAKE_CXX_STANDARD 17)" in content
+        assert "file(GLOB_RECURSE SOURCES" in content
+        assert "add_executable(${PROJECT_NAME}" in content
+        assert "enable_testing()" in content
+
+        # Check output callback was called with success message
+        output_calls = [call.args[0] for call in output_callback.call_args_list]
+        assert any("Created CMakeLists.txt" in call for call in output_calls)
+
+    @pytest.mark.asyncio
     async def test_preserves_existing_language_files(self, service, temp_directory):
         """Test that service preserves existing language-specific files"""
         project_dir = temp_directory / "existing-project"
@@ -515,6 +594,37 @@ class TestDockerFilesService:
 
         # package-lock.json should still be created
         assert (project_dir / "package-lock.json").exists()
+
+    @pytest.mark.asyncio
+    async def test_preserves_existing_cmake_file(self, service, temp_directory):
+        """Test that service preserves existing CMakeLists.txt files"""
+        project_dir = temp_directory / "existing-c-project"
+        project_dir.mkdir()
+
+        # Create existing CMakeLists.txt with custom content
+        existing_cmake = project_dir / "CMakeLists.txt"
+        existing_content = """cmake_minimum_required(VERSION 3.20)
+project(MyCustomProject)
+# Custom CMake configuration
+"""
+        existing_cmake.write_text(existing_content)
+
+        project = Project(
+            parent="pre-edit",
+            name="existing-c-project",
+            path=project_dir,
+            relative_path="pre-edit/existing-c-project",
+        )
+
+        output_callback = Mock()
+        await service._ensure_language_files(project, "c", output_callback)
+
+        # Existing CMakeLists.txt should be preserved
+        assert existing_cmake.read_text() == existing_content
+
+        # Check output callback was called with "already exists" message
+        output_calls = [call.args[0] for call in output_callback.call_args_list]
+        assert any("CMakeLists.txt already exists" in call for call in output_calls)
 
     # Docker File Creation Tests by Language
     @pytest.mark.asyncio
@@ -631,6 +741,47 @@ class TestDockerFilesService:
         dockerfile = project_dir / "Dockerfile"
         assert dockerfile.exists()
         assert "FROM openjdk:11" in dockerfile.read_text()
+
+    @pytest.mark.asyncio
+    async def test_copies_c_docker_files(
+        self, service, temp_directory, temp_defaults_dir
+    ):
+        """Test that service copies C-specific Docker files"""
+        project_dir = temp_directory / "c-project"
+        project_dir.mkdir()
+
+        project = Project(
+            parent="pre-edit",
+            name="c-project",
+            path=project_dir,
+            relative_path="pre-edit/c-project",
+        )
+
+        output_callback = Mock()
+
+        with patch.object(service, "defaults_dir", temp_defaults_dir):
+            await service._copy_build_docker_sh(project, "c", output_callback)
+            await service._copy_run_tests_sh(
+                project, "c", False, False, output_callback
+            )
+            await service._copy_dockerfile(project, "c", False, False, output_callback)
+
+        # Check files exist and have correct content
+        build_script = project_dir / "build_docker.sh"
+        assert build_script.exists()
+        assert "Building C Docker" in build_script.read_text()
+        assert os.access(build_script, os.X_OK)
+
+        run_tests = project_dir / "run_tests.sh"
+        assert run_tests.exists()
+        assert "Running C tests" in run_tests.read_text()
+        assert os.access(run_tests, os.X_OK)
+
+        dockerfile = project_dir / "Dockerfile"
+        assert dockerfile.exists()
+        content = dockerfile.read_text()
+        assert "FROM alpine:3.21" in content
+        assert "alpine-sdk cmake" in content
 
     @pytest.mark.asyncio
     async def test_python_with_tkinter_uses_special_templates(
@@ -750,6 +901,59 @@ class TestDockerFilesService:
                 if filename.endswith(".sh"):
                     assert os.access(file_path, os.X_OK)
 
+    @pytest.mark.asyncio
+    async def test_copies_c_language_files_to_all_versions(
+        self, service, sample_project_group, temp_defaults_dir
+    ):
+        """Test that service copies C language-specific files to all project versions"""
+        # Setup pre-edit project with C files
+        pre_edit = sample_project_group.get_version("pre-edit")
+
+        # Create C project files
+        (pre_edit.path / "main.c").write_text("#include <stdio.h>\nint main() {}")
+        (pre_edit.path / "utils.h").write_text(
+            "#ifndef UTILS_H\n#define UTILS_H\n#endif"
+        )
+
+        # Create Docker files in pre-edit
+        docker_files = [
+            ".dockerignore",
+            "run_tests.sh",
+            "build_docker.sh",
+            "Dockerfile",
+        ]
+        language_files = ["CMakeLists.txt"]  # C specific
+
+        for filename in docker_files + language_files:
+            file_path = pre_edit.path / filename
+            file_path.write_text(f"Content of {filename}")
+            if filename.endswith(".sh"):
+                os.chmod(file_path, 0o755)
+
+        output_callback = Mock()
+
+        success, message = await service._copy_files_to_all_versions(
+            sample_project_group, pre_edit, "c", output_callback
+        )
+
+        assert success is True
+        assert "Files copied to 3 versions" in message
+
+        # Check that all files were copied to other versions
+        for version_name in ["post-edit", "post-edit2", "correct-edit"]:
+            version = sample_project_group.get_version(version_name)
+            for filename in docker_files + language_files:
+                file_path = version.path / filename
+                assert file_path.exists()
+                assert file_path.read_text() == f"Content of {filename}"
+                if filename.endswith(".sh"):
+                    assert os.access(file_path, os.X_OK)
+
+            # Specifically check that CMakeLists.txt was copied
+            cmake_file = version.path / "CMakeLists.txt"
+            assert cmake_file.exists()
+            assert cmake_file.read_text() == "Content of CMakeLists.txt"
+
     # Integration Tests
     @pytest.mark.asyncio
     async def test_full_workflow_python_project_with_dependencies(
@@ -842,6 +1046,76 @@ class TestDockerFilesService:
 
             build_content = (version.path / "build_docker.sh").read_text()
             assert "Building JavaScript Docker" in build_content
+
+    @pytest.mark.asyncio
+    async def test_full_workflow_c_project(
+        self, service, sample_project_group, temp_defaults_dir
+    ):
+        """Test complete workflow for C/C++ project"""
+        # Setup pre-edit project with C/C++ files
+        pre_edit = sample_project_group.get_version("pre-edit")
+
+        # Create C/C++ files (more C files than other languages)
+        (pre_edit.path / "main.c").write_text(
+            '#include <stdio.h>\nint main() { printf("Hello C"); return 0; }'
+        )
+        (pre_edit.path / "utils.c").write_text('#include "utils.h"\nvoid helper() {}')
+        (pre_edit.path / "utils.h").write_text(
+            "#ifndef UTILS_H\n#define UTILS_H\nvoid helper();\n#endif"
+        )
+        (pre_edit.path / "app.cpp").write_text(
+            '#include <iostream>\nint main() { std::cout << "Hello C++"; }'
+        )
+        (pre_edit.path / "classes.hpp").write_text(
+            "#ifndef CLASSES_HPP\n#define CLASSES_HPP\nclass MyClass {};\n#endif"
+        )
+
+        # Add some other language files (fewer than C)
+        (pre_edit.path / "script.py").write_text("print('hello')")
+
+        # Add gitignore
+        (pre_edit.path / ".gitignore").write_text("build/\n*.o\n*.out\n")
+
+        output_callback = Mock()
+        status_callback = Mock()
+
+        with patch.object(service, "defaults_dir", temp_defaults_dir):
+            success, message = await service.build_docker_files_for_project_group(
+                sample_project_group, output_callback, status_callback
+            )
+
+        assert success is True
+        assert "Docker files generated and distributed successfully" in message
+
+        # Verify files created in all versions
+        for version_name in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+            version = sample_project_group.get_version(version_name)
+
+            # Check Docker files exist
+            assert (version.path / ".dockerignore").exists()
+            assert (version.path / "run_tests.sh").exists()
+            assert (version.path / "build_docker.sh").exists()
+            assert (version.path / "Dockerfile").exists()
+            assert (version.path / "CMakeLists.txt").exists()
+
+            # Check .dockerignore content
+            dockerignore_content = (version.path / ".dockerignore").read_text()
+            assert "build/" in dockerignore_content
+            assert "*.o" in dockerignore_content
+            assert "!run_tests.sh" in dockerignore_content
+
+            # Check C-specific content in templates
+            build_content = (version.path / "build_docker.sh").read_text()
+            assert "Building C Docker" in build_content
+
+            dockerfile_content = (version.path / "Dockerfile").read_text()
+            assert "FROM alpine:3.21" in dockerfile_content
+            assert "alpine-sdk cmake" in dockerfile_content
+
+            # Check CMakeLists.txt content
+            cmake_content = (version.path / "CMakeLists.txt").read_text()
+            assert "cmake_minimum_required" in cmake_content
+            assert "project(MyProject)" in cmake_content
 
     @pytest.mark.asyncio
     async def test_handles_missing_pre_edit_version(
