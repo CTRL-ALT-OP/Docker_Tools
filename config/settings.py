@@ -44,6 +44,7 @@ LANGUAGE_EXTENSIONS = {
     "typescript": [".ts", ".tsx", ".cts", ".mts"],
     "java": [".java", ".class"],
     "rust": [".rs"],
+    "c": [".c", ".h", ".cpp", ".hpp", ".cxx", ".hxx", ".cc", ".hh"],
 }
 
 # Required files for each language
@@ -53,6 +54,7 @@ LANGUAGE_REQUIRED_FILES = {
     "typescript": ["package.json", "package-lock.json"],
     "java": ["pom.xml"],
     "rust": [],  # No files need ensuring for Rust
+    "c": ["CMakeLists.txt"],
 }
 
 # GUI Configuration

@@ -401,6 +401,40 @@ class DockerFilesService:
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
             output_callback(f"   ✅ Created {file_name}\n")
+        elif file_name == "CMakeLists.txt":
+            content = """cmake_minimum_required(VERSION 3.10)
+
+# Project name
+project(MyProject)
+
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find all source files
+file(GLOB_RECURSE SOURCES "src/*.cpp" "src/*.c")
+file(GLOB_RECURSE HEADERS "src/*.h" "src/*.hpp")
+
+# Add executable
+add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+
+# Add include directories
+target_include_directories(${PROJECT_NAME} PRIVATE src)
+
+# Add any additional libraries here
+# target_link_libraries(${PROJECT_NAME} library_name)
+
+# Enable testing
+enable_testing()
+
+# Add tests if they exist
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    add_subdirectory(tests)
+endif()
+"""
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            output_callback(f"   ✅ Created {file_name}\n")
         elif file_name == "requirements.txt":
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write("# Add your Python project dependencies here\n")
