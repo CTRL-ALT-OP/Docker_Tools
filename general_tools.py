@@ -872,9 +872,10 @@ class ProjectControlPanel:
                                     # Keep other lines as-is
                                     new_lines.append(line)
 
-                            # Write updated content
+                            # Write updated content with Unix line endings
                             new_content = "\n".join(new_lines)
-                            run_tests_path.write_text(new_content)
+                            # Ensure Unix line endings (LF only) for compatibility with Docker containers
+                            run_tests_path.write_text(new_content, newline="\n")
 
                             output_window.append_output(
                                 f"   ✅ Successfully updated {run_tests_path}\n"
@@ -883,9 +884,10 @@ class ProjectControlPanel:
                                 f"{version.parent}/{version.name}"
                             )
                         else:
-                            # Create new run_tests.sh file
+                            # Create new run_tests.sh file with Unix line endings
                             run_tests_content = f"#!/bin/sh\n{new_pytest_command}\n"
-                            run_tests_path.write_text(run_tests_content)
+                            # Ensure Unix line endings (LF only) for compatibility with Docker containers
+                            run_tests_path.write_text(run_tests_content, newline="\n")
                             run_tests_path.chmod(0o755)  # Make executable
 
                             output_window.append_output(
