@@ -44,7 +44,7 @@ LANGUAGE_EXTENSIONS = {
     "typescript": [".ts", ".tsx", ".cts", ".mts"],
     "java": [".java", ".class"],
     "rust": [".rs"],
-    "c": [".c", ".h", ".cpp", ".hpp", ".cxx", ".hxx", ".cc", ".hh"],
+    "c": [".c", ".h", ".i", ".o", ".s", ".so"],
 }
 
 # Required files for each language
