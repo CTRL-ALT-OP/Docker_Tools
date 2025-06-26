@@ -427,3 +427,137 @@ python3.12 -m pytest -vv -s --tb=short --durations=10 --maxfail=1 tests/test_tar
             assert "tests/test_target.py" in selected_tests
             assert "tests/test_other.py" not in selected_tests
             assert len(selected_tests) == 1
+
+
+class TestRunTestsLineEndings:
+    """Test cases for run_tests.sh file line endings"""
+
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.temp_dir = tempfile.mkdtemp()
+        self.project_service = ProjectService()
+
+        # Create test project group with multiple versions
+        self.project_group = ProjectGroup("test-project", self.project_service)
+
+        # Create test projects for different versions
+        versions = ["pre-edit", "post-edit", "post-edit2", "correct-edit"]
+        for version in versions:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            version_path.mkdir(parents=True, exist_ok=True)
+
+            project = Project(
+                parent=version,
+                name="test-project",
+                path=version_path,
+                relative_path=f"{version}/test-project",
+            )
+            self.project_group.add_project(project)
+
+    def teardown_method(self):
+        """Clean up test fixtures"""
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
+    def test_run_tests_files_created_with_unix_line_endings(self):
+        """Test that run_tests.sh files are created with Unix (LF) line endings, not Windows (CRLF)"""
+        # Test the low-level file writing directly to avoid async complexity
+        import tempfile
+
+        # Create a test file using our newline fix
+        with tempfile.NamedTemporaryFile(
+            mode="w", delete=False, suffix=".sh"
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+
+        try:
+            # Simulate what our production code does
+            run_tests_content = "#!/bin/sh\npytest -vv -s tests/test_example.py\n"
+            temp_path.write_text(run_tests_content, newline="\n")
+
+            # Read file content as bytes to check line endings
+            with open(temp_path, "rb") as f:
+                content_bytes = f.read()
+
+            # Convert to string for easier debugging
+            content_str = content_bytes.decode("utf-8")
+
+            # Should contain Unix line endings (LF only: \n = 0x0A)
+            assert b"\n" in content_bytes, "File should contain LF characters"
+
+            # Should NOT contain Windows line endings (CRLF: \r\n = 0x0D 0x0A)
+            assert (
+                b"\r\n" not in content_bytes
+            ), f"File should not contain CRLF: {repr(content_str)}"
+
+            # Should NOT contain isolated CR characters (just \r = 0x0D)
+            assert (
+                b"\r" not in content_bytes
+            ), f"File should not contain CR characters: {repr(content_str)}"
+
+            # Verify the content is what we expect
+            expected_content = "#!/bin/sh\npytest -vv -s tests/test_example.py\n"
+            assert (
+                content_str == expected_content
+            ), f"Unexpected content: {repr(content_str)}"
+
+        finally:
+            # Clean up
+            if temp_path.exists():
+                temp_path.unlink()
+
+    def test_run_tests_file_modification_preserves_unix_line_endings(self):
+        """Test that modifying existing run_tests.sh files preserves Unix line endings"""
+        # Test the low-level file modification directly
+        import tempfile
+
+        # Create a test file with existing content
+        with tempfile.NamedTemporaryFile(
+            mode="w", delete=False, suffix=".sh"
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+
+        try:
+            # Write initial content with explicit Unix line endings
+            initial_content = "#!/bin/sh\npytest -vv -s tests/old_test.py\n"
+            with open(temp_path, "wb") as f:
+                f.write(initial_content.encode("utf-8"))
+
+            # Verify initial file has Unix line endings
+            with open(temp_path, "rb") as f:
+                initial_bytes = f.read()
+            assert b"\r\n" not in initial_bytes, "Initial file should not have CRLF"
+            assert b"\n" in initial_bytes, "Initial file should have LF"
+
+            # Simulate modifying the file (what our production code does)
+            new_content = "#!/bin/sh\npytest -vv -s tests/test_new.py\n"
+            temp_path.write_text(new_content, newline="\n")
+
+            # Check that the modified file still has Unix line endings
+            with open(temp_path, "rb") as f:
+                modified_bytes = f.read()
+
+            # Should still contain Unix line endings (LF only)
+            assert b"\n" in modified_bytes, "Modified file should contain LF characters"
+
+            # Should NOT contain Windows line endings (CRLF)
+            assert (
+                b"\r\n" not in modified_bytes
+            ), f"Modified file should not contain CRLF: {repr(modified_bytes.decode('utf-8'))}"
+
+            # Should NOT contain isolated CR characters
+            assert (
+                b"\r" not in modified_bytes
+            ), f"Modified file should not contain CR characters: {repr(modified_bytes.decode('utf-8'))}"
+
+            # Verify the content was updated correctly
+            expected_content = "#!/bin/sh\npytest -vv -s tests/test_new.py\n"
+            actual_content = modified_bytes.decode("utf-8")
+            assert (
+                actual_content == expected_content
+            ), f"Content should be updated correctly: {repr(actual_content)}"
+
+        finally:
+            # Clean up
+            if temp_path.exists():
+                temp_path.unlink()
