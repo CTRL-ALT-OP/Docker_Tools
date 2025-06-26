@@ -9,6 +9,7 @@ import tkinter as tk
 import logging
 from tkinter import messagebox, ttk
 from pathlib import Path
+from typing import List
 
 from config.settings import WINDOW_TITLE, MAIN_WINDOW_SIZE, COLORS, FONTS, SOURCE_DIR
 from services.project_service import ProjectService
@@ -25,6 +26,7 @@ from gui import (
     GitCommitWindow,
     GitCheckoutAllWindow,
     AddProjectWindow,
+    EditRunTestsWindow,
 )
 from utils.async_utils import (
     task_manager,
@@ -116,6 +118,7 @@ class ProjectControlPanel:
             "docker_build_and_test": self.docker_build_and_test,
             "git_view": self.git_view,
             "sync_run_tests_from_pre_edit": self.sync_run_tests_from_pre_edit,
+            "edit_run_tests": self.edit_run_tests,
             "validate_project_group": self.validate_project_group,
             "build_docker_files_for_project_group": self.build_docker_files_for_project_group,
             "git_checkout_all": self.git_checkout_all,
@@ -730,6 +733,26 @@ class ProjectControlPanel:
         """Show sync error message"""
         error_message = f"Failed to sync run_tests.sh: {error.message}"
         self.window.after(0, lambda: messagebox.showerror("Sync Error", error_message))
+
+    def edit_run_tests(self, project_group: ProjectGroup):
+        """Open the edit run_tests.sh window"""
+        edit_window = EditRunTestsWindow(
+            self.window, project_group, self._handle_run_tests_edit
+        )
+        edit_window.create_window()
+
+    def _handle_run_tests_edit(
+        self, project_group: ProjectGroup, selected_tests: List[str]
+    ):
+        """Handle the run_tests.sh edit operation"""
+
+        async def edit_run_tests_async():
+            pass
+
+        # Run the async operation
+        task_manager.run_task(
+            edit_run_tests_async(), task_name=f"edit-run-tests-{project_group.name}"
+        )
 
     def validate_project_group(self, project_group: ProjectGroup):
         """Standardized async validation operation using command pattern"""

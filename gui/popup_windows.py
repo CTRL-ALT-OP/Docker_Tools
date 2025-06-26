@@ -9,6 +9,7 @@ from pathlib import Path
 
 from config.settings import COLORS, FONTS, OUTPUT_WINDOW_SIZE, GIT_WINDOW_SIZE
 from gui.gui_utils import GuiUtils
+from services.project_group_service import ProjectGroup
 
 
 class TerminalOutputWindow:
@@ -888,3 +889,55 @@ class AddProjectWindow:
         if self.window:
             self.window.destroy()
             self.window = None
+
+
+class EditRunTestsWindow:
+    """Window for editing run_tests.sh file by selecting test files"""
+
+    def __init__(
+        self,
+        parent_window: tk.Tk,
+        project_group: ProjectGroup,
+        on_save_callback: Callable[[ProjectGroup, List[str]], None],
+    ):
+        self.parent_window = parent_window
+        self.project_group = project_group
+        self.on_save_callback = on_save_callback
+        self.window = None
+        self.test_checkboxes = {}
+        self.test_vars = {}
+        self.all_test_files = []
+        self.current_pytest_command = ""
+        self.canvas = None  # Keep reference to canvas for proper cleanup
+
+    def create_window(self):
+        pass
+
+    def _load_test_files(self):
+        pass
+
+    def _get_currently_selected_tests(self):
+        """Parse current run_tests.sh to determine which tests are currently selected"""
+        return []
+
+    def _create_test_checkboxes(self, parent):
+        pass
+
+    def _select_all_tests(self):
+        pass
+
+    def _deselect_all_tests(self):
+        pass
+
+    def _save_changes(self):
+        self.destroy()
+
+    def _cancel(self):
+        """Cancel the edit operation"""
+        self.destroy()
+
+    def destroy(self):
+        """Destroy the window"""
+        if self.window:
+            self.window.destroy()
+            self.canvas = None

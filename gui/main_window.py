@@ -40,6 +40,7 @@ class MainWindow:
         self.docker_build_callback = None
         self.git_view_callback = None
         self.sync_run_tests_callback = None
+        self.edit_run_tests_callback = None
         self.validate_project_group_callback = None
         self.build_docker_files_callback = None
         self.git_checkout_all_callback = None
@@ -56,6 +57,7 @@ class MainWindow:
         self.git_view_callback = callbacks.get("git_view")
 
         self.sync_run_tests_callback = callbacks.get("sync_run_tests_from_pre_edit")
+        self.edit_run_tests_callback = callbacks.get("edit_run_tests")
         self.validate_project_group_callback = callbacks.get("validate_project_group")
         self.build_docker_files_callback = callbacks.get(
             "build_docker_files_for_project_group"
@@ -246,6 +248,11 @@ class MainWindow:
         """Handle sync run tests button click"""
         if self.sync_run_tests_callback:
             self.sync_run_tests_callback(project_group)
+
+    def _edit_run_tests(self, project_group: ProjectGroup):
+        """Handle edit run tests button click"""
+        if self.edit_run_tests_callback:
+            self.edit_run_tests_callback(project_group)
 
     def _validate_project_group(self, project_group: ProjectGroup):
         """Handle validate project group button click"""
