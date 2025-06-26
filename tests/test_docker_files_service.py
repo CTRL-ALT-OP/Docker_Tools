@@ -567,16 +567,32 @@ class TestDockerFilesService:
         output_calls = [call.args[0] for call in output_callback.call_args_list]
         assert any("Created CMakeLists.txt" in call for call in output_calls)
 
+    @pytest.mark.asyncio
     async def test_correct_c_extensions(self):
+        """Test that C language extensions and required files are correctly configured"""
+        # Check C language is in settings
         assert (
             "c" in settings.LANGUAGE_EXTENSIONS
         ), "C language extensions should be included in settings"
-        assert [".c", ".h"] in settings.LANGUAGE_EXTENSIONS[
-            "c"
-        ], "C extensions should be included in C language extensions"
-        assert [".cpp", ".hpp"] not in settings.LANGUAGE_EXTENSIONS[
-            "c"
-        ], "C++ extensions should not be included in C language extensions"
+
+        # Check C extensions are included correctly
+        c_extensions = settings.LANGUAGE_EXTENSIONS["c"]
+        assert (
+            ".c" in c_extensions
+        ), ".c extension should be included in C language extensions"
+        assert (
+            ".h" in c_extensions
+        ), ".h extension should be included in C language extensions"
+
+        # Check C++ extensions are not included in C extensions
+        assert (
+            ".cpp" not in c_extensions
+        ), "C++ extension .cpp should not be included in C language extensions"
+        assert (
+            ".hpp" not in c_extensions
+        ), "C++ extension .hpp should not be included in C language extensions"
+
+        # Check required files for C projects
         assert (
             "CMakeLists.txt" in settings.LANGUAGE_REQUIRED_FILES["c"]
         ), "CMakeLists.txt should be included in C language required files"
