@@ -59,7 +59,7 @@ LANGUAGE_REQUIRED_FILES = {
 
 # GUI Configuration
 WINDOW_TITLE = "Project Control Panel"
-MAIN_WINDOW_SIZE = "750x650"
+MAIN_WINDOW_SIZE = "800x650"
 OUTPUT_WINDOW_SIZE = "800x600"
 GIT_WINDOW_SIZE = "900x500"
 
@@ -76,6 +76,7 @@ COLORS = {
     "secondary": "#34495e",
     "muted": "#7f8c8d",
     "white": "white",
+    "text": "#2c3e50",
     "project_header": "#2c3e50",
 }
 
@@ -101,8 +102,12 @@ BUTTON_STYLES = {
     "git": {"bg": "#f39c12", "fg": "white"},
     "refresh": {"bg": "#27ae60", "fg": "white"},
     "sync": {"bg": "#16a085", "fg": "white"},
+    "edit": {"bg": "#e67e22", "fg": "white"},
     "validate": {"bg": "#8e44ad", "fg": "white"},
     "build_docker": {"bg": "#2980b9", "fg": "white"},
     "close": {"bg": "#34495e", "fg": "white"},
     "copy": {"bg": "#34495e", "fg": "white"},
+    "save": {"bg": "#27ae60", "fg": "white"},
+    "cancel": {"bg": "#e74c3c", "fg": "white"},
+    "secondary": {"bg": "#95a5a6", "fg": "white"},
 }

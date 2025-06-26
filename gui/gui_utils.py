@@ -75,11 +75,75 @@ class GuiUtils:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # Bind mousewheel to canvas
+        # Bind mousewheel to canvas (widget-specific, not global)
         def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            try:
+                # Check if canvas still exists before scrolling
+                if canvas.winfo_exists():
+                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            except tk.TclError:
+                # Canvas was destroyed, ignore the event
+                pass
 
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        # Function to bind mousewheel events to a widget and its children
+        def bind_mousewheel_recursive(widget):
+            """Recursively bind mousewheel events to widget and all its children"""
+            try:
+                widget.bind("<MouseWheel>", _on_mousewheel)
+                # Bind to all children recursively
+                for child in widget.winfo_children():
+                    bind_mousewheel_recursive(child)
+            except tk.TclError:
+                # Widget was destroyed, ignore
+                pass
+
+        def unbind_mousewheel_recursive(widget):
+            """Recursively unbind mousewheel events from widget and all its children"""
+            try:
+                widget.unbind("<MouseWheel>")
+                # Unbind from all children recursively
+                for child in widget.winfo_children():
+                    unbind_mousewheel_recursive(child)
+            except tk.TclError:
+                # Widget was destroyed, ignore
+                pass
+
+        # Bind initial mousewheel to canvas and scrollable_frame
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+        scrollable_frame.bind("<MouseWheel>", _on_mousewheel)
+
+        # Function to rebind all child widgets when new widgets are added
+        def rebind_all_children():
+            """Rebind mousewheel events to all children in the scrollable frame"""
+            bind_mousewheel_recursive(scrollable_frame)
+
+        # Override the scrollable_frame's pack/grid methods to auto-rebind children
+        original_pack = scrollable_frame.pack
+        original_grid = scrollable_frame.grid
+
+        def enhanced_pack(*args, **kwargs):
+            result = original_pack(*args, **kwargs)
+            canvas.after_idle(rebind_all_children)
+            return result
+
+        def enhanced_grid(*args, **kwargs):
+            result = original_grid(*args, **kwargs)
+            canvas.after_idle(rebind_all_children)
+            return result
+
+        scrollable_frame.pack = enhanced_pack
+        scrollable_frame.grid = enhanced_grid
+
+        # Also watch for when child widgets are added
+        def on_child_added(event):
+            """Called when a child widget is added to the scrollable frame"""
+            if event.widget != scrollable_frame:  # Ignore self
+                canvas.after_idle(rebind_all_children)
+
+        scrollable_frame.bind("<Map>", on_child_added)
+
+        # Initial binding of any existing children
+        canvas.after_idle(rebind_all_children)
 
         return canvas, scrollable_frame, scrollbar
 
