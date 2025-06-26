@@ -217,6 +217,15 @@ class MainWindow:
         )
         sync_btn.pack(side="left", padx=(0, 10))
 
+        # Edit run_tests.sh button
+        edit_run_tests_btn = GuiUtils.create_styled_button(
+            buttons_container,
+            text="✏️ Edit run_tests.sh",
+            command=lambda: self._edit_run_tests(project_group),
+            style="edit",
+        )
+        edit_run_tests_btn.pack(side="left", padx=(0, 10))
+
         # Validation button
         validate_btn = GuiUtils.create_styled_button(
             buttons_container,

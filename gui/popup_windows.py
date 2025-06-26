@@ -911,25 +911,272 @@ class EditRunTestsWindow:
         self.canvas = None  # Keep reference to canvas for proper cleanup
 
     def create_window(self):
-        pass
+        """Create the edit run_tests.sh window"""
+        self.window = tk.Toplevel(self.parent_window)
+        self.window.title(f"Edit run_tests.sh - {self.project_group.name}")
+        self.window.geometry("600x550")
+        self.window.configure(bg=COLORS["background"])
+
+        # Create frame for the content
+        main_frame = GuiUtils.create_styled_frame(self.window)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+
+        # Title
+        title_label = GuiUtils.create_styled_label(
+            main_frame,
+            text=f"Edit run_tests.sh for {self.project_group.name}",
+            font_key="title",
+            color_key="project_header",
+        )
+        title_label.pack(pady=(0, 20))
+
+        # Current command info
+        info_frame = GuiUtils.create_styled_frame(
+            main_frame, bg_color="white", relief="raised", bd=1
+        )
+        info_frame.pack(fill="x", pady=(0, 20))
+
+        info_label = GuiUtils.create_styled_label(
+            info_frame,
+            text="Select test files to run. Paths will use forward slashes for cross-platform compatibility.",
+            font_key="info",
+            color_key="muted",
+            bg=COLORS["white"],
+        )
+        info_label.pack(pady=10)
+
+        # Test files selection frame
+        selection_frame = GuiUtils.create_styled_frame(main_frame)
+        selection_frame.pack(fill="both", expand=True, pady=(0, 20))
+
+        # Test files label
+        test_label = GuiUtils.create_styled_label(
+            selection_frame,
+            text="Select test files to include:",
+            font_key="header",
+        )
+        test_label.pack(anchor="w", pady=(0, 10))
+
+        # Scrollable frame for test files
+        self.canvas, scrollable_frame, scrollbar = GuiUtils.create_scrollable_frame(
+            selection_frame
+        )
+
+        # Load test files and create checkboxes
+        self._load_test_files()
+        self._create_test_checkboxes(scrollable_frame)
+
+        # Buttons frame
+        buttons_frame = GuiUtils.create_styled_frame(main_frame)
+        buttons_frame.pack(fill="x", pady=(10, 0))
+
+        # Select All button
+        select_all_btn = GuiUtils.create_styled_button(
+            buttons_frame,
+            text="Select All",
+            command=self._select_all_tests,
+            style="secondary",
+        )
+        select_all_btn.pack(side="left", padx=(0, 10))
+
+        # Deselect All button
+        deselect_all_btn = GuiUtils.create_styled_button(
+            buttons_frame,
+            text="Deselect All",
+            command=self._deselect_all_tests,
+            style="secondary",
+        )
+        deselect_all_btn.pack(side="left", padx=(0, 10))
+
+        # Save button
+        save_btn = GuiUtils.create_styled_button(
+            buttons_frame,
+            text="💾 Save Changes",
+            command=self._save_changes,
+            style="save",
+        )
+        save_btn.pack(side="right", padx=(10, 0))
+
+        # Cancel button
+        cancel_btn = GuiUtils.create_styled_button(
+            buttons_frame,
+            text="❌ Cancel",
+            command=self._cancel,
+            style="cancel",
+        )
+        cancel_btn.pack(side="right")
+
+        # Make window modal and center it
+        self.window.transient(self.parent_window)
+        self.window.grab_set()
+        GuiUtils.center_window(self.window, 600, 550)
 
     def _load_test_files(self):
-        pass
+        """Load test files from the tests directory of the pre-edit version"""
+        self.all_test_files = []
+
+        # Get pre-edit version (source of truth for test files)
+        pre_edit_version = None
+        for version in self.project_group.get_all_versions():
+            if "pre-edit" in version.parent.lower():
+                pre_edit_version = version
+                break
+
+        if not pre_edit_version:
+            # If no pre-edit version, use the first version
+            versions = self.project_group.get_all_versions()
+            if versions:
+                pre_edit_version = versions[0]
+
+        if pre_edit_version:
+            tests_dir = pre_edit_version.path / "tests"
+            if tests_dir.exists() and tests_dir.is_dir():
+                # Find all Python test files
+                for test_file in tests_dir.rglob("test_*.py"):
+                    rel_path = test_file.relative_to(pre_edit_version.path)
+                    # Normalize to forward slashes
+                    self.all_test_files.append(str(rel_path).replace("\\", "/"))
+
+                # Also find files that end with _test.py
+                for test_file in tests_dir.rglob("*_test.py"):
+                    rel_path = test_file.relative_to(pre_edit_version.path)
+                    normalized_path = str(rel_path).replace("\\", "/")
+                    if normalized_path not in self.all_test_files:
+                        self.all_test_files.append(normalized_path)
+
+        # Sort the test files for consistent display
+        self.all_test_files.sort()
 
     def _get_currently_selected_tests(self):
         """Parse current run_tests.sh to determine which tests are currently selected"""
-        return []
+        currently_selected = set()
+
+        # Get pre-edit version to check run_tests.sh
+        pre_edit_version = None
+        for version in self.project_group.get_all_versions():
+            if "pre-edit" in version.parent.lower():
+                pre_edit_version = version
+                break
+
+        if not pre_edit_version:
+            # If no pre-edit version, use the first version
+            versions = self.project_group.get_all_versions()
+            if versions:
+                pre_edit_version = versions[0]
+
+        if pre_edit_version:
+            run_tests_path = pre_edit_version.path / "run_tests.sh"
+            if run_tests_path.exists():
+                try:
+                    content = run_tests_path.read_text()
+
+                    # Look for pytest command lines
+                    for line in content.split("\n"):
+                        stripped_line = line.strip()
+                        if "pytest" in stripped_line and not stripped_line.startswith(
+                            "#"
+                        ):
+                            # Find where pytest starts
+                            pytest_index = stripped_line.find("pytest")
+                            pytest_part = stripped_line[pytest_index:]
+
+                            # Split to get the parts
+                            parts = pytest_part.split()
+
+                            # Look for test paths (anything that starts with tests/ or tests\)
+                            for part in parts[1:]:  # Skip "pytest" itself
+                                # Normalize path separators and check if it's a test file
+                                normalized_part = part.replace("\\", "/")
+                                if (
+                                    normalized_part == "tests/"
+                                    or normalized_part == "tests"
+                                ):
+                                    # If it's just "tests/" then all tests are selected
+                                    currently_selected.update(self.all_test_files)
+                                    break
+                                elif normalized_part.startswith("tests/"):
+                                    # Remove any test method specifications (::MethodName)
+                                    clean_path = normalized_part.split("::")[0]
+                                    if clean_path.endswith(".py"):
+                                        currently_selected.add(clean_path)
+
+                except Exception as e:
+                    # If we can't parse the file, just return empty set
+                    print(f"Warning: Could not parse run_tests.sh: {e}")
+
+        return currently_selected
 
     def _create_test_checkboxes(self, parent):
-        pass
+        """Create checkboxes for each test file"""
+        if not self.all_test_files:
+            no_tests_label = GuiUtils.create_styled_label(
+                parent,
+                text="No test files found in tests/ directory",
+                font_key="info",
+                color_key="muted",
+            )
+            no_tests_label.pack(pady=20)
+            return
+
+        # Get currently selected tests from run_tests.sh
+        currently_selected = self._get_currently_selected_tests()
+
+        for test_file in self.all_test_files:
+            # Create variable for checkbox
+            var = tk.BooleanVar()
+            # Set initial state based on current run_tests.sh content
+            var.set(test_file in currently_selected)
+            self.test_vars[test_file] = var
+
+            # Create checkbox frame
+            checkbox_frame = GuiUtils.create_styled_frame(
+                parent, bg_color="white", relief="flat"
+            )
+            checkbox_frame.pack(fill="x", padx=5, pady=2)
+
+            # Checkbox
+            checkbox = tk.Checkbutton(
+                checkbox_frame,
+                text=test_file,
+                variable=var,
+                font=FONTS["info"],
+                bg=COLORS["white"],
+                fg=COLORS["text"],
+                selectcolor=COLORS["white"],
+                relief="flat",
+                borderwidth=0,
+            )
+            checkbox.pack(anchor="w", padx=10, pady=5)
+
+            self.test_checkboxes[test_file] = checkbox
 
     def _select_all_tests(self):
-        pass
+        """Select all test files"""
+        for var in self.test_vars.values():
+            var.set(True)
 
     def _deselect_all_tests(self):
-        pass
+        """Deselect all test files"""
+        for var in self.test_vars.values():
+            var.set(False)
 
     def _save_changes(self):
+        """Save the selected test files and update run_tests.sh"""
+        selected_tests = []
+        for test_file, var in self.test_vars.items():
+            if var.get():
+                selected_tests.append(test_file)
+
+        if not selected_tests:
+            messagebox.showwarning(
+                "No Tests Selected", "Please select at least one test file."
+            )
+            return
+
+        # Call the callback with selected tests
+        if self.on_save_callback:
+            self.on_save_callback(self.project_group, selected_tests)
+
         self.destroy()
 
     def _cancel(self):

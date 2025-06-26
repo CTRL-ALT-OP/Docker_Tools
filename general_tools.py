@@ -747,7 +747,221 @@ class ProjectControlPanel:
         """Handle the run_tests.sh edit operation"""
 
         async def edit_run_tests_async():
-            pass
+            output_window = None
+            try:
+                # Create output window for showing progress
+                output_window = TerminalOutputWindow(
+                    self.window, f"Editing run_tests.sh - {project_group.name}"
+                )
+                output_window.create_window()
+                output_window.update_status(
+                    "Updating run_tests.sh files...", COLORS["warning"]
+                )
+
+                # Get all versions in the project group
+                all_versions = project_group.get_all_versions()
+
+                if not all_versions:
+                    output_window.update_status(
+                        "Error: No versions found", COLORS["error"]
+                    )
+                    output_window.append_output("No versions found in project group\n")
+                    return
+
+                output_window.append_output(
+                    f"Found {len(all_versions)} versions to update:\n"
+                )
+                for version in all_versions:
+                    output_window.append_output(
+                        f"  • {version.parent}/{version.name}\n"
+                    )
+                output_window.append_output("\n")
+
+                # Create the new pytest command with forward slashes
+                if len(selected_tests) == 1:
+                    # Single test file
+                    pytest_paths = selected_tests[0].replace("\\", "/")
+                else:
+                    # Multiple test files - join them with spaces, ensure forward slashes
+                    pytest_paths = " ".join(
+                        [test.replace("\\", "/") for test in selected_tests]
+                    )
+
+                new_pytest_command = f"pytest -vv -s {pytest_paths}"
+
+                output_window.append_output(
+                    f"New pytest command: {new_pytest_command}\n\n"
+                )
+
+                successful_updates = []
+                failed_updates = []
+
+                # Update run_tests.sh in each version
+                for i, version in enumerate(all_versions):
+                    output_window.update_status(
+                        f"Updating {version.parent} ({i+1}/{len(all_versions)})",
+                        COLORS["warning"],
+                    )
+                    output_window.append_output(
+                        f"📝 Updating {version.parent}/{version.name}...\n"
+                    )
+
+                    run_tests_path = version.path / "run_tests.sh"
+
+                    try:
+                        if run_tests_path.exists():
+                            # Read current content
+                            current_content = run_tests_path.read_text()
+
+                            # Import regex for pytest command parsing
+                            import re
+
+                            # Replace pytest command line, preserving other lines
+                            lines = current_content.split("\n")
+                            new_lines = []
+
+                            for line in lines:
+                                stripped_line = line.strip()
+                                # Check if line contains pytest command (handle various patterns)
+                                if (
+                                    "pytest" in stripped_line
+                                    and not stripped_line.startswith("#")
+                                ):
+                                    # Find where pytest starts in the line
+                                    pytest_index = stripped_line.find("pytest")
+
+                                    # Split the line into prefix and pytest command
+                                    prefix = stripped_line[
+                                        :pytest_index
+                                    ]  # e.g., "python3.12 -m "
+                                    pytest_part = stripped_line[
+                                        pytest_index:
+                                    ]  # e.g., "pytest -vv -s tests/..."
+
+                                    # Split pytest part to separate command, flags, and test paths
+                                    parts = pytest_part.split()
+                                    pytest_cmd = parts[0]  # "pytest"
+
+                                    # Keep flags but stop at test paths
+                                    flags = []
+                                    for part in parts[1:]:
+                                        # Stop when we hit test paths or specific test files
+                                        if (
+                                            part.startswith(
+                                                ("tests/", "tests\\", "tests")
+                                            )
+                                            or "::" in part
+                                        ):
+                                            break
+                                        flags.append(part)
+
+                                    # Build new command: prefix + pytest + flags + new test paths
+                                    new_command = f"{prefix}{pytest_cmd} {' '.join(flags)} {pytest_paths}".strip()
+                                    new_lines.append(new_command)
+
+                                    output_window.append_output(
+                                        f"   🔄 Updated pytest command\n"
+                                    )
+                                    output_window.append_output(
+                                        f"      Old: {stripped_line}\n"
+                                    )
+                                    output_window.append_output(
+                                        f"      New: {new_command}\n"
+                                    )
+                                else:
+                                    # Keep other lines as-is
+                                    new_lines.append(line)
+
+                            # Write updated content
+                            new_content = "\n".join(new_lines)
+                            run_tests_path.write_text(new_content)
+
+                            output_window.append_output(
+                                f"   ✅ Successfully updated {run_tests_path}\n"
+                            )
+                            successful_updates.append(
+                                f"{version.parent}/{version.name}"
+                            )
+                        else:
+                            # Create new run_tests.sh file
+                            run_tests_content = f"#!/bin/sh\n{new_pytest_command}\n"
+                            run_tests_path.write_text(run_tests_content)
+                            run_tests_path.chmod(0o755)  # Make executable
+
+                            output_window.append_output(
+                                f"   ✅ Created new {run_tests_path}\n"
+                            )
+                            successful_updates.append(
+                                f"{version.parent}/{version.name}"
+                            )
+
+                    except Exception as e:
+                        error_msg = str(e)
+                        output_window.append_output(f"   ❌ Failed: {error_msg}\n")
+                        failed_updates.append(
+                            f"{version.parent}/{version.name} ({error_msg})"
+                        )
+
+                # Final summary
+                output_window.append_output("\n" + "=" * 50 + "\n")
+                output_window.append_output("SUMMARY:\n")
+                output_window.append_output(
+                    f"✅ Successful updates: {len(successful_updates)}\n"
+                )
+                output_window.append_output(
+                    f"❌ Failed updates: {len(failed_updates)}\n"
+                )
+
+                if successful_updates:
+                    output_window.append_output("\nSuccessful updates:\n")
+                    for update in successful_updates:
+                        output_window.append_output(f"  • {update}\n")
+
+                if failed_updates:
+                    output_window.append_output("\nFailed updates:\n")
+                    for update in failed_updates:
+                        output_window.append_output(f"  • {update}\n")
+
+                # Update status
+                if len(successful_updates) == len(all_versions):
+                    output_window.update_status(
+                        "All run_tests.sh files updated successfully!",
+                        COLORS["success"],
+                    )
+                elif successful_updates:
+                    output_window.update_status(
+                        "Partially completed with some failures", COLORS["warning"]
+                    )
+                else:
+                    output_window.update_status("All updates failed", COLORS["error"])
+
+                # Add final buttons
+                output_window.add_final_buttons(
+                    copy_text=(
+                        output_window.text_area.get("1.0", "end-1c")
+                        if output_window.text_area
+                        else ""
+                    )
+                )
+
+            except asyncio.CancelledError:
+                logger.info("Edit run_tests was cancelled for %s", project_group.name)
+                if output_window:
+                    output_window.update_status("Operation cancelled", COLORS["error"])
+                raise
+            except Exception as e:
+                logger.exception("Error editing run_tests for %s", project_group.name)
+                if output_window:
+                    output_window.update_status("Error occurred", COLORS["error"])
+                    output_window.append_output(f"\nError: {str(e)}\n")
+                else:
+                    self.window.after(
+                        0,
+                        lambda: messagebox.showerror(
+                            "Edit run_tests Error",
+                            f"Error editing run_tests.sh: {str(e)}",
+                        ),
+                    )
 
         # Run the async operation
         task_manager.run_task(
