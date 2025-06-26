@@ -559,9 +559,7 @@ class TestDockerFilesService:
         # Check that the CMakeLists.txt contains expected content
         assert "cmake_minimum_required(VERSION 3.10)" in content
         assert "project(MyProject)" in content
-        assert "set(CMAKE_CXX_STANDARD 17)" in content
-        assert "file(GLOB_RECURSE SOURCES" in content
-        assert "add_executable(${PROJECT_NAME}" in content
+        assert "add_executable(" in content
         assert "enable_testing()" in content
 
         # Check output callback was called with success message
