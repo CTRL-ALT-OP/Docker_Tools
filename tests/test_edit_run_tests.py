@@ -71,7 +71,7 @@ python3.12 -m pytest -vv -s tests/test_bubble_visualizer_improved.py::TestBubble
         (tests_dir / "test_bubble_visualizer_improved.py").touch()
 
         # Only mock the minimal GUI components needed
-        with patch("tkinter.Tk"):
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
             window = EditRunTestsWindow(Mock(), self.project_group, Mock())
             window._load_test_files()
             selected_tests = window._get_currently_selected_tests()
@@ -98,7 +98,7 @@ pytest -q tests/test_bubble_visualizer_improved.py::TestBubbleVisualizerGradient
         (tests_dir / "test_data_loader.py").touch()
         (tests_dir / "test_bubble_visualizer_improved.py").touch()
 
-        with patch("tkinter.Tk"):
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
             window = EditRunTestsWindow(Mock(), self.project_group, Mock())
             window._load_test_files()
             selected_tests = window._get_currently_selected_tests()
@@ -124,7 +124,7 @@ pytest -q tests/test_bubble_visualizer_improved.py::TestBubbleVisualizerGradient
         (tests_dir / "unit" / "test_utils.py").touch()
         (tests_dir / "integration" / "test_api.py").touch()
 
-        with patch("tkinter.Tk"):
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
             window = EditRunTestsWindow(Mock(), self.project_group, Mock())
             window._load_test_files()
 
@@ -166,7 +166,7 @@ pytest -q tests/test_bubble_visualizer_improved.py::TestBubbleVisualizerGradient
         for test_file in test_files:
             (tests_dir / test_file).touch()
 
-        with patch("tkinter.Tk"):
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
             window = EditRunTestsWindow(Mock(), self.project_group, Mock())
             window._load_test_files()
 
@@ -204,7 +204,7 @@ pytest -vv -s tests/test_selected.py tests/test_also_selected.py
         (tests_dir / "test_also_selected.py").touch()
         (tests_dir / "test_unselected.py").touch()
 
-        with patch("tkinter.Tk"):
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
             window = EditRunTestsWindow(Mock(), self.project_group, Mock())
             window._load_test_files()
 
@@ -277,7 +277,7 @@ pytest -vv -s tests/test_selected.py tests/test_also_selected.py
             nonlocal callback_called
             callback_called = True
 
-        with patch("tkinter.Tk"), patch(
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"), patch(
             "tkinter.messagebox.showwarning"
         ) as mock_warning:
             window = EditRunTestsWindow(
@@ -320,7 +320,7 @@ pytest -vv -s tests/test_selected.py tests/test_also_selected.py
         tests_dir.mkdir(exist_ok=True)
         (tests_dir / "test_fallback.py").touch()
 
-        with patch("tkinter.Tk"):
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
             window = EditRunTestsWindow(Mock(), project_group, Mock())
             window._load_test_files()
 
@@ -332,7 +332,7 @@ pytest -vv -s tests/test_selected.py tests/test_also_selected.py
         # Don't create tests directory
         pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
 
-        with patch("tkinter.Tk"):
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
             window = EditRunTestsWindow(Mock(), self.project_group, Mock())
             window._load_test_files()
 
@@ -358,7 +358,7 @@ some_random_command_without_pytest
         tests_dir.mkdir(exist_ok=True)
         (tests_dir / "test_example.py").touch()
 
-        with patch("tkinter.Tk"):
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
             window = EditRunTestsWindow(Mock(), self.project_group, Mock())
             window._load_test_files()
             selected_tests = window._get_currently_selected_tests()
@@ -389,7 +389,7 @@ pytest -vv tests/test_one.py tests/test_two.py tests/subdir/test_three.py
         subdir.mkdir()
         (subdir / "test_three.py").touch()
 
-        with patch("tkinter.Tk"):
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
             window = EditRunTestsWindow(Mock(), self.project_group, Mock())
             window._load_test_files()
             selected_tests = window._get_currently_selected_tests()
@@ -418,7 +418,7 @@ python3.12 -m pytest -vv -s --tb=short --durations=10 --maxfail=1 tests/test_tar
         (tests_dir / "test_target.py").touch()
         (tests_dir / "test_other.py").touch()
 
-        with patch("tkinter.Tk"):
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
             window = EditRunTestsWindow(Mock(), self.project_group, Mock())
             window._load_test_files()
             selected_tests = window._get_currently_selected_tests()
