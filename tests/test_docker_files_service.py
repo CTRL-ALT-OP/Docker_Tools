@@ -13,6 +13,7 @@ import pytest
 from services.docker_files_service import DockerFilesService
 from services.project_group_service import ProjectGroup
 from models.project import Project
+from config import settings
 
 
 class TestDockerFilesService:
@@ -565,6 +566,20 @@ class TestDockerFilesService:
         # Check output callback was called with success message
         output_calls = [call.args[0] for call in output_callback.call_args_list]
         assert any("Created CMakeLists.txt" in call for call in output_calls)
+
+    async def test_correct_c_extensions(self):
+        assert (
+            "c" in settings.LANGUAGE_EXTENSIONS
+        ), "C language extensions should be included in settings"
+        assert [".c", ".h"] in settings.LANGUAGE_EXTENSIONS[
+            "c"
+        ], "C extensions should be included in C language extensions"
+        assert [".cpp", ".hpp"] not in settings.LANGUAGE_EXTENSIONS[
+            "c"
+        ], "C++ extensions should not be included in C language extensions"
+        assert (
+            "CMakeLists.txt" in settings.LANGUAGE_REQUIRED_FILES["c"]
+        ), "CMakeLists.txt should be included in C language required files"
 
     @pytest.mark.asyncio
     async def test_preserves_existing_language_files(self, service, temp_directory):
