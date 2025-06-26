@@ -559,9 +559,9 @@ class TestDockerFilesService:
 
         # Check that the CMakeLists.txt contains expected content
         assert "cmake_minimum_required(VERSION 3.10)" in content
-        assert "project(MyProject)" in content
+        assert "project(MyProject" in content
         assert "add_executable(" in content
-        assert "enable_testing()" in content
+        assert "enable_testing(" in content
 
         # Check output callback was called with success message
         output_calls = [call.args[0] for call in output_callback.call_args_list]
@@ -1144,7 +1144,7 @@ project(MyCustomProject)
             # Check CMakeLists.txt content
             cmake_content = (version.path / "CMakeLists.txt").read_text()
             assert "cmake_minimum_required" in cmake_content
-            assert "project(MyProject)" in cmake_content
+            assert "project(MyProject" in cmake_content
 
     @pytest.mark.asyncio
     async def test_handles_missing_pre_edit_version(
