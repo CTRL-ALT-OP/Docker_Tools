@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raven Unit Test Validation</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background: white;
+        }
+        .header-section {
+            flex-shrink: 0;
+            padding: 20px 30px;
+            border-bottom: 1px solid #e9ecef;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .main-content {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 400px 1fr;
+            min-height: 0;
+        }
+        .left-panel {
+            background: #f8f9fa;
+            border-right: 1px solid #e9ecef;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+        .upload-section {
+            padding: 20px;
+            flex-shrink: 0;
+        }
+        .validation-panel {
+            padding: 20px;
+            flex: 1;
+            min-height: 0;
+        }
+        .output-panel {
+            background: white;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        h1 {
+            color: #333;
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 30px 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: border-color 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #007bff;
+        }
+        .upload-area.dragover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .upload-btn {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .upload-btn:hover {
+            background-color: #0056b3;
+        }
+        .config-section {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #e9ecef;
+        }
+        .config-section h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #333;
+            font-size: 16px;
+        }
+        .file-info {
+            margin-bottom: 20px;
+        }
+        .file-info p {
+            margin: 0;
+            padding: 8px 12px;
+            background-color: white;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .codebase-type {
+            margin-bottom: 20px;
+        }
+        .type-select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: white;
+            font-size: 14px;
+        }
+        .start-btn {
+            background-color: #28a745;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+        }
+        .start-btn:hover {
+            background-color: #218838;
+        }
+        .start-btn:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .progress-container {
+            display: none;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #28a745;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .progress-info {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .progress-status {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .progress-message {
+            color: #666;
+        }
+        .timing-info {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+        .timing-item {
+            text-align: center;
+        }
+        .timing-label {
+            display: block;
+            font-weight: bold;
+            color: #333;
+        }
+        .results {
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .results.success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .results.error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .results pre {
+            background-color: rgba(0,0,0,0.05);
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+        
+        /* Tab Styles */
+        .tab-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            background: white;
+        }
+        .tab-header {
+            display: flex;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #ddd;
+            flex-shrink: 0;
+        }
+        .tab-button {
+            flex: 1;
+            padding: 15px 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: #666;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        .tab-button.active {
+            background-color: white;
+            color: #333;
+            border-bottom: 2px solid #007bff;
+        }
+        .tab-button:hover:not(.active) {
+            background-color: #e9ecef;
+            color: #333;
+        }
+        .tab-content {
+            display: none;
+            padding: 20px;
+            flex: 1;
+            overflow-y: auto;
+            min-height: 0;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .tab-content pre {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+        .tab-content .empty-state {
+            text-align: center;
+            color: #666;
+            padding: 40px 20px;
+            font-style: italic;
+        }
+        
+        /* Status indicators for tabs */
+        .tab-button .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-left: 8px;
+        }
+        .tab-button .status-indicator.success {
+            background-color: #28a745;
+        }
+        .tab-button .status-indicator.error {
+            background-color: #dc3545;
+        }
+        .tab-button .status-indicator.warning {
+            background-color: #ffc107;
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 350px 1fr;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                overflow: auto;
+                height: auto;
+            }
+            .container {
+                height: auto;
+                min-height: 100vh;
+            }
+            .main-content {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr;
+            }
+            .left-panel {
+                border-right: none;
+                border-bottom: 1px solid #e9ecef;
+            }
+            .tab-header {
+                flex-wrap: wrap;
+            }
+            .tab-button {
+                flex: 1 1 calc(50% - 1px);
+                min-width: calc(50% - 1px);
+            }
+            .output-panel {
+                min-height: 400px;
+            }
+        }
+        
+        /* Scrollbar styling */
+        .left-panel::-webkit-scrollbar,
+        .tab-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .left-panel::-webkit-scrollbar-track,
+        .tab-content::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        
+        .left-panel::-webkit-scrollbar-thumb,
+        .tab-content::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+        }
+        
+        .left-panel::-webkit-scrollbar-thumb:hover,
+        .tab-content::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header-section">
+            <h1>Raven Unit Test Validation</h1>
+        </div>
+        
+        <div class="main-content">
+            <div class="left-panel">
+                <div class="upload-section">
+                    <div class="upload-area" id="uploadArea">
+                        <p>Drop your ZIP file here or click to select</p>
+                        <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+                            Choose File
+                        </button>
+                        <input type="file" id="fileInput" accept=".zip" onchange="handleFileSelection()">
+                    </div>
+                    
+                    <div class="config-section" id="configSection" style="display: none;">
+                        <div class="file-info">
+                            <h3>Selected File</h3>
+                            <p id="selectedFileName">No file selected</p>
+                        </div>
+                        
+                        <div class="codebase-type">
+                            <h3>Codebase Type</h3>
+                            <select id="codebaseType" class="type-select">
+                                <option value="preedit">Pre-edit (Build must pass, tests may fail)</option>
+                                <option value="postedit">Post-edit (Build must pass, tests may fail)</option>
+                                <option value="rewrite">Rewrite (Build must pass, all tests must pass)</option>
+                            </select>
+                        </div>
+                        
+                        <button class="start-btn" onclick="startValidation()">
+                            Start Validation
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="validation-panel">
+                    <div class="progress-container" id="progressContainer">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <div class="progress-info">
+                            <div class="progress-status" id="progressStatus">Starting...</div>
+                            <div class="progress-message" id="progressMessage">Preparing validation...</div>
+                            <div class="timing-info" id="timingInfo">
+                                <div class="timing-item">
+                                    <span class="timing-label">Extraction</span>
+                                    <span id="extractionTime">-</span>
+                                </div>
+                                <div class="timing-item">
+                                    <span class="timing-label">Build</span>
+                                    <span id="buildTime">-</span>
+                                </div>
+                                <div class="timing-item">
+                                    <span class="timing-label">Tests</span>
+                                    <span id="testTime">-</span>
+                                </div>
+                                <div class="timing-item">
+                                    <span class="timing-label">Total</span>
+                                    <span id="totalTime">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="results" id="results" style="display: none;"></div>
+                </div>
+            </div>
+            
+            <div class="output-panel" id="outputPanel">
+                <div class="tab-container">
+                    <div class="tab-header">
+                        <button class="tab-button active" onclick="switchTab('build-output')">
+                            Build Output
+                            <span class="status-indicator" id="buildOutputStatus"></span>
+                        </button>
+                        <button class="tab-button" onclick="switchTab('build-error')">
+                            Build Error
+                            <span class="status-indicator" id="buildErrorStatus"></span>
+                        </button>
+                        <button class="tab-button" onclick="switchTab('test-output')">
+                            Test Output
+                            <span class="status-indicator" id="testOutputStatus"></span>
+                        </button>
+                        <button class="tab-button" onclick="switchTab('test-error')">
+                            Test Error
+                            <span class="status-indicator" id="testErrorStatus"></span>
+                        </button>
+                    </div>
+                    
+                    <div id="build-output" class="tab-content active">
+                        <div class="empty-state">Build output will appear here during validation</div>
+                    </div>
+                    
+                    <div id="build-error" class="tab-content">
+                        <div class="empty-state">Build errors will appear here if any occur</div>
+                    </div>
+                    
+                    <div id="test-output" class="tab-content">
+                        <div class="empty-state">Test output will appear here during validation</div>
+                    </div>
+                    
+                    <div id="test-error" class="tab-content">
+                        <div class="empty-state">Test errors will appear here if any occur</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let sessionId = null;
+        let startTime = null;
+        let selectedFile = null;
+        
+        // Drag and drop functionality
+        const uploadArea = document.getElementById('uploadArea');
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileSelection(files[0]);
+            }
+        });
+        
+        function handleFileSelection(file) {
+            if (file) {
+                selectedFile = file;
+            } else {
+                const fileInput = document.getElementById('fileInput');
+                if (fileInput.files.length > 0) {
+                    selectedFile = fileInput.files[0];
+                }
+            }
+            
+            if (!selectedFile) return;
+            
+            if (!selectedFile.name.endsWith('.zip')) {
+                alert('Please select a ZIP file');
+                return;
+            }
+            
+            // Reset all previous validation state
+            sessionId = null;
+            startTime = null;
+            
+            // Reset progress elements
+            document.getElementById('progressFill').style.width = '0%';
+            document.getElementById('progressStatus').textContent = 'Starting...';
+            document.getElementById('progressMessage').textContent = 'Preparing validation...';
+            document.getElementById('extractionTime').textContent = '-';
+            document.getElementById('buildTime').textContent = '-';
+            document.getElementById('testTime').textContent = '-';
+            document.getElementById('totalTime').textContent = '-';
+            
+            // Clear tab contents from previous runs
+            clearTabContents();
+            
+            // Reset to first tab
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.querySelector('.tab-button').classList.add('active');
+            document.getElementById('build-output').classList.add('active');
+            
+            // Show the configuration section
+            document.getElementById('selectedFileName').textContent = selectedFile.name;
+            document.getElementById('configSection').style.display = 'block';
+            document.getElementById('progressContainer').style.display = 'none';
+            document.getElementById('results').style.display = 'none';
+            // Output panel is always visible in new layout
+        }
+        
+        function startValidation() {
+            if (!selectedFile) {
+                alert('Please select a file first');
+                return;
+            }
+            
+            const codebaseType = document.getElementById('codebaseType').value;
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('codebase_type', codebaseType);
+            
+            startTime = Date.now();
+            document.getElementById('configSection').style.display = 'none';
+            document.getElementById('progressContainer').style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+            // Output panel is always visible in new layout
+            
+            // Clear previous outputs
+            clearTabContents();
+            
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    sessionId = data.session_id;
+                    pollStatus();
+                }
+            })
+            .catch(error => {
+                showError('Upload failed: ' + error.message);
+            });
+        }
+        
+        function pollStatus() {
+            if (!sessionId) return;
+            
+            fetch(`/status/${sessionId}`)
+            .then(response => response.json())
+            .then(data => {
+                updateProgress(data);
+                
+                if (data.status === 'complete') {
+                    showResults(data.result);
+                    updateTabContents(data.result);
+                } else if (data.status === 'error') {
+                    showError(data.error);
+                } else {
+                    setTimeout(pollStatus, 1000);
+                }
+            })
+            .catch(error => {
+                showError('Status check failed: ' + error.message);
+            });
+        }
+        
+        function updateProgress(data) {
+            document.getElementById('progressFill').style.width = data.progress + '%';
+            document.getElementById('progressStatus').textContent = data.status.toUpperCase();
+            document.getElementById('progressMessage').textContent = data.message;
+            
+            // Update timing information
+            if (data.timing) {
+                if (data.timing.extraction_time) {
+                    document.getElementById('extractionTime').textContent = formatTime(data.timing.extraction_time);
+                }
+                if (data.timing.build_time) {
+                    document.getElementById('buildTime').textContent = formatTime(data.timing.build_time);
+                }
+                if (data.timing.test_time) {
+                    document.getElementById('testTime').textContent = formatTime(data.timing.test_time);
+                }
+                if (startTime) {
+                    const totalTime = (Date.now() - startTime) / 1000;
+                    document.getElementById('totalTime').textContent = formatTime(totalTime);
+                }
+            }
+        }
+        
+        function formatTime(seconds) {
+            if (seconds === null || seconds === undefined) return '-';
+            return seconds.toFixed(1) + 's';
+        }
+        
+        function showResults(result) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.style.display = 'block';
+            
+            const codebaseTypeDesc = {
+                'preedit': 'Pre-edit (Build must pass, tests may fail)',
+                'postedit': 'Post-edit (Build must pass, tests may fail)', 
+                'rewrite': 'Rewrite (Build and all tests must pass)'
+            };
+            
+            if (result.validation_success) {
+                resultsDiv.className = 'results success';
+                let testStatusText = result.test_success ? 'Passed' : 'Failed (Allowed)';
+                resultsDiv.innerHTML = `
+                    <h3>✅ Validation Successful!</h3>
+                    <p><strong>Codebase:</strong> ${result.codebase_name}</p>
+                    <p><strong>Type:</strong> ${codebaseTypeDesc[result.codebase_type] || result.codebase_type}</p>
+                    <p><strong>Build:</strong> Success</p>
+                    <p><strong>Tests:</strong> ${testStatusText} (${result.test_execution_time.toFixed(1)}s)</p>
+                    <button class="start-btn" onclick="resetValidation()" style="margin-top: 15px;">
+                        Validate Another File
+                    </button>
+                `;
+            } else {
+                resultsDiv.className = 'results error';
+                resultsDiv.innerHTML = `
+                    <h3>❌ Validation Failed</h3>
+                    <p><strong>Codebase:</strong> ${result.codebase_name}</p>
+                    <p><strong>Type:</strong> ${codebaseTypeDesc[result.codebase_type] || result.codebase_type}</p>
+                    <p><strong>Build:</strong> ${result.build_success ? 'Success' : 'Failed'}</p>
+                    <p><strong>Tests:</strong> ${result.test_success ? 'Success' : 'Failed'}</p>
+                    <p><strong>Error:</strong> ${result.error_message}</p>
+                    <button class="start-btn" onclick="resetValidation()" style="margin-top: 15px;">
+                        Try Another File
+                    </button>
+                `;
+            }
+        }
+        
+        function showError(message) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.style.display = 'block';
+            resultsDiv.className = 'results error';
+            resultsDiv.innerHTML = `
+                <h3>❌ Error</h3>
+                <p>${message}</p>
+                <button class="start-btn" onclick="resetValidation()" style="margin-top: 15px;">
+                    Try Again
+                </button>
+            `;
+        }
+        
+        function switchTab(tabId) {
+            // Remove active class from all tab buttons and content
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Add active class to selected tab button and content
+            event.target.classList.add('active');
+            document.getElementById(tabId).classList.add('active');
+        }
+        
+        function updateTabContents(result) {
+            // Update status indicators
+            const buildOutputStatus = document.getElementById('buildOutputStatus');
+            const buildErrorStatus = document.getElementById('buildErrorStatus');
+            const testOutputStatus = document.getElementById('testOutputStatus');
+            const testErrorStatus = document.getElementById('testErrorStatus');
+            
+            // Build Output
+            const buildOutputDiv = document.getElementById('build-output');
+            if (result.build_output && result.build_output.trim()) {
+                buildOutputDiv.innerHTML = `<pre>${escapeHtml(result.build_output)}</pre>`;
+                buildOutputStatus.className = 'status-indicator success';
+            } else {
+                buildOutputDiv.innerHTML = '<div class="empty-state">No build output available</div>';
+                buildOutputStatus.className = 'status-indicator';
+            }
+            
+            // Build Error
+            const buildErrorDiv = document.getElementById('build-error');
+            if (result.build_error && result.build_error.trim()) {
+                buildErrorDiv.innerHTML = `<pre>${escapeHtml(result.build_error)}</pre>`;
+                buildErrorStatus.className = result.build_success ? 'status-indicator warning' : 'status-indicator error';
+            } else {
+                buildErrorDiv.innerHTML = '<div class="empty-state">No build errors</div>';
+                buildErrorStatus.className = 'status-indicator';
+            }
+            
+            // Test Output
+            const testOutputDiv = document.getElementById('test-output');
+            if (result.test_output && result.test_output.trim()) {
+                testOutputDiv.innerHTML = `<pre>${escapeHtml(result.test_output)}</pre>`;
+                testOutputStatus.className = 'status-indicator success';
+            } else {
+                testOutputDiv.innerHTML = '<div class="empty-state">No test output available</div>';
+                testOutputStatus.className = 'status-indicator';
+            }
+            
+            // Test Error
+            const testErrorDiv = document.getElementById('test-error');
+            if (result.test_error && result.test_error.trim()) {
+                testErrorDiv.innerHTML = `<pre>${escapeHtml(result.test_error)}</pre>`;
+                testErrorStatus.className = result.test_success ? 'status-indicator warning' : 'status-indicator error';
+            } else {
+                testErrorDiv.innerHTML = '<div class="empty-state">No test errors</div>';
+                testErrorStatus.className = 'status-indicator';
+            }
+        }
+        
+        function clearTabContents() {
+            document.getElementById('build-output').innerHTML = '<div class="empty-state">Build output will appear here during validation</div>';
+            document.getElementById('build-error').innerHTML = '<div class="empty-state">Build errors will appear here if any occur</div>';
+            document.getElementById('test-output').innerHTML = '<div class="empty-state">Test output will appear here during validation</div>';
+            document.getElementById('test-error').innerHTML = '<div class="empty-state">Test errors will appear here if any occur</div>';
+            
+            // Clear status indicators
+            document.querySelectorAll('.status-indicator').forEach(indicator => {
+                indicator.className = 'status-indicator';
+            });
+        }
+        
+        function escapeHtml(unsafe) {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+        
+        function resetValidation() {
+            // Reset all UI elements to initial state
+            selectedFile = null;
+            sessionId = null;
+            startTime = null;
+            
+            // Clear file input
+            document.getElementById('fileInput').value = '';
+            
+            // Hide all sections except upload
+            document.getElementById('configSection').style.display = 'none';
+            document.getElementById('progressContainer').style.display = 'none';
+            document.getElementById('results').style.display = 'none';
+            // Output panel is always visible in new layout
+            
+            // Reset progress elements
+            document.getElementById('progressFill').style.width = '0%';
+            document.getElementById('progressStatus').textContent = 'Starting...';
+            document.getElementById('progressMessage').textContent = 'Preparing validation...';
+            document.getElementById('extractionTime').textContent = '-';
+            document.getElementById('buildTime').textContent = '-';
+            document.getElementById('testTime').textContent = '-';
+            document.getElementById('totalTime').textContent = '-';
+            
+            // Clear tab contents
+            clearTabContents();
+            
+            // Reset to first tab
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.querySelector('.tab-button').classList.add('active');
+            document.getElementById('build-output').classList.add('active');
+        }
+    </script>
+</body>
+</html>

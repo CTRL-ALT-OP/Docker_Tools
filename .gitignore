@@ -7,3 +7,5 @@ validation-tool/codebases/*
 validation-tool/output/*
 !defaults/**
 !*.md
+!*.gitkeep
+!*/templates/index.html
