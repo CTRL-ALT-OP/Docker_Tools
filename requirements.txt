@@ -1,8 +1,9 @@
 # Project Control Panel - Requirements
 #
-# This application uses only Python standard library modules.
-# No external dependencies are required to run the main application.
-#
+# Runtime Dependencies
+requests>=2.25.0                # HTTP requests for validation service API
+
+# Note: The main application uses Python standard library modules where possible.
 # Minimum Python version: 3.7+ (due to asyncio and dataclasses usage)
 # Recommended Python version: 3.8+
 #
