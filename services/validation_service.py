@@ -10,6 +10,13 @@ from pathlib import Path
 from typing import Callable, List, Dict, Any, Optional
 from dataclasses import dataclass
 
+import requests
+import json
+import subprocess
+import time
+import os
+from concurrent.futures import ThreadPoolExecutor
+
 from services.platform_service import PlatformService
 from services.file_service import FileService
 from services.project_service import ProjectService
@@ -108,9 +115,7 @@ class ValidationService(AsyncServiceInterface):
 
                 if health_info["status"] == "healthy":
                     return ServiceResult.success(health_info)
-                error = ResourceError(
-                    "Validation service is in degraded state", details=health_info
-                )
+                error = ResourceError("Validation service is in degraded state")
                 return ServiceResult.error(error)
 
             except Exception as e:
@@ -189,7 +194,7 @@ class ValidationService(AsyncServiceInterface):
                 if not settings.validation_tool_path.exists():
                     error = ResourceError(
                         "Validation tool directory not found",
-                        details={"expected_path": str(settings.validation_tool_path)},
+                        resource_path=str(settings.validation_tool_path),
                     )
                     output_callback(
                         f"❌ Validation tool not found: {settings.validation_tool_path}\n"
@@ -369,13 +374,11 @@ class ValidationService(AsyncServiceInterface):
         if not archived_projects and failed_archives:
             error = ResourceError(
                 "Failed to create any archives",
-                details={"failed_projects": failed_archives},
             )
             return ServiceResult.error(error)
         elif failed_archives:
             error = ResourceError(
                 f"Failed to archive {len(failed_archives)} projects",
-                details={"failed_projects": failed_archives},
             )
             return ServiceResult.partial(archived_projects, error)
         else:
@@ -478,170 +481,431 @@ class ValidationService(AsyncServiceInterface):
             error = ProcessError(f"Failed to move {archive_name}: {str(e)}")
             return ServiceResult.error(error)
 
+    async def _stream_docker_output(
+        self, process: subprocess.Popen, output_callback: Callable[[str], None]
+    ):
+        """Stream Docker output in real-time"""
+        try:
+
+            def read_output():
+                """Read process output in a separate thread"""
+                while True:
+                    # Check if process is still running
+                    if process.poll() is not None:
+                        # Process finished, read any remaining output
+                        remaining = process.stdout.read()
+                        if remaining:
+                            return remaining
+                        break
+
+                    # Read line by line
+                    line = process.stdout.readline()
+                    if line:
+                        # Schedule callback in main thread
+                        output_callback(line)
+                    else:
+                        # No data available, small sleep to prevent busy waiting
+                        time.sleep(0.1)
+
+                return None
+
+            # Run the output reading in a thread to avoid blocking
+            await run_in_executor(read_output)
+
+        except Exception as e:
+            output_callback(f"❌ Error streaming Docker output: {str(e)}\n")
+
     async def _run_validation_script(
         self, validation_tool_path: Path, output_callback: Callable[[str], None]
     ) -> ServiceResult[tuple[str, List[str]]]:
-        """Run validation script with standardized error handling"""
+        """Run validation using the web API approach with Docker container"""
         try:
-            # Determine script based on platform
-            if self.platform_service.is_windows():
-                # Use the interactive version since non-interactive doesn't exist
-                script_path = validation_tool_path / "run_validation.bat"
-            else:
-                script_path = validation_tool_path / "run_validation.sh"
+            # Check if validation service is running
+            validation_url = "http://localhost:8080"
+            service_running = await self._check_validation_service(validation_url)
 
-            if not script_path.exists():
+            if not service_running:
+                output_callback("🚀 Starting validation service...\n")
+                # Start the validation service
+                start_result = await self._start_validation_service(
+                    validation_tool_path, output_callback
+                )
+                if not start_result:
+                    error = ProcessError("Failed to start validation service")
+                    return ServiceResult.error(error)
+
+                # Wait for service to be ready
+                output_callback("⏳ Waiting for validation service to be ready...\n")
+                ready = await self._wait_for_service_ready(
+                    validation_url, output_callback
+                )
+                if not ready:
+                    error = ProcessError("Validation service failed to start properly")
+                    return ServiceResult.error(error)
+            else:
+                output_callback("✅ Validation service is already running\n")
+
+            # Give the service a moment to fully initialize
+            await asyncio.sleep(2)
+
+            # Get codebases directory
+            codebases_path = validation_tool_path / "codebases"
+            if not codebases_path.exists():
                 error = ResourceError(
-                    f"Validation script not found: {script_path}",
-                    details={"platform": self.platform_service.get_platform()},
+                    f"Codebases directory not found: {codebases_path}"
                 )
                 return ServiceResult.error(error)
 
-            # Run the validation script
-            if self.platform_service.is_windows():
-                return_code, output = await self._run_windows_script_with_input(
-                    str(script_path), str(validation_tool_path), output_callback
+            # Find all ZIP files in the codebases directory
+            zip_files = list(codebases_path.glob("*.zip"))
+            if not zip_files:
+                error = ResourceError(
+                    "No ZIP files found in codebases directory",
                 )
-            else:
-                return_code, output = await self._run_unix_script(
-                    str(script_path), str(validation_tool_path), output_callback
-                )
+                return ServiceResult.error(error)
 
-            # Parse validation errors from output
+            output_callback(f"🔍 Found {len(zip_files)} ZIP files to validate:\n")
+            for zip_file in zip_files:
+                output_callback(f"  • {zip_file.name}\n")
+            output_callback("\n")
+
+            # Submit all validations and collect results
+            full_output = ""
             validation_errors = []
-            if "ERROR" in output.upper() or "FAILED" in output.upper():
-                validation_errors = [
-                    line.strip()
-                    for line in output.split("\n")
-                    if "ERROR" in line.upper() or "FAILED" in line.upper()
-                ]
+            all_successful = True
 
-            if return_code == 0:
-                return ServiceResult.success((output, validation_errors))
-            error = ProcessError(
-                f"Validation script failed with exit code {return_code}",
-                return_code=return_code,
+            for i, zip_file in enumerate(zip_files):
+                output_callback(
+                    f"🔄 Validating {zip_file.name} ({i+1}/{len(zip_files)})...\n"
+                )
+
+                # Run validation via web API
+                success, single_output, single_errors = await self._run_web_validation(
+                    validation_url, zip_file, output_callback
+                )
+
+                if success:
+                    output_callback(
+                        f"✅ {zip_file.name} validation completed successfully\n"
+                    )
+                else:
+                    output_callback(f"❌ {zip_file.name} validation failed\n")
+                    all_successful = False
+
+                # Append output and errors
+                full_output += f"\n=== VALIDATION RESULTS FOR {zip_file.name} ===\n"
+                full_output += single_output
+                full_output += "\n"
+
+                if single_errors:
+                    validation_errors.extend(single_errors)
+
+                output_callback("\n")
+
+            # Final summary
+            successful_count = sum(
+                1
+                for zip_file in zip_files
+                if zip_file.stem not in [err.split(":")[0] for err in validation_errors]
             )
-            return ServiceResult.error(error)
+            output_callback(f"📋 Validation Summary:\n")
+            output_callback(f"  • Total files: {len(zip_files)}\n")
+            output_callback(f"  • Successful: {successful_count}\n")
+            output_callback(f"  • Failed: {len(zip_files) - successful_count}\n")
+
+            if all_successful:
+                output_callback(f"🎉 All validations completed successfully!\n")
+                return ServiceResult.success((full_output, validation_errors))
+            else:
+                output_callback(
+                    f"⚠️ Some validations failed. Check individual results above.\n"
+                )
+                return ServiceResult.success((full_output, validation_errors))
 
         except Exception as e:
             error = ProcessError(f"Failed to run validation script: {str(e)}")
             return ServiceResult.error(error)
 
-    async def _run_windows_script_with_input(
-        self,
-        script_path: str,
-        working_dir: str,
-        output_callback: Callable[[str], None],
-    ) -> tuple[int, str]:
-        """Run Windows batch script with input handling for "Press any key" prompts"""
-
+    async def _check_validation_service(self, validation_url: str) -> bool:
+        """Check if validation service is running"""
         try:
-            # Run the script with input handling for "Press any key" prompts
-            import asyncio
-            import subprocess
+            response = await run_in_executor(
+                lambda: requests.get(f"{validation_url}/health", timeout=5)
+            )
+            return response.status_code == 200
+        except Exception:
+            return False
 
-            def run_subprocess_with_input():
-                """Run subprocess in thread with automatic input handling"""
-                try:
-                    # Create subprocess with pipes for input/output
-                    process = subprocess.Popen(
-                        [script_path],
-                        cwd=working_dir,
-                        stdin=subprocess.PIPE,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        bufsize=0,  # Unbuffered for real-time streaming
-                        universal_newlines=True,
-                    )
+    async def _start_validation_service(
+        self, validation_tool_path: Path, output_callback: Callable[[str], None]
+    ) -> bool:
+        """Start the validation service using run.bat/run.sh"""
+        try:
+            # First check if Docker is running
+            output_callback("🐳 Checking if Docker is running...\n")
+            docker_check = await self._check_docker_running()
+            if not docker_check:
+                output_callback(
+                    "❌ Docker is not running. Please start Docker Desktop first.\n"
+                )
+                return False
 
-                    full_output = ""
+            output_callback("✅ Docker is running!\n")
 
-                    # Handle output streaming and input when needed
-                    while True:
-                        # Check if process is still running
-                        if process.poll() is not None:
-                            # Process finished, read any remaining output
-                            remaining = process.stdout.read()
-                            if remaining:
-                                full_output += remaining
-                                if output_callback:
-                                    output_callback(remaining)
-                            break
+            # Determine script based on platform
+            if self.platform_service.is_windows():
+                script_path = validation_tool_path / "run.bat"
+            else:
+                script_path = validation_tool_path / "run.sh"
 
-                        # Try to read available data
-                        try:
-                            line = process.stdout.readline()
-                            if line:
-                                full_output += line
-                                if output_callback:
-                                    output_callback(line)
+            if not script_path.exists():
+                output_callback(f"❌ Validation script not found: {script_path}\n")
+                return False
 
-                                # Check for "Press any key" prompt and send input
-                                if (
-                                    "press any key" in line.lower()
-                                    or "pause" in line.lower()
-                                ):
-                                    try:
-                                        process.stdin.write("\n")
-                                        process.stdin.flush()
-                                    except Exception:
-                                        # If input fails, process might have already closed
-                                        pass
-                            else:
-                                # No data available, small sleep to prevent busy waiting
-                                import time
+            # Start the service and monitor its output
+            output_callback(f"🚀 Starting validation service with Docker Compose...\n")
+            output_callback(f"📁 Working directory: {validation_tool_path}\n")
+            output_callback(
+                f"🔧 This may take a few minutes to build and start containers...\n\n"
+            )
 
-                                time.sleep(0.1)
-                        except Exception:
-                            # If readline fails, small sleep and continue
-                            import time
+            # Start the process with real-time output streaming
+            if self.platform_service.is_windows():
+                # Use docker compose directly to get better output
+                cmd = ["docker", "compose", "up", "--build"]
+            else:
+                # Use docker compose directly to get better output
+                cmd = ["docker", "compose", "up", "--build"]
 
-                            time.sleep(0.1)
+            # Start the process
+            process = subprocess.Popen(
+                cmd,
+                cwd=str(validation_tool_path),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+            )
 
-                    # Wait for process to complete and get return code
-                    return_code = process.wait()
+            # Store process for potential cleanup
+            self._validation_process = process
 
-                    # Close input pipe
-                    try:
-                        process.stdin.close()
-                    except Exception:
-                        pass
+            # Start a background task to stream output (don't await it!)
+            asyncio.create_task(self._stream_docker_output(process, output_callback))
 
-                    return return_code, full_output
+            output_callback(f"🔄 Docker Compose started (PID: {process.pid})\n")
+            output_callback("📋 Starting health checks while Docker builds...\n\n")
 
-                except Exception as e:
-                    error_msg = f"Error running validation script: {str(e)}\n"
-                    if output_callback:
-                        output_callback(error_msg)
-                    return 1, error_msg
+            # Give Docker a moment to start
+            await asyncio.sleep(3)
 
-            # Use run_in_executor to run the subprocess in a thread
-            return await run_in_executor(run_subprocess_with_input)
+            return True
 
         except Exception as e:
-            error_msg = f"Error running validation script: {str(e)}\n"
-            output_callback(error_msg)
-            return 1, error_msg
+            output_callback(f"❌ Error starting validation service: {str(e)}\n")
+            return False
 
-    async def _run_unix_script(
+    async def _check_docker_running(self) -> bool:
+        """Check if Docker is running and available"""
+        try:
+            # Use docker info to check if Docker daemon is running
+            result = await run_in_executor(
+                lambda: subprocess.run(
+                    ["docker", "info"], capture_output=True, text=True, timeout=10
+                )
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    async def _wait_for_service_ready(
         self,
-        script_path: str,
-        working_dir: str,
+        validation_url: str,
         output_callback: Callable[[str], None],
-    ) -> tuple[int, str]:
-        """Run Unix shell script"""
-        return_code, output = await run_subprocess_streaming_async(
-            ["bash", script_path],
-            working_dir,
-            output_callback,
-            timeout=1800,  # 30 minutes
-        )
+        max_wait_time: int = 300,
+    ) -> bool:
+        """Wait for validation service to be ready"""
+        start_time = time.time()
+        last_status_time = start_time
+        check_interval = 5
 
-        return return_code, output
+        output_callback(
+            f"⏳ Waiting for validation service to be ready at {validation_url}\n"
+        )
+        output_callback(f"🕐 Will wait up to {max_wait_time} seconds...\n")
+
+        attempt = 0
+        while time.time() - start_time < max_wait_time:
+            attempt += 1
+            try:
+                # Show periodic status updates
+                if time.time() - last_status_time >= 30:  # Every 30 seconds
+                    elapsed = int(time.time() - start_time)
+                    output_callback(
+                        f"⏳ Still waiting... ({elapsed}s elapsed, attempt #{attempt})\n"
+                    )
+                    last_status_time = time.time()
+
+                ready = await self._check_validation_service(validation_url)
+                if ready:
+                    elapsed = int(time.time() - start_time)
+                    output_callback(
+                        f"✅ Validation service is ready! ({elapsed}s elapsed)\n"
+                    )
+                    return True
+
+                # Check if Docker process is still running
+                if (
+                    hasattr(self, "_validation_process")
+                    and self._validation_process.poll() is not None
+                ):
+                    output_callback(
+                        "❌ Docker Compose process has stopped unexpectedly\n"
+                    )
+                    return False
+
+                await asyncio.sleep(check_interval)
+
+            except Exception as e:
+                output_callback(
+                    f"⚠️ Error checking service status (attempt #{attempt}): {str(e)}\n"
+                )
+                await asyncio.sleep(check_interval)
+
+        elapsed = int(time.time() - start_time)
+        output_callback(
+            f"❌ Validation service failed to start within {max_wait_time} seconds ({elapsed}s elapsed)\n"
+        )
+        output_callback(
+            "💡 Try running 'docker compose down' in the validation-tool directory and try again\n"
+        )
+        return False
+
+    async def _run_web_validation(
+        self,
+        validation_url: str,
+        zip_file: Path,
+        output_callback: Callable[[str], None],
+    ) -> tuple[bool, str, List[str]]:
+        """Run validation via web API"""
+        try:
+            # Upload the ZIP file
+            output_callback(f"   📤 Uploading {zip_file.name}...\n")
+
+            def upload_file():
+                with open(zip_file, "rb") as f:
+                    files = {"file": (zip_file.name, f, "application/zip")}
+                    data = {"codebase_type": "rewrite"}  # Default type
+                    response = requests.post(
+                        f"{validation_url}/upload", files=files, data=data, timeout=30
+                    )
+                    return response
+
+            response = await run_in_executor(upload_file)
+
+            if response.status_code != 200:
+                error_msg = f"Upload failed with status {response.status_code}"
+                return False, error_msg, [f"{zip_file.name}: {error_msg}"]
+
+            session_data = response.json()
+            session_id = session_data.get("session_id")
+
+            if not session_id:
+                error_msg = "No session ID received from upload"
+                return False, error_msg, [f"{zip_file.name}: {error_msg}"]
+
+            output_callback(f"   🔄 Validation started (Session: {session_id})\n")
+
+            # Poll for results
+            return await self._poll_validation_results(
+                validation_url, session_id, zip_file.name, output_callback
+            )
+
+        except Exception as e:
+            error_msg = f"Error running web validation: {str(e)}"
+            output_callback(f"   ❌ {error_msg}\n")
+            return False, error_msg, [f"{zip_file.name}: {error_msg}"]
+
+    async def _poll_validation_results(
+        self,
+        validation_url: str,
+        session_id: str,
+        filename: str,
+        output_callback: Callable[[str], None],
+    ) -> tuple[bool, str, List[str]]:
+        """Poll for validation results until complete"""
+        max_poll_time = 1800  # 30 minutes
+        start_time = time.time()
+
+        while time.time() - start_time < max_poll_time:
+            try:
+
+                def get_status():
+                    return requests.get(
+                        f"{validation_url}/status/{session_id}", timeout=10
+                    )
+
+                response = await run_in_executor(get_status)
+
+                if response.status_code != 200:
+                    error_msg = (
+                        f"Status check failed with status {response.status_code}"
+                    )
+                    return False, error_msg, [f"{filename}: {error_msg}"]
+
+                status_data = response.json()
+                status = status_data.get("status", "unknown")
+                progress = status_data.get("progress", 0)
+                message = status_data.get("message", "")
+
+                # Update progress
+                if message:
+                    output_callback(f"   📊 {progress}% - {message}\n")
+
+                if status == "complete":
+                    result = status_data.get("result", {})
+                    success = result.get("validation_success", False) or (
+                        result.get("build_success", False)
+                        and result.get("test_success", False)
+                    )
+
+                    # Build output summary
+                    output_lines = []
+                    output_lines.append(
+                        f"Build Success: {result.get('build_success', False)}"
+                    )
+                    output_lines.append(
+                        f"Test Success: {result.get('test_success', False)}"
+                    )
+                    if result.get("error_message"):
+                        output_lines.append(f"Error: {result.get('error_message')}")
+                    if result.get("test_execution_time"):
+                        output_lines.append(
+                            f"Test Time: {result.get('test_execution_time'):.1f}s"
+                        )
+
+                    output_text = "\n".join(output_lines)
+                    errors = []
+                    if not success and result.get("error_message"):
+                        errors.append(f"{filename}: {result.get('error_message')}")
+
+                    return success, output_text, errors
+
+                elif status == "error":
+                    error_msg = status_data.get("error", "Unknown error")
+                    return False, error_msg, [f"{filename}: {error_msg}"]
+
+                # Continue polling
+                await asyncio.sleep(5)
+
+            except Exception as e:
+                error_msg = f"Error polling results: {str(e)}"
+                return False, error_msg, [f"{filename}: {error_msg}"]
+
+        # Timeout
+        error_msg = f"Validation timed out after {max_poll_time} seconds"
+        return False, error_msg, [f"{filename}: {error_msg}"]
 
     # Backward compatibility methods
     async def validate_single_project(
