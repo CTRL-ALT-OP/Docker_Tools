@@ -1,40 +1,73 @@
 services:
-  validator:
-    build: 
-      context: .
-      platforms:
-        - linux/amd64
-        - linux/arm64
-    platform: linux/amd64
-    container_name: codebase-validator
-    volumes:
-      # Mount the codebases directory
-      - ./codebases:/app/codebases:ro
-      # Mount the output directory
-      - ./output:/app/output
-      # Mount Docker socket to enable Docker-in-Docker
-      - /var/run/docker.sock:/var/run/docker.sock
+  # Docker-in-Docker daemon for isolated validation
+  docker-daemon:
+    image: docker:27-dind  # Latest stable version
+    privileged: true
+    hostname: docker-daemon
     environment:
-      - PYTHONUNBUFFERED=1
-      - DOCKER_BUILDKIT=1
-    command: ["python", "validate_codebases.py", "--output", "/app/output/validation_results.csv", "--verbose"]
-    
+      - DOCKER_TLS_CERTDIR=/certs
+    volumes:
+      - docker-certs-ca:/certs/ca
+      - docker-certs-client:/certs/client
+    networks:
+      - validator-network
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
-  validator-interactive:
-    build: 
-      context: .
-      platforms:
-        - linux/amd64
-        - linux/arm64
-    platform: linux/amd64
-    container_name: codebase-validator-interactive
-    volumes:
-      - ./codebases:/app/codebases:ro
-      - ./output:/app/output
-      - /var/run/docker.sock:/var/run/docker.sock
+  validator:
+    build: .
+    ports:
+      - "8080:8080"
+    user: root
     environment:
+      - DOCKER_HOST=tcp://docker-daemon:2376
+      - DOCKER_CERT_PATH=/certs/client
+      - DOCKER_TLS_VERIFY=1
       - PYTHONUNBUFFERED=1
-      - DOCKER_BUILDKIT=1
-    stdin_open: true
-    tty: true
-    entrypoint: ["bash"] 
+    volumes:
+      - docker-certs-client:/certs/client:ro
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+    depends_on:
+      docker-daemon:
+        condition: service_healthy
+    networks:
+      - validator-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    restart: unless-stopped
+
+volumes:
+  docker-certs-ca:
+  docker-certs-client:
+
+networks:
+  validator-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16 
