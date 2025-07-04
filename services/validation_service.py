@@ -615,13 +615,11 @@ class ValidationService(AsyncServiceInterface):
 
             if all_successful:
                 output_callback(f"🎉 All validations completed successfully!\n")
-                return ServiceResult.success((full_output, validation_errors))
             else:
                 output_callback(
                     f"⚠️ Some validations failed. Check individual results above.\n"
                 )
-                return ServiceResult.success((full_output, validation_errors))
-
+            return ServiceResult.success((full_output, validation_errors))
         except Exception as e:
             error = ProcessError(f"Failed to run validation script: {str(e)}")
             return ServiceResult.error(error)
