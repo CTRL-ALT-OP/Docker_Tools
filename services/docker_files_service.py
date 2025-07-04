@@ -421,6 +421,20 @@ endif()
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write("# Add your Python project dependencies here\n")
             output_callback(f"   ✅ Created blank {file_name}\n")
+        elif file_name == "go.mod":
+            # Get the project directory name for the module name
+            project_name = project.path.name
+            content = f"""module {project_name}
+
+go 1.23
+
+require (
+	// Add your dependencies here
+)
+"""
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            output_callback(f"   ✅ Created {file_name}\n")
 
     async def _copy_build_docker_sh(
         self, project: Project, language: str, output_callback: Callable[[str], None]

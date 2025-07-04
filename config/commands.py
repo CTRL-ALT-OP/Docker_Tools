@@ -130,6 +130,9 @@ TEST_COMMAND_TEMPLATES = {
     "java": "mvn test -Dtest={test_paths}",
     "rust": "cargo test {test_paths}",
     "c": "ctest --verbose -R {test_paths}",
+    "cpp": "ctest --verbose -R {test_paths}",
+    "csharp": "dotnet test {test_paths}",
+    "go": "go test {test_paths}",
 }
 
 # Default commands when no specific test paths are provided

@@ -45,6 +45,9 @@ LANGUAGE_EXTENSIONS = {
     "java": [".java", ".class"],
     "rust": [".rs"],
     "c": [".c", ".h", ".i", ".o", ".s", ".so"],
+    "go": [".go"],
+    "cpp": [".cpp", ".cxx", ".cc", ".c++", ".hpp", ".hxx", ".hh", ".h++"],
+    "csharp": [".cs", ".csx"],
 }
 
 # Required files for each language
@@ -55,6 +58,9 @@ LANGUAGE_REQUIRED_FILES = {
     "java": ["pom.xml"],
     "rust": [],  # No files need ensuring for Rust
     "c": ["CMakeLists.txt"],
+    "go": ["go.mod"],
+    "cpp": ["CMakeLists.txt"],
+    "csharp": [],  # No files need ensuring for C#
 }
 
 # GUI Configuration
