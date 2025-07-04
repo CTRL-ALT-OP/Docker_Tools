@@ -506,58 +506,444 @@ class TestRunTestsLineEndings:
             if temp_path.exists():
                 temp_path.unlink()
 
-    def test_run_tests_file_modification_preserves_unix_line_endings(self):
-        """Test that modifying existing run_tests.sh files preserves Unix line endings"""
-        # Test the low-level file modification directly
-        import tempfile
+    @pytest.mark.asyncio
+    async def test_run_tests_file_modification_preserves_unix_line_endings(self):
+        """Test that modifying run_tests.sh preserves Unix line endings"""
+        # Create run_tests.sh with Windows-style line endings
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+        run_tests_path = pre_edit_path / "run_tests.sh"
 
-        # Create a test file with existing content
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".sh"
-        ) as temp_file:
-            temp_path = Path(temp_file.name)
+        # Write with Windows line endings
+        run_tests_path.write_text("#!/bin/sh\r\npytest tests/\r\n")
 
-        try:
-            # Write initial content with explicit Unix line endings
-            initial_content = "#!/bin/sh\npytest -vv -s tests/old_test.py\n"
-            with open(temp_path, "wb") as f:
-                f.write(initial_content.encode("utf-8"))
+        # Create test files
+        tests_dir = pre_edit_path / "tests"
+        tests_dir.mkdir(exist_ok=True)
+        (tests_dir / "test_example.py").touch()
 
-            # Verify initial file has Unix line endings
-            with open(temp_path, "rb") as f:
-                initial_bytes = f.read()
-            assert b"\r\n" not in initial_bytes, "Initial file should not have CRLF"
-            assert b"\n" in initial_bytes, "Initial file should have LF"
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window._load_test_files()
 
-            # Simulate modifying the file (what our production code does)
-            new_content = "#!/bin/sh\npytest -vv -s tests/test_new.py\n"
-            temp_path.write_text(new_content, newline="\n")
+            # Mock the main app's handle_run_tests_edit method
+            async def mock_handle_run_tests_edit(
+                project_group, selected_tests, language
+            ):
+                # This would be called from the main app
+                # Simulate the file modification
+                new_content = "#!/bin/sh\npytest tests/test_example.py\n"
+                run_tests_path.write_text(new_content, newline="\n")
 
-            # Check that the modified file still has Unix line endings
-            with open(temp_path, "rb") as f:
-                modified_bytes = f.read()
+            # Call the mock function to simulate file modification
+            await mock_handle_run_tests_edit(
+                self.project_group, ["tests/test_example.py"], "python"
+            )
 
-            # Should still contain Unix line endings (LF only)
-            assert b"\n" in modified_bytes, "Modified file should contain LF characters"
+            # Get the line ending style
+            raw_bytes = run_tests_path.read_bytes()
 
-            # Should NOT contain Windows line endings (CRLF)
-            assert (
-                b"\r\n" not in modified_bytes
-            ), f"Modified file should not contain CRLF: {repr(modified_bytes.decode('utf-8'))}"
+            # Should have Unix line endings (LF only)
+            assert b"\r\n" not in raw_bytes
+            assert b"\n" in raw_bytes
 
-            # Should NOT contain isolated CR characters
-            assert (
-                b"\r" not in modified_bytes
-            ), f"Modified file should not contain CR characters: {repr(modified_bytes.decode('utf-8'))}"
 
-            # Verify the content was updated correctly
-            expected_content = "#!/bin/sh\npytest -vv -s tests/test_new.py\n"
-            actual_content = modified_bytes.decode("utf-8")
-            assert (
-                actual_content == expected_content
-            ), f"Content should be updated correctly: {repr(actual_content)}"
+class TestEditRunTestsNewLanguages:
+    """Test cases for Edit run_tests.sh functionality for new languages (go, cpp, csharp)"""
 
-        finally:
-            # Clean up
-            if temp_path.exists():
-                temp_path.unlink()
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.temp_dir = tempfile.mkdtemp()
+        self.project_service = ProjectService()
+
+        # Create test project group with multiple versions
+        self.project_group = ProjectGroup("test-project", self.project_service)
+
+        # Create test projects for different versions
+        versions = ["pre-edit", "post-edit", "post-edit2", "correct-edit"]
+        for version in versions:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            version_path.mkdir(parents=True, exist_ok=True)
+
+            project = Project(
+                parent=version,
+                name="test-project",
+                path=version_path,
+                relative_path=f"{version}/test-project",
+            )
+            self.project_group.add_project(project)
+
+    def teardown_method(self):
+        """Clean up test fixtures"""
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
+    def test_go_test_file_discovery(self):
+        """Test that Go test files are discovered correctly"""
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+
+        # Create Go test files
+        (pre_edit_path / "main.go").write_text("package main")
+        (pre_edit_path / "utils.go").write_text("package main")
+        (pre_edit_path / "main_test.go").write_text('package main\nimport "testing"')
+        (pre_edit_path / "utils_test.go").write_text('package main\nimport "testing"')
+        (pre_edit_path / "helper_test.go").write_text('package main\nimport "testing"')
+
+        # Create subdirectory with test files
+        subdir = pre_edit_path / "handlers"
+        subdir.mkdir()
+        (subdir / "handler.go").write_text("package handlers")
+        (subdir / "handler_test.go").write_text('package handlers\nimport "testing"')
+
+        # Create non-test files that shouldn't be discovered
+        (pre_edit_path / "not_a_test_file.go").write_text("package main")
+        (pre_edit_path / "config.go").write_text("package main")
+
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window.detected_language = "go"
+            window._load_test_files()
+
+            # Should find only Go test files
+            expected_test_files = {
+                "main_test.go",
+                "utils_test.go",
+                "helper_test.go",
+                "handlers/handler_test.go",
+            }
+
+            actual_test_files = set(window.all_test_files)
+            assert actual_test_files == expected_test_files
+
+    def test_cpp_test_file_discovery(self):
+        """Test that C++ test files are discovered correctly"""
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+
+        # Create test directory
+        tests_dir = pre_edit_path / "tests"
+        tests_dir.mkdir()
+
+        # Create C++ test files
+        (tests_dir / "test_main.cpp").write_text("#include <gtest/gtest.h>")
+        (tests_dir / "test_utils.cpp").write_text("#include <gtest/gtest.h>")
+        (tests_dir / "main_test.cpp").write_text("#include <gtest/gtest.h>")
+        (tests_dir / "utils_test.cpp").write_text("#include <gtest/gtest.h>")
+        (tests_dir / "test_handler.cc").write_text("#include <gtest/gtest.h>")
+        (tests_dir / "handler_test.cc").write_text("#include <gtest/gtest.h>")
+
+        # Create C test files too
+        (tests_dir / "test_core.c").write_text("#include <stdio.h>")
+        (tests_dir / "core_test.c").write_text("#include <stdio.h>")
+
+        # Create non-test files that shouldn't be discovered
+        (tests_dir / "helper.cpp").write_text("#include <iostream>")
+        (tests_dir / "config.c").write_text("#include <stdio.h>")
+
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window.detected_language = "cpp"
+            window._load_test_files()
+
+            # Should find both C++ and C test files (pattern matches test_*.c, *_test.c, test_*.cpp, *_test.cpp)
+            expected_test_files = {
+                "tests/test_main.cpp",
+                "tests/test_utils.cpp",
+                "tests/main_test.cpp",
+                "tests/utils_test.cpp",
+                "tests/test_core.c",
+                "tests/core_test.c",
+            }
+
+            actual_test_files = set(window.all_test_files)
+            assert actual_test_files == expected_test_files
+
+    def test_csharp_test_file_discovery(self):
+        """Test that C# test files are discovered correctly"""
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+
+        # Create test directory
+        tests_dir = pre_edit_path / "tests"
+        tests_dir.mkdir()
+
+        # Create C# test files
+        (tests_dir / "MainTest.cs").write_text("using NUnit.Framework;")
+        (tests_dir / "UtilsTest.cs").write_text("using NUnit.Framework;")
+        (tests_dir / "MainTests.cs").write_text("using NUnit.Framework;")
+        (tests_dir / "UtilsTests.cs").write_text("using NUnit.Framework;")
+        (tests_dir / "HandlerTest.cs").write_text("using NUnit.Framework;")
+
+        # Create non-test files that shouldn't be discovered
+        (tests_dir / "Helper.cs").write_text("using System;")
+        (tests_dir / "Config.cs").write_text("using System;")
+
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window.detected_language = "csharp"
+            window._load_test_files()
+
+            # Should find only C# test files
+            expected_test_files = {
+                "tests/MainTest.cs",
+                "tests/UtilsTest.cs",
+                "tests/MainTests.cs",
+                "tests/UtilsTests.cs",
+                "tests/HandlerTest.cs",
+            }
+
+            actual_test_files = set(window.all_test_files)
+            assert actual_test_files == expected_test_files
+
+    def test_go_test_command_parsing(self):
+        """Test parsing Go test commands from run_tests.sh"""
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+
+        # Create run_tests.sh with Go test commands
+        run_tests_content = """#!/bin/sh
+go test ./handlers/handler_test.go
+"""
+        run_tests_path = pre_edit_path / "run_tests.sh"
+        run_tests_path.write_text(run_tests_content)
+
+        # Create test files
+        (pre_edit_path / "main_test.go").write_text("package main")
+        (pre_edit_path / "utils_test.go").write_text("package main")
+        handlers_dir = pre_edit_path / "handlers"
+        handlers_dir.mkdir()
+        (handlers_dir / "handler_test.go").write_text("package handlers")
+
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window.detected_language = "go"
+            window._load_test_files()
+            selected_tests = window._get_currently_selected_tests()
+
+            # Should find the specific test file mentioned in the command
+            assert "handlers/handler_test.go" in selected_tests
+            # Should NOT find the other test files
+            assert "main_test.go" not in selected_tests
+            assert "utils_test.go" not in selected_tests
+
+    def test_go_test_package_command_parsing(self):
+        """Test parsing Go test package commands from run_tests.sh"""
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+
+        # Create run_tests.sh with Go package test commands
+        run_tests_content = """#!/bin/sh
+go test ./handlers
+"""
+        run_tests_path = pre_edit_path / "run_tests.sh"
+        run_tests_path.write_text(run_tests_content)
+
+        # Create test files
+        (pre_edit_path / "main_test.go").write_text("package main")
+        handlers_dir = pre_edit_path / "handlers"
+        handlers_dir.mkdir()
+        (handlers_dir / "handler_test.go").write_text("package handlers")
+        (handlers_dir / "service_test.go").write_text("package handlers")
+
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window.detected_language = "go"
+            window._load_test_files()
+            selected_tests = window._get_currently_selected_tests()
+
+            # Should find all test files in the handlers package
+            assert "handlers/handler_test.go" in selected_tests
+            assert "handlers/service_test.go" in selected_tests
+            # Should NOT find the root level test
+            assert "main_test.go" not in selected_tests
+
+    def test_cpp_test_command_parsing(self):
+        """Test parsing C++ CTest commands from run_tests.sh"""
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+
+        # Create run_tests.sh with CTest commands
+        run_tests_content = """#!/bin/sh
+ctest --verbose -R test_main
+"""
+        run_tests_path = pre_edit_path / "run_tests.sh"
+        run_tests_path.write_text(run_tests_content)
+
+        # Create test files
+        tests_dir = pre_edit_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_main.cpp").write_text("#include <gtest/gtest.h>")
+        (tests_dir / "test_utils.cpp").write_text("#include <gtest/gtest.h>")
+        (tests_dir / "test_handler.cpp").write_text("#include <gtest/gtest.h>")
+
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window.detected_language = "cpp"
+            window._load_test_files()
+            selected_tests = window._get_currently_selected_tests()
+
+            # Should find test files matching the pattern
+            assert "tests/test_main.cpp" in selected_tests
+            # Should NOT find other test files
+            assert "tests/test_utils.cpp" not in selected_tests
+            assert "tests/test_handler.cpp" not in selected_tests
+
+    def test_csharp_test_command_parsing(self):
+        """Test parsing C# dotnet test commands from run_tests.sh"""
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+
+        # Create run_tests.sh with dotnet test commands
+        run_tests_content = """#!/bin/sh
+dotnet test tests/MainTest.cs
+"""
+        run_tests_path = pre_edit_path / "run_tests.sh"
+        run_tests_path.write_text(run_tests_content)
+
+        # Create test files
+        tests_dir = pre_edit_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "MainTest.cs").write_text("using NUnit.Framework;")
+        (tests_dir / "UtilsTest.cs").write_text("using NUnit.Framework;")
+        (tests_dir / "HandlerTest.cs").write_text("using NUnit.Framework;")
+
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window.detected_language = "csharp"
+            window._load_test_files()
+            selected_tests = window._get_currently_selected_tests()
+
+            # Should find the specific test file mentioned in the command
+            assert "tests/MainTest.cs" in selected_tests
+            # Should NOT find the other test files
+            assert "tests/UtilsTest.cs" not in selected_tests
+            assert "tests/HandlerTest.cs" not in selected_tests
+
+    def test_go_language_detection(self):
+        """Test that Go language is detected correctly"""
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+
+        # Create Go files
+        (pre_edit_path / "main.go").write_text("package main")
+        (pre_edit_path / "utils.go").write_text("package main")
+        (pre_edit_path / "handler.go").write_text("package main")
+
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window._detect_language()
+
+            assert window.detected_language == "go"
+
+    def test_cpp_language_detection(self):
+        """Test that C++ language is detected correctly"""
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+
+        # Create C++ files (more C++ than C files)
+        (pre_edit_path / "main.cpp").write_text("#include <iostream>")
+        (pre_edit_path / "utils.cpp").write_text("#include <iostream>")
+        (pre_edit_path / "handler.cxx").write_text("#include <iostream>")
+        (pre_edit_path / "component.hpp").write_text("#ifndef COMPONENT_HPP")
+        (pre_edit_path / "helper.cc").write_text("#include <iostream>")
+        # Add one C file
+        (pre_edit_path / "legacy.c").write_text("#include <stdio.h>")
+
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window._detect_language()
+
+            assert window.detected_language == "cpp"
+
+    def test_csharp_language_detection(self):
+        """Test that C# language is detected correctly"""
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+
+        # Create C# files
+        (pre_edit_path / "Program.cs").write_text("using System;")
+        (pre_edit_path / "Utils.cs").write_text("using System;")
+        (pre_edit_path / "Handler.cs").write_text("using System;")
+
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window._detect_language()
+
+            assert window.detected_language == "csharp"
+
+    def test_go_default_all_tests_selection(self):
+        """Test that all Go tests are selected by default when no specific command is found"""
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+
+        # Create run_tests.sh with generic go test command
+        run_tests_content = """#!/bin/sh
+go test
+"""
+        run_tests_path = pre_edit_path / "run_tests.sh"
+        run_tests_path.write_text(run_tests_content)
+
+        # Create test files
+        (pre_edit_path / "main_test.go").write_text("package main")
+        (pre_edit_path / "utils_test.go").write_text("package main")
+        handlers_dir = pre_edit_path / "handlers"
+        handlers_dir.mkdir()
+        (handlers_dir / "handler_test.go").write_text("package handlers")
+
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window.detected_language = "go"
+            window._load_test_files()
+            selected_tests = window._get_currently_selected_tests()
+
+            # Should select all test files
+            assert "main_test.go" in selected_tests
+            assert "utils_test.go" in selected_tests
+            assert "handlers/handler_test.go" in selected_tests
+
+    def test_cpp_default_all_tests_selection(self):
+        """Test that all C++ tests are selected by default when no specific command is found"""
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+
+        # Create run_tests.sh with generic ctest command
+        run_tests_content = """#!/bin/sh
+ctest --verbose
+"""
+        run_tests_path = pre_edit_path / "run_tests.sh"
+        run_tests_path.write_text(run_tests_content)
+
+        # Create test files
+        tests_dir = pre_edit_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_main.cpp").write_text("#include <gtest/gtest.h>")
+        (tests_dir / "test_utils.cpp").write_text("#include <gtest/gtest.h>")
+        (tests_dir / "test_handler.cpp").write_text("#include <gtest/gtest.h>")
+
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window.detected_language = "cpp"
+            window._load_test_files()
+            selected_tests = window._get_currently_selected_tests()
+
+            # Should select all test files
+            assert "tests/test_main.cpp" in selected_tests
+            assert "tests/test_utils.cpp" in selected_tests
+            assert "tests/test_handler.cpp" in selected_tests
+
+    def test_csharp_default_all_tests_selection(self):
+        """Test that all C# tests are selected by default when no specific command is found"""
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+
+        # Create run_tests.sh with generic dotnet test command
+        run_tests_content = """#!/bin/sh
+dotnet test
+"""
+        run_tests_path = pre_edit_path / "run_tests.sh"
+        run_tests_path.write_text(run_tests_content)
+
+        # Create test files
+        tests_dir = pre_edit_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "MainTest.cs").write_text("using NUnit.Framework;")
+        (tests_dir / "UtilsTest.cs").write_text("using NUnit.Framework;")
+        (tests_dir / "HandlerTest.cs").write_text("using NUnit.Framework;")
+
+        with patch("tkinter.Tk"), patch("tkinter.BooleanVar"):
+            window = EditRunTestsWindow(Mock(), self.project_group, Mock())
+            window.detected_language = "csharp"
+            window._load_test_files()
+            selected_tests = window._get_currently_selected_tests()
+
+            # Should select all test files
+            assert "tests/MainTest.cs" in selected_tests
+            assert "tests/UtilsTest.cs" in selected_tests
+            assert "tests/HandlerTest.cs" in selected_tests

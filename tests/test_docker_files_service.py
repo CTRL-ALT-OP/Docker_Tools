@@ -68,6 +68,21 @@ class TestDockerFilesService:
                 "run_tests.sh": "#!/bin/bash\necho 'Running C tests'\n",
                 "Dockerfile": "FROM alpine:3.21\nRUN apk add --no-cache alpine-sdk cmake\nCOPY . /app\n",
             },
+            "cpp": {
+                "build_docker.sh": "#!/bin/bash\necho 'Building C++ Docker'\n",
+                "run_tests.sh": "#!/bin/bash\necho 'Running C++ tests'\n",
+                "Dockerfile": "FROM alpine:3.21\nRUN apk add --no-cache alpine-sdk cmake\nCOPY . /app\n",
+            },
+            "go": {
+                "build_docker.sh": "#!/bin/bash\necho 'Building Go Docker'\n",
+                "run_tests.sh": "#!/bin/bash\necho 'Running Go tests'\n",
+                "Dockerfile": "FROM golang:1.23\nCOPY . /app\n",
+            },
+            "csharp": {
+                "build_docker.sh": "#!/bin/bash\necho 'Building C# Docker'\n",
+                "run_tests.sh": "#!/bin/bash\necho 'Running C# tests'\n",
+                "Dockerfile": "FROM mcr.microsoft.com/dotnet/sdk:8.0\nCOPY . /app\n",
+            },
         }
 
         for language, templates in languages.items():
@@ -212,23 +227,17 @@ class TestDockerFilesService:
 
     @pytest.fixture
     def c_project(self, temp_directory):
-        """Create a project with C/C++ files"""
+        """Create a project with C files"""
         project_dir = temp_directory / "pre-edit" / "c-project"
         project_dir.mkdir(parents=True)
 
-        # Create C/C++ files
+        # Create C files
         (project_dir / "main.c").write_text(
-            '#include <stdio.h>\nint main() { printf("Hello C"); return 0; }'
+            '#include <stdio.h>\nint main() { printf("Hello C"); }'
         )
-        (project_dir / "utils.c").write_text('#include "utils.h"\nvoid helper() {}')
-        (project_dir / "utils.h").write_text(
-            "#ifndef UTILS_H\n#define UTILS_H\nvoid helper();\n#endif"
-        )
+        (project_dir / "utils.c").write_text("#include <stdio.h>\nvoid helper() {}")
         (project_dir / "app.cpp").write_text(
             '#include <iostream>\nint main() { std::cout << "Hello C++"; }'
-        )
-        (project_dir / "classes.hpp").write_text(
-            "#ifndef CLASSES_HPP\n#define CLASSES_HPP\nclass MyClass {};\n#endif"
         )
 
         return Project(
@@ -239,18 +248,95 @@ class TestDockerFilesService:
         )
 
     @pytest.fixture
+    def cpp_project(self, temp_directory):
+        """Create a project with C++ files"""
+        project_dir = temp_directory / "pre-edit" / "cpp-project"
+        project_dir.mkdir(parents=True)
+
+        # Create C++ files - more C++ files than C files
+        (project_dir / "main.cpp").write_text(
+            '#include <iostream>\nint main() { std::cout << "Hello C++"; }'
+        )
+        (project_dir / "utils.cpp").write_text(
+            '#include <iostream>\nvoid helper() { std::cout << "Helper"; }'
+        )
+        (project_dir / "app.cxx").write_text(
+            '#include <iostream>\nint main() { std::cout << "Hello CXX"; }'
+        )
+        (project_dir / "component.hpp").write_text(
+            "#ifndef COMPONENT_HPP\n#define COMPONENT_HPP\nclass Component {};\n#endif"
+        )
+        (project_dir / "test.cc").write_text(
+            '#include <iostream>\nint main() { std::cout << "Test CC"; }'
+        )
+
+        return Project(
+            parent="pre-edit",
+            name="cpp-project",
+            path=project_dir,
+            relative_path="pre-edit/cpp-project",
+        )
+
+    @pytest.fixture
+    def go_project(self, temp_directory):
+        """Create a project with Go files"""
+        project_dir = temp_directory / "pre-edit" / "go-project"
+        project_dir.mkdir(parents=True)
+
+        # Create Go files
+        (project_dir / "main.go").write_text(
+            'package main\n\nimport "fmt"\n\nfunc main() {\n    fmt.Println("Hello Go")\n}'
+        )
+        (project_dir / "utils.go").write_text(
+            'package main\n\nimport "fmt"\n\nfunc helper() {\n    fmt.Println("Helper")\n}'
+        )
+        (project_dir / "handler.go").write_text(
+            "package main\n\nfunc handleRequest() {\n    // handle request\n}"
+        )
+
+        return Project(
+            parent="pre-edit",
+            name="go-project",
+            path=project_dir,
+            relative_path="pre-edit/go-project",
+        )
+
+    @pytest.fixture
+    def csharp_project(self, temp_directory):
+        """Create a project with C# files"""
+        project_dir = temp_directory / "pre-edit" / "csharp-project"
+        project_dir.mkdir(parents=True)
+
+        # Create C# files
+        (project_dir / "Program.cs").write_text(
+            'using System;\n\nnamespace CsharpProject\n{\n    class Program\n    {\n        static void Main(string[] args)\n        {\n            Console.WriteLine("Hello C#");\n        }\n    }\n}'
+        )
+        (project_dir / "Utils.cs").write_text(
+            'using System;\n\nnamespace CsharpProject\n{\n    public class Utils\n    {\n        public static void Helper()\n        {\n            Console.WriteLine("Helper");\n        }\n    }\n}'
+        )
+        (project_dir / "Service.cs").write_text(
+            "using System;\n\nnamespace CsharpProject\n{\n    public class Service\n    {\n        public void DoWork() { }\n    }\n}"
+        )
+
+        return Project(
+            parent="pre-edit",
+            name="csharp-project",
+            path=project_dir,
+            relative_path="pre-edit/csharp-project",
+        )
+
+    @pytest.fixture
     def mixed_language_project(self, temp_directory):
-        """Create a project with mixed language files (Python should win)"""
+        """Create a project with mixed language files"""
         project_dir = temp_directory / "pre-edit" / "mixed-project"
         project_dir.mkdir(parents=True)
 
-        # Create files with Python having the most files
-        (project_dir / "main.py").write_text("import os")
+        # Create files of different languages - Python should be dominant
+        (project_dir / "main.py").write_text("print('Python')")
         (project_dir / "utils.py").write_text("def helper(): pass")
-        (project_dir / "tests.py").write_text("import unittest")
-        (project_dir / "config.py").write_text("CONFIG = {}")
-        (project_dir / "app.js").write_text("console.log('hello');")
-        (project_dir / "script.js").write_text("function test() {}")
+        (project_dir / "app.py").write_text("import os")
+        (project_dir / "script.js").write_text("console.log('JavaScript');")
+        (project_dir / "README.md").write_text("# Mixed Project")
 
         return Project(
             parent="pre-edit",
@@ -884,6 +970,268 @@ project(MyCustomProject)
         assert "FROM python:3.9" in content
         assert "opencv-python" in content
 
+    @pytest.mark.asyncio
+    async def test_copies_go_docker_files(
+        self, service, temp_directory, temp_defaults_dir
+    ):
+        """Test copying Go Docker files"""
+        # Given: a Go project in pre-edit version
+        pre_edit_dir = temp_directory / "pre-edit" / "go-project"
+        pre_edit_dir.mkdir(parents=True)
+        (pre_edit_dir / "main.go").write_text("package main")
+
+        # And: other versions exist
+        for version in ["post-edit", "post-edit2", "correct-edit"]:
+            version_dir = temp_directory / version / "go-project"
+            version_dir.mkdir(parents=True)
+            (version_dir / "main.go").write_text("package main")
+
+        project = Project(
+            parent="pre-edit",
+            name="go-project",
+            path=pre_edit_dir,
+            relative_path="pre-edit/go-project",
+        )
+
+        # When: copying Docker files
+        output_callback = Mock()
+
+        with patch.object(service, "defaults_dir", temp_defaults_dir):
+            # Copy to source project first
+            await service._copy_build_docker_sh(project, "go", output_callback)
+            await service._copy_run_tests_sh(
+                project, "go", False, False, output_callback
+            )
+            await service._copy_dockerfile(project, "go", False, False, output_callback)
+
+            # Create a project group to test copying to all versions
+            from services.project_service import ProjectService
+            from services.project_group_service import ProjectGroup
+
+            project_service = Mock()
+            project_service.get_folder_sort_order = Mock(
+                side_effect=lambda x: {
+                    "pre-edit": 0,
+                    "post-edit": 1,
+                    "post-edit2": 2,
+                    "correct-edit": 3,
+                }.get(x, 99)
+            )
+            project_group = ProjectGroup("go-project", project_service)
+
+            # Add all versions to the project group
+            for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+                version_dir = temp_directory / version / "go-project"
+                version_project = Project(
+                    parent=version,
+                    name="go-project",
+                    path=version_dir,
+                    relative_path=f"{version}/go-project",
+                )
+                project_group.add_project(version_project)
+
+            # Copy files to all versions
+            await service._copy_files_to_all_versions(
+                project_group, project, "go", output_callback
+            )
+
+        # Then: Docker files should be copied to all versions
+        for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+            version_dir = temp_directory / version / "go-project"
+            build_script = version_dir / "build_docker.sh"
+            run_tests_script = version_dir / "run_tests.sh"
+            dockerfile = version_dir / "Dockerfile"
+
+            assert build_script.exists()
+            assert run_tests_script.exists()
+            assert dockerfile.exists()
+
+            # Verify content
+            assert "Building Go Docker" in build_script.read_text()
+            assert "Running Go tests" in run_tests_script.read_text()
+            assert "golang:1.23" in dockerfile.read_text()
+
+            # Verify executable permissions (platform-specific)
+            if os.name != "nt":  # Not Windows
+                assert build_script.stat().st_mode & 0o111
+                assert run_tests_script.stat().st_mode & 0o111
+
+    @pytest.mark.asyncio
+    async def test_copies_cpp_docker_files(
+        self, service, temp_directory, temp_defaults_dir
+    ):
+        """Test copying C++ Docker files"""
+        # Given: a C++ project in pre-edit version
+        pre_edit_dir = temp_directory / "pre-edit" / "cpp-project"
+        pre_edit_dir.mkdir(parents=True)
+        (pre_edit_dir / "main.cpp").write_text("#include <iostream>")
+
+        # And: other versions exist
+        for version in ["post-edit", "post-edit2", "correct-edit"]:
+            version_dir = temp_directory / version / "cpp-project"
+            version_dir.mkdir(parents=True)
+            (version_dir / "main.cpp").write_text("#include <iostream>")
+
+        project = Project(
+            parent="pre-edit",
+            name="cpp-project",
+            path=pre_edit_dir,
+            relative_path="pre-edit/cpp-project",
+        )
+
+        # When: copying Docker files
+        output_callback = Mock()
+
+        with patch.object(service, "defaults_dir", temp_defaults_dir):
+            # Copy to source project first
+            await service._copy_build_docker_sh(project, "cpp", output_callback)
+            await service._copy_run_tests_sh(
+                project, "cpp", False, False, output_callback
+            )
+            await service._copy_dockerfile(
+                project, "cpp", False, False, output_callback
+            )
+
+            # Create a project group to test copying to all versions
+            from services.project_service import ProjectService
+            from services.project_group_service import ProjectGroup
+
+            project_service = Mock()
+            project_service.get_folder_sort_order = Mock(
+                side_effect=lambda x: {
+                    "pre-edit": 0,
+                    "post-edit": 1,
+                    "post-edit2": 2,
+                    "correct-edit": 3,
+                }.get(x, 99)
+            )
+            project_group = ProjectGroup("cpp-project", project_service)
+
+            # Add all versions to the project group
+            for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+                version_dir = temp_directory / version / "cpp-project"
+                version_project = Project(
+                    parent=version,
+                    name="cpp-project",
+                    path=version_dir,
+                    relative_path=f"{version}/cpp-project",
+                )
+                project_group.add_project(version_project)
+
+            # Copy files to all versions
+            await service._copy_files_to_all_versions(
+                project_group, project, "cpp", output_callback
+            )
+
+        # Then: Docker files should be copied to all versions
+        for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+            version_dir = temp_directory / version / "cpp-project"
+            build_script = version_dir / "build_docker.sh"
+            run_tests_script = version_dir / "run_tests.sh"
+            dockerfile = version_dir / "Dockerfile"
+
+            assert build_script.exists()
+            assert run_tests_script.exists()
+            assert dockerfile.exists()
+
+            # Verify content
+            assert "Building C++ Docker" in build_script.read_text()
+            assert "Running C++ tests" in run_tests_script.read_text()
+            assert "alpine:3.21" in dockerfile.read_text()
+
+            # Verify executable permissions (platform-specific)
+            if os.name != "nt":  # Not Windows
+                assert build_script.stat().st_mode & 0o111
+                assert run_tests_script.stat().st_mode & 0o111
+
+    @pytest.mark.asyncio
+    async def test_copies_csharp_docker_files(
+        self, service, temp_directory, temp_defaults_dir
+    ):
+        """Test copying C# Docker files"""
+        # Given: a C# project in pre-edit version
+        pre_edit_dir = temp_directory / "pre-edit" / "csharp-project"
+        pre_edit_dir.mkdir(parents=True)
+        (pre_edit_dir / "Program.cs").write_text("using System;")
+
+        # And: other versions exist
+        for version in ["post-edit", "post-edit2", "correct-edit"]:
+            version_dir = temp_directory / version / "csharp-project"
+            version_dir.mkdir(parents=True)
+            (version_dir / "Program.cs").write_text("using System;")
+
+        project = Project(
+            parent="pre-edit",
+            name="csharp-project",
+            path=pre_edit_dir,
+            relative_path="pre-edit/csharp-project",
+        )
+
+        # When: copying Docker files
+        output_callback = Mock()
+
+        with patch.object(service, "defaults_dir", temp_defaults_dir):
+            # Copy to source project first
+            await service._copy_build_docker_sh(project, "csharp", output_callback)
+            await service._copy_run_tests_sh(
+                project, "csharp", False, False, output_callback
+            )
+            await service._copy_dockerfile(
+                project, "csharp", False, False, output_callback
+            )
+
+            # Create a project group to test copying to all versions
+            from services.project_service import ProjectService
+            from services.project_group_service import ProjectGroup
+
+            project_service = Mock()
+            project_service.get_folder_sort_order = Mock(
+                side_effect=lambda x: {
+                    "pre-edit": 0,
+                    "post-edit": 1,
+                    "post-edit2": 2,
+                    "correct-edit": 3,
+                }.get(x, 99)
+            )
+            project_group = ProjectGroup("csharp-project", project_service)
+
+            # Add all versions to the project group
+            for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+                version_dir = temp_directory / version / "csharp-project"
+                version_project = Project(
+                    parent=version,
+                    name="csharp-project",
+                    path=version_dir,
+                    relative_path=f"{version}/csharp-project",
+                )
+                project_group.add_project(version_project)
+
+            # Copy files to all versions
+            await service._copy_files_to_all_versions(
+                project_group, project, "csharp", output_callback
+            )
+
+        # Then: Docker files should be copied to all versions
+        for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+            version_dir = temp_directory / version / "csharp-project"
+            build_script = version_dir / "build_docker.sh"
+            run_tests_script = version_dir / "run_tests.sh"
+            dockerfile = version_dir / "Dockerfile"
+
+            assert build_script.exists()
+            assert run_tests_script.exists()
+            assert dockerfile.exists()
+
+            # Verify content
+            assert "Building C# Docker" in build_script.read_text()
+            assert "Running C# tests" in run_tests_script.read_text()
+            assert "mcr.microsoft.com/dotnet/sdk:8.0" in dockerfile.read_text()
+
+            # Verify executable permissions (platform-specific)
+            if os.name != "nt":  # Not Windows
+                assert build_script.stat().st_mode & 0o111
+                assert run_tests_script.stat().st_mode & 0o111
+
     # File Distribution Tests
     @pytest.mark.asyncio
     async def test_copies_language_specific_files_to_all_versions(
@@ -1147,6 +1495,158 @@ project(MyCustomProject)
             assert "project(MyProject" in cmake_content
 
     @pytest.mark.asyncio
+    async def test_full_workflow_go_project(
+        self, service, sample_project_group, temp_defaults_dir
+    ):
+        """Test complete workflow for Go project"""
+        # Setup pre-edit project with Go files
+        pre_edit = sample_project_group.get_version("pre-edit")
+        assert pre_edit is not None
+
+        # Create Go files
+        (pre_edit.path / "main.go").write_text(
+            'package main\n\nimport "fmt"\n\nfunc main() {\n    fmt.Println("Hello Go")\n}'
+        )
+        (pre_edit.path / "utils.go").write_text(
+            'package main\n\nimport "fmt"\n\nfunc helper() {\n    fmt.Println("Helper")\n}'
+        )
+
+        # Create mock output callback
+        output_messages = []
+
+        def mock_output_callback(message):
+            output_messages.append(message)
+
+        def mock_status_callback(message, color):
+            output_messages.append(f"STATUS: {message}")
+
+        # When: running full workflow
+        with patch.object(service, "defaults_dir", temp_defaults_dir):
+            await service.build_docker_files_for_project_group(
+                sample_project_group, mock_output_callback, mock_status_callback
+            )
+
+        # Then: should detect Go language and copy all files
+        assert any("go" in msg for msg in output_messages)
+        assert any("Detected language: go" in msg for msg in output_messages)
+
+        # And: all versions should have Docker files
+        for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+            version_project = sample_project_group.get_version(version)
+            assert version_project is not None
+
+            # Check Docker files exist
+            assert (version_project.path / "build_docker.sh").exists()
+            assert (version_project.path / "run_tests.sh").exists()
+            assert (version_project.path / "Dockerfile").exists()
+
+            # Check go.mod exists
+            assert (version_project.path / "go.mod").exists()
+
+    @pytest.mark.asyncio
+    async def test_full_workflow_cpp_project(
+        self, service, sample_project_group, temp_defaults_dir
+    ):
+        """Test complete workflow for C++ project"""
+        # Setup pre-edit project with C++ files
+        pre_edit = sample_project_group.get_version("pre-edit")
+        assert pre_edit is not None
+
+        # Create C++ files (more C++ files than C files)
+        (pre_edit.path / "main.cpp").write_text(
+            '#include <iostream>\nint main() { std::cout << "Hello C++"; }'
+        )
+        (pre_edit.path / "utils.cpp").write_text(
+            '#include <iostream>\nvoid helper() { std::cout << "Helper"; }'
+        )
+        (pre_edit.path / "app.cxx").write_text(
+            '#include <iostream>\nint main() { std::cout << "Hello CXX"; }'
+        )
+
+        # Create mock output callback
+        output_messages = []
+
+        def mock_output_callback(message):
+            output_messages.append(message)
+
+        def mock_status_callback(message, color):
+            output_messages.append(f"STATUS: {message}")
+
+        # When: running full workflow
+        with patch.object(service, "defaults_dir", temp_defaults_dir):
+            await service.build_docker_files_for_project_group(
+                sample_project_group, mock_output_callback, mock_status_callback
+            )
+
+        # Then: should detect C++ language and copy all files
+        assert any("cpp" in msg for msg in output_messages)
+        assert any("Detected language: cpp" in msg for msg in output_messages)
+
+        # And: all versions should have Docker files
+        for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+            version_project = sample_project_group.get_version(version)
+            assert version_project is not None
+
+            # Check Docker files exist
+            assert (version_project.path / "build_docker.sh").exists()
+            assert (version_project.path / "run_tests.sh").exists()
+            assert (version_project.path / "Dockerfile").exists()
+
+            # Check CMakeLists.txt exists
+            assert (version_project.path / "CMakeLists.txt").exists()
+
+    @pytest.mark.asyncio
+    async def test_full_workflow_csharp_project(
+        self, service, sample_project_group, temp_defaults_dir
+    ):
+        """Test complete workflow for C# project"""
+        # Setup pre-edit project with C# files
+        pre_edit = sample_project_group.get_version("pre-edit")
+        assert pre_edit is not None
+
+        # Create C# files
+        (pre_edit.path / "Program.cs").write_text(
+            'using System;\n\nclass Program\n{\n    static void Main(string[] args)\n    {\n        Console.WriteLine("Hello C#");\n    }\n}'
+        )
+        (pre_edit.path / "Utils.cs").write_text(
+            'using System;\n\npublic class Utils\n{\n    public static void Helper()\n    {\n        Console.WriteLine("Helper");\n    }\n}'
+        )
+        (pre_edit.path / "Service.cs").write_text(
+            "using System;\n\npublic class Service\n{\n    public void DoWork() { }\n}"
+        )
+
+        # Create mock output callback
+        output_messages = []
+
+        def mock_output_callback(message):
+            output_messages.append(message)
+
+        def mock_status_callback(message, color):
+            output_messages.append(f"STATUS: {message}")
+
+        # When: running full workflow
+        with patch.object(service, "defaults_dir", temp_defaults_dir):
+            await service.build_docker_files_for_project_group(
+                sample_project_group, mock_output_callback, mock_status_callback
+            )
+
+        # Then: should detect C# language and copy all files
+        assert any("csharp" in msg for msg in output_messages)
+        assert any("Detected language: csharp" in msg for msg in output_messages)
+
+        # And: all versions should have Docker files
+        for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+            version_project = sample_project_group.get_version(version)
+            assert version_project is not None
+
+            # Check Docker files exist
+            assert (version_project.path / "build_docker.sh").exists()
+            assert (version_project.path / "run_tests.sh").exists()
+            assert (version_project.path / "Dockerfile").exists()
+
+            # Note: No additional files created for C# projects as per configuration
+
+    @pytest.mark.asyncio
     async def test_handles_missing_pre_edit_version(
         self, service, mock_project_service
     ):
@@ -1222,6 +1722,121 @@ project(MyCustomProject)
             python_project_with_opencv.path
         )
         assert has_opencv is True
+
+    @pytest.mark.asyncio
+    async def test_detects_cpp_language(self, service, cpp_project):
+        """Test that C++ language is detected correctly"""
+        output_callback = Mock()
+
+        # When: detecting language for C++ project
+        language = await service._detect_programming_language(
+            cpp_project, output_callback
+        )
+
+        # Then: should detect C++ (cpp) language
+        assert language == "cpp"
+
+    @pytest.mark.asyncio
+    async def test_detects_go_language(self, service, go_project):
+        """Test that Go language is detected correctly"""
+        output_callback = Mock()
+
+        # When: detecting language for Go project
+        language = await service._detect_programming_language(
+            go_project, output_callback
+        )
+
+        # Then: should detect Go language
+        assert language == "go"
+
+    @pytest.mark.asyncio
+    async def test_detects_csharp_language(self, service, csharp_project):
+        """Test that C# language is detected correctly"""
+        output_callback = Mock()
+
+        # When: detecting language for C# project
+        language = await service._detect_programming_language(
+            csharp_project, output_callback
+        )
+
+        # Then: should detect C# language
+        assert language == "csharp"
+
+    @pytest.mark.asyncio
+    async def test_creates_go_mod_file(self, service, temp_directory):
+        """Test that go.mod file is created for Go projects"""
+        # Given: a Go project without go.mod
+        project_dir = temp_directory / "pre-edit" / "go-project"
+        project_dir.mkdir(parents=True)
+        (project_dir / "main.go").write_text("package main")
+
+        project = Project(
+            parent="pre-edit",
+            name="go-project",
+            path=project_dir,
+            relative_path="pre-edit/go-project",
+        )
+
+        # When: ensuring language files
+        await service._ensure_language_files(project, "go", Mock())
+
+        # Then: go.mod should be created
+        go_mod_path = project_dir / "go.mod"
+        assert go_mod_path.exists()
+
+        # And: should contain correct module name
+        content = go_mod_path.read_text()
+        assert "module go-project" in content
+        assert "go 1.23" in content
+
+    @pytest.mark.asyncio
+    async def test_creates_cpp_cmake_file(self, service, temp_directory):
+        """Test that CMakeLists.txt file is created for C++ projects"""
+        # Given: a C++ project without CMakeLists.txt
+        project_dir = temp_directory / "pre-edit" / "cpp-project"
+        project_dir.mkdir(parents=True)
+        (project_dir / "main.cpp").write_text("#include <iostream>")
+
+        project = Project(
+            parent="pre-edit",
+            name="cpp-project",
+            path=project_dir,
+            relative_path="pre-edit/cpp-project",
+        )
+
+        # When: ensuring language files
+        await service._ensure_language_files(project, "cpp", Mock())
+
+        # Then: CMakeLists.txt should be created
+        cmake_path = project_dir / "CMakeLists.txt"
+        assert cmake_path.exists()
+
+        # And: should contain C++ specific content
+        content = cmake_path.read_text()
+        assert "CMAKE_CXX_STANDARD 17" in content
+        assert "project(" in content.lower()
+
+    @pytest.mark.asyncio
+    async def test_creates_no_files_for_csharp(self, service, temp_directory):
+        """Test that no files are created for C# projects (as per configuration)"""
+        # Given: a C# project
+        project_dir = temp_directory / "pre-edit" / "csharp-project"
+        project_dir.mkdir(parents=True)
+        (project_dir / "Program.cs").write_text("using System;")
+
+        project = Project(
+            parent="pre-edit",
+            name="csharp-project",
+            path=project_dir,
+            relative_path="pre-edit/csharp-project",
+        )
+
+        # When: ensuring language files
+        await service._ensure_language_files(project, "csharp", Mock())
+
+        # Then: no additional files should be created
+        files_before = set(f.name for f in project_dir.iterdir())
+        assert files_before == {"Program.cs"}
 
 
 # P2P
