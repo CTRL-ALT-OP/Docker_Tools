@@ -7,7 +7,6 @@ import shutil
 import asyncio
 from pathlib import Path
 from typing import Tuple, List, Callable, Optional
-from collections import Counter
 
 from config.settings import FOLDER_ALIASES, LANGUAGE_EXTENSIONS, LANGUAGE_REQUIRED_FILES
 from services.project_group_service import ProjectGroup
@@ -149,26 +148,9 @@ class DockerFilesService:
         self, project: Project, output_callback: Callable[[str], None]
     ) -> str:
         """Detect the programming language based on file extensions"""
-        language_counts = Counter()
+        from utils.language_detection import detect_project_language
 
-        # Count files for each language
-        for language, extensions in LANGUAGE_EXTENSIONS.items():
-            count = sum(len(list(project.path.rglob(f"*{ext}"))) for ext in extensions)
-            language_counts[language] = count
-            if count > 0:
-                output_callback(f"   📁 Found {count} {language} files\n")
-
-        # Find the language with the most files
-        if language_counts:
-            detected_language = language_counts.most_common(1)[0][0]
-            total_files = language_counts[detected_language]
-            output_callback(
-                f"   🎯 Language with most files: {detected_language} ({total_files} files)\n"
-            )
-            return detected_language
-        else:
-            output_callback("   ⚠️  No recognized files found, defaulting to python\n")
-            return "python"
+        return detect_project_language(project.path, output_callback)
 
     async def _analyze_python_codebase(
         self, project: Project, output_callback: Callable[[str], None]

@@ -34,7 +34,7 @@ class DockerService(AsyncServiceInterface):
             try:
                 # Check if Docker is available
                 result = await run_subprocess_async(
-                    ["docker", "--version"], capture_output=True, timeout=5.0
+                    DOCKER_COMMANDS["version"], capture_output=True, timeout=5.0
                 )
 
                 if result.returncode == 0:

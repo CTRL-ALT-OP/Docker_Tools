@@ -228,7 +228,7 @@ pytest -vv -s tests/test_selected.py tests/test_also_selected.py
 
         selected_tests_result = []
 
-        def capture_selected_tests(project_group, selected_tests):
+        def capture_selected_tests(project_group, selected_tests, language):
             selected_tests_result.extend(selected_tests)
 
         with patch("tkinter.Tk"), patch("tkinter.BooleanVar") as mock_bool_var:
@@ -273,7 +273,7 @@ pytest -vv -s tests/test_selected.py tests/test_also_selected.py
 
         callback_called = False
 
-        def should_not_be_called(project_group, selected_tests):
+        def should_not_be_called(project_group, selected_tests, language):
             nonlocal callback_called
             callback_called = True
 

@@ -67,7 +67,7 @@ class GitService(AsyncServiceInterface):
             try:
                 # Check if git is available
                 result = await run_subprocess_async(
-                    ["git", "--version"], capture_output=True, timeout=5.0
+                    GIT_COMMANDS["version"], capture_output=True, timeout=5.0
                 )
 
                 if result.returncode == 0:
@@ -102,7 +102,7 @@ class GitService(AsyncServiceInterface):
             try:
                 # Check if it's a git repository
                 git_dir_check = await run_subprocess_async(
-                    ["git", "rev-parse", "--git-dir"],
+                    GIT_COMMANDS["rev_parse_git_dir"],
                     cwd=str(project_path),
                     capture_output=True,
                 )
@@ -127,7 +127,7 @@ class GitService(AsyncServiceInterface):
 
                 # Get current branch
                 branch_result = await run_subprocess_async(
-                    ["git", "branch", "--show-current"],
+                    GIT_COMMANDS["branch_show_current"],
                     cwd=str(project_path),
                     capture_output=True,
                 )
@@ -139,7 +139,7 @@ class GitService(AsyncServiceInterface):
 
                 # Get current commit
                 commit_result = await run_subprocess_async(
-                    ["git", "rev-parse", "HEAD"],
+                    GIT_COMMANDS["rev_parse_head"],
                     cwd=str(project_path),
                     capture_output=True,
                 )
@@ -151,7 +151,7 @@ class GitService(AsyncServiceInterface):
 
                 # Check if working tree is clean
                 status_result = await run_subprocess_async(
-                    ["git", "status", "--porcelain"],
+                    GIT_COMMANDS["status_porcelain"],
                     cwd=str(project_path),
                     capture_output=True,
                 )
@@ -480,10 +480,20 @@ class GitService(AsyncServiceInterface):
                     )
                     return ServiceResult.error(error)
 
-                # Clone the repository
-                clone_cmd = ["git", "clone", repo_url, str(target_path)]
+                # Now perform the clone
+                clone_cmd = [
+                    (
+                        part.format(repo_url=repo_url, project_name=project_name)
+                        if "{repo_url}" in part or "{project_name}" in part
+                        else part
+                    )
+                    for part in GIT_COMMANDS["clone"]
+                ]
                 result = await run_subprocess_async(
-                    clone_cmd, capture_output=True, timeout=300.0  # 5 minutes for clone
+                    clone_cmd,
+                    cwd=str(destination_path),
+                    capture_output=True,
+                    timeout=300.0,
                 )
 
                 if result.returncode == 0:

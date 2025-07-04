@@ -909,6 +909,7 @@ class EditRunTestsWindow:
         self.all_test_files = []
         self.current_pytest_command = ""
         self.canvas = None  # Keep reference to canvas for proper cleanup
+        self.detected_language = None
 
     def create_window(self):
         """Create the edit run_tests.sh window"""
@@ -930,15 +931,19 @@ class EditRunTestsWindow:
         )
         title_label.pack(pady=(0, 20))
 
+        # Language detection
+        self._detect_language()
+
         # Current command info
         info_frame = GuiUtils.create_styled_frame(
             main_frame, bg_color="white", relief="raised", bd=1
         )
         info_frame.pack(fill="x", pady=(0, 20))
 
+        language_info = f"Language: {self.detected_language.title()}"
         info_label = GuiUtils.create_styled_label(
             info_frame,
-            text="Select test files to run. Paths will use forward slashes for cross-platform compatibility.",
+            text=f"{language_info}\nSelect test files to run. Paths will use forward slashes for cross-platform compatibility.",
             font_key="info",
             color_key="muted",
             bg=COLORS["white"],
@@ -1011,38 +1016,67 @@ class EditRunTestsWindow:
         self.window.grab_set()
         GuiUtils.center_window(self.window, 600, 550)
 
-    def _load_test_files(self):
-        """Load test files from the tests directory of the pre-edit version"""
-        self.all_test_files = []
+    def _detect_language(self):
+        """Detect the programming language of the project"""
+        from utils.language_detection import detect_project_language_sync
 
-        # Get pre-edit version (source of truth for test files)
-        pre_edit_version = None
+        # Get pre-edit version (source of truth for language detection)
+        pre_edit_version = self._get_pre_edit_version()
+        if not pre_edit_version:
+            self.detected_language = "python"  # Default fallback
+            return
+
+        # Use the generalized language detection utility
+        self.detected_language = detect_project_language_sync(pre_edit_version.path)
+
+    def _get_pre_edit_version(self):
+        """Get the pre-edit version of the project"""
         for version in self.project_group.get_all_versions():
             if "pre-edit" in version.parent.lower():
-                pre_edit_version = version
-                break
+                return version
 
+        # If no pre-edit version, use the first version
+        versions = self.project_group.get_all_versions()
+        return versions[0] if versions else None
+
+    def _get_test_file_patterns(self):
+        """Get test file patterns based on the detected language"""
+        from config.commands import TEST_FILE_PATTERNS
+
+        return TEST_FILE_PATTERNS.get(
+            self.detected_language, [("test_*.py", "*_test.py")]
+        )
+
+    def _get_test_directories(self):
+        """Get test directories based on the detected language"""
+        from config.commands import TEST_DIRECTORIES
+
+        return TEST_DIRECTORIES.get(self.detected_language, ["tests/"])
+
+    def _load_test_files(self):
+        """Load test files from the appropriate directories based on language"""
+        self.all_test_files = []
+
+        pre_edit_version = self._get_pre_edit_version()
         if not pre_edit_version:
-            # If no pre-edit version, use the first version
-            versions = self.project_group.get_all_versions()
-            if versions:
-                pre_edit_version = versions[0]
+            return
 
-        if pre_edit_version:
-            tests_dir = pre_edit_version.path / "tests"
-            if tests_dir.exists() and tests_dir.is_dir():
-                # Find all Python test files
-                for test_file in tests_dir.rglob("test_*.py"):
-                    rel_path = test_file.relative_to(pre_edit_version.path)
-                    # Normalize to forward slashes
-                    self.all_test_files.append(str(rel_path).replace("\\", "/"))
+        test_patterns = self._get_test_file_patterns()
+        test_directories = self._get_test_directories()
 
-                # Also find files that end with _test.py
-                for test_file in tests_dir.rglob("*_test.py"):
-                    rel_path = test_file.relative_to(pre_edit_version.path)
-                    normalized_path = str(rel_path).replace("\\", "/")
-                    if normalized_path not in self.all_test_files:
-                        self.all_test_files.append(normalized_path)
+        # Search for test files in language-specific directories
+        for test_dir in test_directories:
+            dir_path = pre_edit_version.path / test_dir.rstrip("/")
+            if dir_path.exists() and dir_path.is_dir():
+                for pattern_group in test_patterns:
+                    for pattern in pattern_group:
+                        for test_file in dir_path.rglob(pattern):
+                            if test_file.is_file():
+                                rel_path = test_file.relative_to(pre_edit_version.path)
+                                # Normalize to forward slashes
+                                normalized_path = str(rel_path).replace("\\", "/")
+                                if normalized_path not in self.all_test_files:
+                                    self.all_test_files.append(normalized_path)
 
         # Sort the test files for consistent display
         self.all_test_files.sort()
@@ -1051,58 +1085,271 @@ class EditRunTestsWindow:
         """Parse current run_tests.sh to determine which tests are currently selected"""
         currently_selected = set()
 
-        # Get pre-edit version to check run_tests.sh
-        pre_edit_version = None
-        for version in self.project_group.get_all_versions():
-            if "pre-edit" in version.parent.lower():
-                pre_edit_version = version
-                break
-
+        pre_edit_version = self._get_pre_edit_version()
         if not pre_edit_version:
-            # If no pre-edit version, use the first version
-            versions = self.project_group.get_all_versions()
-            if versions:
-                pre_edit_version = versions[0]
+            return currently_selected
 
-        if pre_edit_version:
-            run_tests_path = pre_edit_version.path / "run_tests.sh"
-            if run_tests_path.exists():
-                try:
-                    content = run_tests_path.read_text()
+        run_tests_path = pre_edit_version.path / "run_tests.sh"
+        if not run_tests_path.exists():
+            return currently_selected
 
-                    # Look for pytest command lines
-                    for line in content.split("\n"):
-                        stripped_line = line.strip()
-                        if "pytest" in stripped_line and not stripped_line.startswith(
-                            "#"
+        try:
+            content = run_tests_path.read_text()
+
+            # Language-specific parsing
+            if self.detected_language == "python":
+                currently_selected = self._parse_python_tests(content)
+            elif self.detected_language in ["javascript", "typescript"]:
+                currently_selected = self._parse_npm_tests(content)
+            elif self.detected_language == "java":
+                currently_selected = self._parse_maven_tests(content)
+            elif self.detected_language == "rust":
+                currently_selected = self._parse_cargo_tests(content)
+            elif self.detected_language == "c":
+                currently_selected = self._parse_cmake_tests(content)
+            elif self.detected_language == "csharp":
+                currently_selected = self._parse_dotnet_tests(content)
+            elif self.detected_language == "go":
+                currently_selected = self._parse_go_tests(content)
+            else:
+                # Default to python-style parsing
+                currently_selected = self._parse_python_tests(content)
+
+        except Exception as e:
+            # If we can't parse the file, just return empty set
+            print(f"Warning: Could not parse run_tests.sh: {e}")
+
+        return currently_selected
+
+    def _parse_python_tests(self, content):
+        """Parse Python pytest commands"""
+        currently_selected = set()
+
+        for line in content.split("\n"):
+            stripped_line = line.strip()
+            if "pytest" in stripped_line and not stripped_line.startswith("#"):
+                # Find where pytest starts
+                pytest_index = stripped_line.find("pytest")
+                pytest_part = stripped_line[pytest_index:]
+
+                # Split to get the parts
+                parts = pytest_part.split()
+
+                # Look for test paths
+                for part in parts[1:]:  # Skip "pytest" itself
+                    normalized_part = part.replace("\\", "/")
+                    if normalized_part == "tests/" or normalized_part == "tests":
+                        # If it's just "tests/" then all tests are selected
+                        currently_selected.update(self.all_test_files)
+                        break
+                    elif normalized_part.startswith("tests/"):
+                        # Remove any test method specifications (::MethodName)
+                        clean_path = normalized_part.split("::")[0]
+                        if clean_path.endswith(".py"):
+                            currently_selected.add(clean_path)
+
+        return currently_selected
+
+    def _parse_npm_tests(self, content):
+        """Parse npm test commands for JavaScript/TypeScript"""
+        currently_selected = set()
+
+        # For npm test, we need to check if there are specific test files mentioned
+        # This is tricky because npm test usually runs all tests by default
+        # We'll look for patterns like "npm test path/to/test.js"
+        for line in content.split("\n"):
+            stripped_line = line.strip()
+            if "npm test" in stripped_line and not stripped_line.startswith("#"):
+                # Split the line to look for test file arguments
+                parts = stripped_line.split()
+                npm_test_index = -1
+                for i, part in enumerate(parts):
+                    if part == "test" and i > 0 and parts[i - 1] == "npm":
+                        npm_test_index = i
+                        break
+
+                if npm_test_index >= 0:
+                    # Look for test file paths after "npm test"
+                    for part in parts[npm_test_index + 1 :]:
+                        normalized_part = part.replace("\\", "/")
+                        # Check if it's a test file
+                        if any(
+                            normalized_part.endswith(ext)
+                            for ext in [".js", ".ts", ".jsx", ".tsx"]
                         ):
-                            # Find where pytest starts
-                            pytest_index = stripped_line.find("pytest")
-                            pytest_part = stripped_line[pytest_index:]
+                            if normalized_part in self.all_test_files:
+                                currently_selected.add(normalized_part)
 
-                            # Split to get the parts
-                            parts = pytest_part.split()
+        # If no specific tests found, assume all tests are selected
+        if not currently_selected:
+            currently_selected.update(self.all_test_files)
 
-                            # Look for test paths (anything that starts with tests/ or tests\)
-                            for part in parts[1:]:  # Skip "pytest" itself
-                                # Normalize path separators and check if it's a test file
-                                normalized_part = part.replace("\\", "/")
-                                if (
-                                    normalized_part == "tests/"
-                                    or normalized_part == "tests"
-                                ):
-                                    # If it's just "tests/" then all tests are selected
-                                    currently_selected.update(self.all_test_files)
-                                    break
-                                elif normalized_part.startswith("tests/"):
-                                    # Remove any test method specifications (::MethodName)
-                                    clean_path = normalized_part.split("::")[0]
-                                    if clean_path.endswith(".py"):
-                                        currently_selected.add(clean_path)
+        return currently_selected
 
-                except Exception as e:
-                    # If we can't parse the file, just return empty set
-                    print(f"Warning: Could not parse run_tests.sh: {e}")
+    def _parse_maven_tests(self, content):
+        """Parse Maven test commands for Java"""
+        currently_selected = set()
+
+        for line in content.split("\n"):
+            stripped_line = line.strip()
+            if (
+                "mvn" in stripped_line
+                and "test" in stripped_line
+                and not stripped_line.startswith("#")
+            ):
+                # Maven typically runs all tests unless specific test classes are mentioned
+                # Look for -Dtest=TestClassName patterns
+                if "-Dtest=" in stripped_line:
+                    # Extract test class names
+                    test_part = stripped_line.split("-Dtest=")[1].split()[0]
+                    # Convert class names to file paths
+                    for test_file in self.all_test_files:
+                        if test_part in test_file:
+                            currently_selected.add(test_file)
+                else:
+                    # If no specific test mentioned, all tests are selected
+                    currently_selected.update(self.all_test_files)
+
+        # If no test command found, assume all tests are selected
+        if not currently_selected:
+            currently_selected.update(self.all_test_files)
+
+        return currently_selected
+
+    def _parse_cargo_tests(self, content):
+        """Parse Cargo test commands for Rust"""
+        currently_selected = set()
+
+        for line in content.split("\n"):
+            stripped_line = line.strip()
+            if "cargo test" in stripped_line and not stripped_line.startswith("#"):
+                # Cargo test can specify specific test names or modules
+                parts = stripped_line.split()
+                cargo_test_index = -1
+                for i, part in enumerate(parts):
+                    if part == "test" and i > 0 and parts[i - 1] == "cargo":
+                        cargo_test_index = i
+                        break
+
+                if cargo_test_index >= 0:
+                    # Look for specific test names after "cargo test"
+                    test_args = parts[cargo_test_index + 1 :]
+                    if test_args:
+                        # If specific test names are mentioned, try to match them
+                        for test_file in self.all_test_files:
+                            for arg in test_args:
+                                if arg in test_file:
+                                    currently_selected.add(test_file)
+                    else:
+                        # If no specific tests mentioned, all tests are selected
+                        currently_selected.update(self.all_test_files)
+
+        # If no test command found, assume all tests are selected
+        if not currently_selected:
+            currently_selected.update(self.all_test_files)
+
+        return currently_selected
+
+    def _parse_cmake_tests(self, content):
+        """Parse CTest commands for C/C++"""
+        currently_selected = set()
+
+        for line in content.split("\n"):
+            stripped_line = line.strip()
+            if "ctest" in stripped_line and not stripped_line.startswith("#"):
+                # CTest typically runs all tests unless specific tests are mentioned
+                # Look for -R patterns to specify test regex
+                if "-R" in stripped_line:
+                    # Extract test regex patterns
+                    parts = stripped_line.split()
+                    for i, part in enumerate(parts):
+                        if part == "-R" and i + 1 < len(parts):
+                            test_pattern = parts[i + 1]
+                            # Match test files containing the pattern
+                            for test_file in self.all_test_files:
+                                if test_pattern in test_file:
+                                    currently_selected.add(test_file)
+                else:
+                    # If no specific test mentioned, all tests are selected
+                    currently_selected.update(self.all_test_files)
+
+        # If no test command found, assume all tests are selected
+        if not currently_selected:
+            currently_selected.update(self.all_test_files)
+
+        return currently_selected
+
+    def _parse_dotnet_tests(self, content):
+        """Parse dotnet test commands for C#"""
+        currently_selected = set()
+
+        for line in content.split("\n"):
+            stripped_line = line.strip()
+            if "dotnet test" in stripped_line and not stripped_line.startswith("#"):
+                # Dotnet test can specify specific test files or filters
+                parts = stripped_line.split()
+                dotnet_test_index = -1
+                for i, part in enumerate(parts):
+                    if part == "test" and i > 0 and parts[i - 1] == "dotnet":
+                        dotnet_test_index = i
+                        break
+
+                if dotnet_test_index >= 0:
+                    # Look for test file paths after "dotnet test"
+                    for part in parts[dotnet_test_index + 1 :]:
+                        normalized_part = part.replace("\\", "/")
+                        if normalized_part.endswith(".cs") or normalized_part.endswith(
+                            ".csproj"
+                        ):
+                            if normalized_part in self.all_test_files:
+                                currently_selected.add(normalized_part)
+
+                # If no specific tests found, assume all tests are selected
+                if not currently_selected:
+                    currently_selected.update(self.all_test_files)
+
+        # If no test command found, assume all tests are selected
+        if not currently_selected:
+            currently_selected.update(self.all_test_files)
+
+        return currently_selected
+
+    def _parse_go_tests(self, content):
+        """Parse go test commands for Go"""
+        currently_selected = set()
+
+        for line in content.split("\n"):
+            stripped_line = line.strip()
+            if "go test" in stripped_line and not stripped_line.startswith("#"):
+                # Go test can specify specific packages or test files
+                parts = stripped_line.split()
+                go_test_index = -1
+                for i, part in enumerate(parts):
+                    if part == "test" and i > 0 and parts[i - 1] == "go":
+                        go_test_index = i
+                        break
+
+                if go_test_index >= 0:
+                    # Look for package paths or test files after "go test"
+                    test_args = parts[go_test_index + 1 :]
+                    if test_args:
+                        for arg in test_args:
+                            if arg.startswith("./"):
+                                # Package path - select all tests in that path
+                                for test_file in self.all_test_files:
+                                    if test_file.startswith(arg.lstrip("./")):
+                                        currently_selected.add(test_file)
+                            elif arg.endswith("_test.go"):
+                                # Specific test file
+                                if arg in self.all_test_files:
+                                    currently_selected.add(arg)
+                    else:
+                        # If no specific tests mentioned, all tests are selected
+                        currently_selected.update(self.all_test_files)
+
+        # If no test command found, assume all tests are selected
+        if not currently_selected:
+            currently_selected.update(self.all_test_files)
 
         return currently_selected
 
@@ -1111,7 +1358,7 @@ class EditRunTestsWindow:
         if not self.all_test_files:
             no_tests_label = GuiUtils.create_styled_label(
                 parent,
-                text="No test files found in tests/ directory",
+                text=f"No test files found for {self.detected_language} project",
                 font_key="info",
                 color_key="muted",
             )
@@ -1173,9 +1420,11 @@ class EditRunTestsWindow:
             )
             return
 
-        # Call the callback with selected tests
+        # Call the callback with selected tests and language
         if self.on_save_callback:
-            self.on_save_callback(self.project_group, selected_tests)
+            self.on_save_callback(
+                self.project_group, selected_tests, self.detected_language
+            )
 
         self.destroy()
 

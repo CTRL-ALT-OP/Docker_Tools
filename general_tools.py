@@ -742,7 +742,10 @@ class ProjectControlPanel:
         edit_window.create_window()
 
     def _handle_run_tests_edit(
-        self, project_group: ProjectGroup, selected_tests: List[str]
+        self,
+        project_group: ProjectGroup,
+        selected_tests: List[str],
+        language: str = "python",
     ):
         """Handle the run_tests.sh edit operation"""
 
@@ -777,20 +780,21 @@ class ProjectControlPanel:
                     )
                 output_window.append_output("\n")
 
-                # Create the new pytest command with forward slashes
+                # Create the new test command with forward slashes
                 if len(selected_tests) == 1:
                     # Single test file
-                    pytest_paths = selected_tests[0].replace("\\", "/")
+                    test_paths = selected_tests[0].replace("\\", "/")
                 else:
                     # Multiple test files - join them with spaces, ensure forward slashes
-                    pytest_paths = " ".join(
+                    test_paths = " ".join(
                         [test.replace("\\", "/") for test in selected_tests]
                     )
 
-                new_pytest_command = f"pytest -vv -s {pytest_paths}"
+                # Generate language-specific command
+                new_test_command = self._generate_test_command(language, test_paths)
 
                 output_window.append_output(
-                    f"New pytest command: {new_pytest_command}\n\n"
+                    f"New {language} test command: {new_test_command}\n\n"
                 )
 
                 successful_updates = []
@@ -820,57 +824,38 @@ class ProjectControlPanel:
                             lines = current_content.split("\n")
                             new_lines = []
 
+                            updated_line = False
                             for line in lines:
                                 stripped_line = line.strip()
-                                # Check if line contains pytest command (handle various patterns)
-                                if (
-                                    "pytest" in stripped_line
-                                    and not stripped_line.startswith("#")
-                                ):
-                                    # Find where pytest starts in the line
-                                    pytest_index = stripped_line.find("pytest")
-
-                                    # Split the line into prefix and pytest command
-                                    prefix = stripped_line[
-                                        :pytest_index
-                                    ]  # e.g., "python3.12 -m "
-                                    pytest_part = stripped_line[
-                                        pytest_index:
-                                    ]  # e.g., "pytest -vv -s tests/..."
-
-                                    # Split pytest part to separate command, flags, and test paths
-                                    parts = pytest_part.split()
-                                    pytest_cmd = parts[0]  # "pytest"
-
-                                    # Keep flags but stop at test paths
-                                    flags = []
-                                    for part in parts[1:]:
-                                        # Stop when we hit test paths or specific test files
-                                        if (
-                                            part.startswith(
-                                                ("tests/", "tests\\", "tests")
-                                            )
-                                            or "::" in part
-                                        ):
-                                            break
-                                        flags.append(part)
-
-                                    # Build new command: prefix + pytest + flags + new test paths
-                                    new_command = f"{prefix}{pytest_cmd} {' '.join(flags)} {pytest_paths}".strip()
-                                    new_lines.append(new_command)
+                                # Check if line contains test command for this language
+                                if self._is_test_command_line(stripped_line, language):
+                                    # Generate new command preserving prefixes
+                                    old_command = stripped_line
+                                    final_command = self._preserve_command_prefix(
+                                        old_command, new_test_command, language
+                                    )
+                                    new_lines.append(final_command)
 
                                     output_window.append_output(
-                                        f"   🔄 Updated pytest command\n"
+                                        f"   🔄 Updated {language} test command\n"
                                     )
                                     output_window.append_output(
-                                        f"      Old: {stripped_line}\n"
+                                        f"      Old: {old_command}\n"
                                     )
                                     output_window.append_output(
-                                        f"      New: {new_command}\n"
+                                        f"      New: {final_command}\n"
                                     )
+                                    updated_line = True
                                 else:
                                     # Keep other lines as-is
                                     new_lines.append(line)
+
+                            # If no test command was found, append the new command
+                            if not updated_line:
+                                new_lines.append(new_test_command)
+                                output_window.append_output(
+                                    f"   ➕ Added new {language} test command: {new_test_command}\n"
+                                )
 
                             # Write updated content with Unix line endings
                             new_content = "\n".join(new_lines)
@@ -885,7 +870,7 @@ class ProjectControlPanel:
                             )
                         else:
                             # Create new run_tests.sh file with Unix line endings
-                            run_tests_content = f"#!/bin/sh\n{new_pytest_command}\n"
+                            run_tests_content = f"#!/bin/sh\n{new_test_command}\n"
                             # Ensure Unix line endings (LF only) for compatibility with Docker containers
                             run_tests_path.write_text(run_tests_content, newline="\n")
                             run_tests_path.chmod(0o755)  # Make executable
@@ -969,6 +954,74 @@ class ProjectControlPanel:
         task_manager.run_task(
             edit_run_tests_async(), task_name=f"edit-run-tests-{project_group.name}"
         )
+
+    def _generate_test_command(self, language: str, test_paths: str) -> str:
+        """Generate language-specific test command"""
+        from config.commands import TEST_COMMAND_TEMPLATES, DEFAULT_TEST_COMMANDS
+
+        if test_paths and test_paths.strip():
+            # Use template with specific test paths
+            template = TEST_COMMAND_TEMPLATES.get(
+                language, "pytest -vv -s {test_paths}"
+            )
+            return template.format(test_paths=test_paths)
+        else:
+            # Use default command for the language
+            return DEFAULT_TEST_COMMANDS.get(language, "pytest -vv -s tests/")
+
+    def _is_test_command_line(self, line: str, language: str) -> bool:
+        """Check if a line contains a test command for the specified language"""
+        from config.commands import TEST_COMMAND_PATTERNS
+
+        if line.startswith("#"):
+            return False
+
+        patterns = TEST_COMMAND_PATTERNS.get(language, ["pytest"])
+
+        # For languages with multiple patterns, check appropriately
+        if language == "java":
+            return "mvn" in line and "test" in line
+        elif language == "typescript":
+            return ("npm run build" in line and "npm test" in line) or (
+                "npm test" in line
+            )
+        else:
+            return any(pattern in line for pattern in patterns)
+
+    def _preserve_command_prefix(
+        self, old_command: str, new_command: str, language: str
+    ) -> str:
+        """Preserve command prefixes when updating test commands"""
+        # Language-specific prefix preservation
+        if language == "python":
+            # Handle cases like "python3.12 -m pytest"
+            if "python" in old_command and "-m pytest" in old_command:
+                python_prefix = old_command.split("pytest")[0] + "pytest"
+                # Replace the base command but keep the prefix
+                return new_command.replace("pytest", python_prefix, 1)
+            else:
+                return new_command
+        elif language in ["javascript", "typescript"]:
+            # Handle cases like "export CI=true && npm test"
+            if "export" in old_command and "CI=true" in old_command:
+                return f"export CI=true\n{new_command}"
+            else:
+                return new_command
+        elif language == "java":
+            # Handle Maven wrapper or specific flags
+            if "mvn" in old_command:
+                # Extract Maven prefix (like ./mvnw or specific flags)
+                mvn_index = old_command.find("mvn")
+                prefix = old_command[:mvn_index]
+                if prefix.strip():
+                    return f"{prefix}{new_command}"
+                else:
+                    return new_command
+            else:
+                return new_command
+        else:
+            # For other languages, return as-is
+            return new_command
 
     def validate_project_group(self, project_group: ProjectGroup):
         """Standardized async validation operation using command pattern"""
