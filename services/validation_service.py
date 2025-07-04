@@ -604,9 +604,8 @@ class ValidationService(AsyncServiceInterface):
 
             # Final summary
             successful_count = sum(
-                1
+                zip_file.stem not in [err.split(":")[0] for err in validation_errors]
                 for zip_file in zip_files
-                if zip_file.stem not in [err.split(":")[0] for err in validation_errors]
             )
             output_callback(f"📋 Validation Summary:\n")
             output_callback(f"  • Total files: {len(zip_files)}\n")
