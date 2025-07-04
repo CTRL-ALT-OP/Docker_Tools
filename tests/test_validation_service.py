@@ -466,7 +466,7 @@ class TestValidationServiceIntegration:
                         validation_service, "_run_validation_script"
                     ) as mock_run:
                         mock_run.return_value = ServiceResult.success(
-                            ("All validations completed successfully", [])
+                            ("All validations completed successfully", [], True)
                         )
 
                         result = (
@@ -479,9 +479,83 @@ class TestValidationServiceIntegration:
                         )
 
                         assert result.is_success
-                        assert result.data.success is True
+                        assert result.data.success is True  # All validations passed
                         assert len(result.data.archived_projects) == 2
                         assert result.data.total_projects == 2
+
+    @pytest.mark.asyncio
+    async def test_archive_and_validate_project_group_with_failures(
+        self, validation_service, mock_project_group, tmp_path
+    ):
+        """Test validation when some codebases fail validation."""
+        validation_tool_path = tmp_path / "validation-tool"
+        validation_tool_path.mkdir()
+        codebases_path = validation_tool_path / "codebases"
+        codebases_path.mkdir()
+
+        mock_settings = ValidationSettings(
+            validation_tool_path=validation_tool_path,
+            codebases_path=codebases_path,
+            auto_cleanup=True,
+            max_parallel_archives=2,
+            timeout_minutes=30,
+        )
+
+        output_callback = Mock()
+        status_callback = Mock()
+
+        with patch.object(
+            validation_service, "get_validation_settings"
+        ) as mock_get_settings:
+            mock_get_settings.return_value = ServiceResult.success(mock_settings)
+
+            with patch.object(
+                validation_service, "_clear_existing_archives"
+            ) as mock_clear:
+                with patch.object(
+                    validation_service, "_archive_all_versions"
+                ) as mock_archive:
+                    mock_archive.return_value = ServiceResult.success(
+                        [
+                            ArchiveInfo(
+                                "project1",
+                                "pre-edit",
+                                "pre-edit_project1.zip",
+                                tmp_path / "pre-edit_project1.zip",
+                                1000,
+                            ),
+                            ArchiveInfo(
+                                "project1",
+                                "post-edit",
+                                "post-edit_project1.zip",
+                                tmp_path / "post-edit_project1.zip",
+                                1000,
+                            ),
+                        ]
+                    )
+
+                    with patch.object(
+                        validation_service, "_run_validation_script"
+                    ) as mock_run:
+                        # Validation process completes but some codebases fail
+                        mock_run.return_value = ServiceResult.success(
+                            ("Some validations failed", ["error1", "error2"], False)
+                        )
+
+                        result = (
+                            await validation_service.archive_and_validate_project_group(
+                                mock_project_group,
+                                output_callback,
+                                status_callback,
+                                mock_settings,
+                            )
+                        )
+
+                        assert result.is_success  # Process completed successfully
+                        assert result.data.success is False  # But validation failed
+                        assert len(result.data.archived_projects) == 2
+                        assert result.data.total_projects == 2
+                        assert len(result.data.validation_errors) == 2
 
     @pytest.mark.asyncio
     async def test_archive_and_validate_project_group_no_versions(
@@ -605,8 +679,10 @@ class TestValidationServiceEdgeCases:
 
                 assert result.is_success  # Still success but with captured errors
                 assert len(result.data[1]) == 1  # One error captured
+                assert result.data[2] is False  # all_successful should be False
+                # Now with the corrected logic, it should properly count 1 failure
                 output_callback.assert_any_call(
-                    "⚠️ Some validations failed. Check individual results above.\n"
+                    "⚠️ 1 codebase(s) failed validation. Check individual results above.\n"
                 )
 
     @pytest.mark.asyncio

@@ -23,6 +23,7 @@ from services.project_service import ProjectService
 from services.project_group_service import ProjectGroup
 from models.project import Project
 from config.commands import DOCKER_COMMANDS
+from config.settings import FOLDER_ALIASES
 from utils.async_base import (
     AsyncServiceInterface,
     ServiceResult,
@@ -63,7 +64,9 @@ class ArchiveInfo:
 class ValidationResult:
     """Result of validation operation"""
 
-    success: bool
+    success: (
+        bool  # True if all codebases passed validation according to their type criteria
+    )
     archived_projects: List[ArchiveInfo]
     validation_output: str
     failed_archives: List[str]
@@ -80,6 +83,44 @@ class ValidationService(AsyncServiceInterface):
         self.platform_service = PlatformService()
         self.file_service = FileService()
         self.project_service = ProjectService()
+
+    def _determine_codebase_type(self, project: Project) -> str:
+        """Determine codebase type based on project parent directory"""
+        parent_lower = project.parent.lower()
+
+        # Check each category in FOLDER_ALIASES
+        for category, aliases in FOLDER_ALIASES.items():
+            for alias in aliases:
+                if alias.lower() in parent_lower:
+                    # Map category to validation type
+                    if category == "preedit":
+                        return "preedit"
+                    elif category.startswith("postedit"):
+                        return "postedit"
+                    elif category == "rewrite":
+                        return "rewrite"
+
+        # Default to rewrite if no match found
+        return "rewrite"
+
+    def _determine_codebase_type_from_filename(self, filename: str) -> str:
+        """Determine codebase type from ZIP filename when project info is not available"""
+        filename_lower = filename.lower()
+
+        # Check each category in FOLDER_ALIASES
+        for category, aliases in FOLDER_ALIASES.items():
+            for alias in aliases:
+                if alias.lower() in filename_lower:
+                    # Map category to validation type
+                    if category == "preedit":
+                        return "preedit"
+                    elif category.startswith("postedit"):
+                        return "postedit"
+                    elif category == "rewrite":
+                        return "rewrite"
+
+        # Default to rewrite if no match found
+        return "rewrite"
 
     async def health_check(self) -> ServiceResult[Dict[str, Any]]:
         """Check Validation service health"""
@@ -254,16 +295,18 @@ class ValidationService(AsyncServiceInterface):
                 output_callback("=== RUNNING VALIDATION ===\n")
 
                 validation_result = await self._run_validation_script(
-                    settings.validation_tool_path, output_callback
+                    settings.validation_tool_path, output_callback, archived_projects
                 )
 
                 processing_time = asyncio.get_event_loop().time() - start_time
 
                 if validation_result.is_success:
-                    validation_output, validation_errors = validation_result.data
+                    validation_output, validation_errors, all_codebases_passed = (
+                        validation_result.data
+                    )
 
                     result = ValidationResult(
-                        success=True,
+                        success=all_codebases_passed,  # Based on actual validation results
                         archived_projects=archived_projects,
                         validation_output=validation_output,
                         failed_archives=[],
@@ -272,18 +315,41 @@ class ValidationService(AsyncServiceInterface):
                         processing_time=processing_time,
                     )
 
-                    status_callback("Validation completed successfully", "#27ae60")
-                    output_callback("\n✅ Validation process completed successfully!\n")
+                    if all_codebases_passed:
+                        status_callback("All validations passed", "#27ae60")
+                        output_callback("\n✅ All codebases passed validation!\n")
 
-                    return ServiceResult.success(
-                        result,
-                        message="Validation completed successfully",
-                        metadata={
-                            "processing_time_minutes": round(processing_time / 60, 2),
-                            "archived_count": len(archived_projects),
-                            "total_projects": len(versions),
-                        },
-                    )
+                        return ServiceResult.success(
+                            result,
+                            message="All codebases passed validation",
+                            metadata={
+                                "processing_time_minutes": round(
+                                    processing_time / 60, 2
+                                ),
+                                "archived_count": len(archived_projects),
+                                "total_projects": len(versions),
+                            },
+                        )
+                    else:
+                        status_callback(
+                            "Validation process completed with failures", "#f39c12"
+                        )
+                        output_callback(
+                            "\n⚠️ Validation process completed but some codebases failed validation!\n"
+                        )
+
+                        return ServiceResult.success(
+                            result,
+                            message="Validation process completed with failures",
+                            metadata={
+                                "processing_time_minutes": round(
+                                    processing_time / 60, 2
+                                ),
+                                "archived_count": len(archived_projects),
+                                "total_projects": len(versions),
+                                "failed_validations": len(validation_errors),
+                            },
+                        )
                 else:
                     # Validation had issues but archives were created
                     validation_output = (
@@ -517,7 +583,10 @@ class ValidationService(AsyncServiceInterface):
             output_callback(f"❌ Error streaming Docker output: {str(e)}\n")
 
     async def _run_validation_script(
-        self, validation_tool_path: Path, output_callback: Callable[[str], None]
+        self,
+        validation_tool_path: Path,
+        output_callback: Callable[[str], None],
+        archived_projects: Optional[List[ArchiveInfo]] = None,
     ) -> ServiceResult[tuple[str, List[str]]]:
         """Run validation using the web API approach with Docker container"""
         try:
@@ -570,6 +639,12 @@ class ValidationService(AsyncServiceInterface):
                 output_callback(f"  • {zip_file.name}\n")
             output_callback("\n")
 
+            # Create a mapping from zip filename to project info
+            project_info_map = {}
+            if archived_projects:
+                for archive_info in archived_projects:
+                    project_info_map[archive_info.archive_name] = archive_info
+
             # Submit all validations and collect results
             full_output = ""
             validation_errors = []
@@ -580,9 +655,22 @@ class ValidationService(AsyncServiceInterface):
                     f"🔄 Validating {zip_file.name} ({i+1}/{len(zip_files)})...\n"
                 )
 
+                # Get project info for this zip file
+                archive_info = project_info_map.get(zip_file.name)
+
+                # Create a temporary project object for type determination
+                temp_project = None
+                if archive_info:
+                    temp_project = Project(
+                        parent=archive_info.project_parent,
+                        name=archive_info.project_name,
+                        path=Path("temp"),  # Not used for type determination
+                        relative_path=f"{archive_info.project_parent}/{archive_info.project_name}",
+                    )
+
                 # Run validation via web API
                 success, single_output, single_errors = await self._run_web_validation(
-                    validation_url, zip_file, output_callback
+                    validation_url, zip_file, output_callback, temp_project
                 )
 
                 if success:
@@ -604,22 +692,29 @@ class ValidationService(AsyncServiceInterface):
                 output_callback("\n")
 
             # Final summary
+            failed_filenames = [err.split(":")[0] for err in validation_errors]
             successful_count = sum(
-                zip_file.stem not in [err.split(":")[0] for err in validation_errors]
+                zip_file.name not in failed_filenames  # Use .name instead of .stem
                 for zip_file in zip_files
             )
+            failed_count = len(zip_files) - successful_count
+
             output_callback(f"📋 Validation Summary:\n")
-            output_callback(f"  • Total files: {len(zip_files)}\n")
-            output_callback(f"  • Successful: {successful_count}\n")
-            output_callback(f"  • Failed: {len(zip_files) - successful_count}\n")
+            output_callback(f"  • Total codebases: {len(zip_files)}\n")
+            output_callback(f"  • Passed validation: {successful_count}\n")
+            output_callback(f"  • Failed validation: {failed_count}\n")
 
             if all_successful:
-                output_callback(f"🎉 All validations completed successfully!\n")
+                output_callback(
+                    f"🎉 All codebases passed validation according to their type criteria!\n"
+                )
             else:
                 output_callback(
-                    f"⚠️ Some validations failed. Check individual results above.\n"
+                    f"⚠️ {failed_count} codebase(s) failed validation. Check individual results above.\n"
                 )
-            return ServiceResult.success((full_output, validation_errors))
+            return ServiceResult.success(
+                (full_output, validation_errors, all_successful)
+            )
         except Exception as e:
             error = ProcessError(f"Failed to run validation script: {str(e)}")
             return ServiceResult.error(error)
@@ -785,16 +880,31 @@ class ValidationService(AsyncServiceInterface):
         validation_url: str,
         zip_file: Path,
         output_callback: Callable[[str], None],
+        project: Optional[Project] = None,
     ) -> tuple[bool, str, List[str]]:
         """Run validation via web API"""
         try:
+            # Determine codebase type
+            if project:
+                codebase_type = self._determine_codebase_type(project)
+                output_callback(
+                    f"   🔍 Detected codebase type: {codebase_type} (from project: {project.parent})\n"
+                )
+            else:
+                codebase_type = self._determine_codebase_type_from_filename(
+                    zip_file.name
+                )
+                output_callback(
+                    f"   🔍 Detected codebase type: {codebase_type} (from filename: {zip_file.name})\n"
+                )
+
             # Upload the ZIP file
             output_callback(f"   📤 Uploading {zip_file.name}...\n")
 
             def upload_file():
                 with open(zip_file, "rb") as f:
                     files = {"file": (zip_file.name, f, "application/zip")}
-                    data = {"codebase_type": "rewrite"}  # Default type
+                    data = {"codebase_type": codebase_type}
                     response = requests.post(
                         f"{validation_url}/upload", files=files, data=data, timeout=30
                     )
