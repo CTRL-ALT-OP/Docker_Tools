@@ -203,27 +203,23 @@ class TestGitService:
 
         return mock_subprocess_call
 
-    def create_git_repo(self, path: Path):
-        """Helper to create a git repository"""
-        path.mkdir(exist_ok=True)
-        from services.platform_service import PlatformService
-        import subprocess
-
-        cmd = PlatformService.create_git_init_command()
-        subprocess.run(cmd, cwd=str(path), check=True)
-        return path
-
     @pytest.mark.asyncio
     async def test_fetch_latest_commits_no_remote(self):
         """Test fetching commits when no remote exists"""
         repo_path = Path(self.temp_dir) / "test_repo"
-        self.create_git_repo(repo_path)
+        repo_path.mkdir(parents=True, exist_ok=True)
 
-        with patch("services.git_service.run_subprocess_async") as mock_run:
-            # Simulate no remote
-            mock_run.return_value = Mock(
-                returncode=1, stderr="fatal: No remote configured"
-            )
+        # Mock repository info with no remote
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = False
+        mock_repo_info.remote_urls = []
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call:
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
 
             result = await self.git_service.fetch_latest_commits(repo_path)
 
@@ -248,31 +244,95 @@ class TestGitService:
     async def test_get_commit_history(self):
         """Test getting commit history"""
         repo_path = Path(self.temp_dir) / "test_repo"
-        self.create_git_repo(repo_path)
+        repo_path.mkdir(parents=True, exist_ok=True)
 
-        # Mock git log output
-        git_log_output = """abc123|John Doe|2023-12-01 10:00:00|Initial commit
-def456|Jane Smith|2023-12-02 11:30:00|Add feature X
-ghi789|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
+        # Mock git log output for commit history
+        git_log_output = """abc123||John Doe|2023-12-01|Initial commit
+def456|abc123|Jane Smith|2023-12-02|Add feature X
+ghi789|def456|Bob Johnson|2023-12-03|Fix bug in module Y"""
 
-        with patch("services.git_service.run_subprocess_async") as mock_run:
-            mock_run.return_value = (0, git_log_output, "")
+        # Mock repository info
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
 
-            # Assuming the method exists - would need to check actual implementation
-            # This is a placeholder for the test structure
+        # Create mock handler for git commands
+        mock_handler = self.create_git_mock_handler(
+            log_output=git_log_output,
+            main_branch_commits=["abc123", "def456", "ghi789"],
+            branch_mappings={},
+        )
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async", side_effect=mock_handler
+        ):
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            # Test getting commit history
+            result = await self.git_service.get_git_commits(repo_path, limit=10)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 3
+            assert commits[0].hash == "abc123"
+            assert commits[1].hash == "def456"
+            assert commits[2].hash == "ghi789"
 
     @pytest.mark.asyncio
     async def test_check_git_status(self):
         """Test checking git status"""
         repo_path = Path(self.temp_dir) / "test_repo"
-        self.create_git_repo(repo_path)
+        repo_path.mkdir(parents=True, exist_ok=True)
 
-        with patch("services.git_service.run_subprocess_async") as mock_run:
-            # Simulate clean status
-            mock_run.return_value = (0, "nothing to commit, working tree clean", "")
+        def mock_git_status_commands(cmd, **kwargs):
+            """Mock git commands for status checking"""
+            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
 
-            # Test would check git status functionality
-            # This is a placeholder for the test structure
+            # Git rev-parse --git-dir (check if git repo)
+            if "git rev-parse --git-dir" in cmd_str:
+                return Mock(returncode=0, stdout=".git\n", stderr="")
+
+            # Git remote check
+            elif "git remote" in cmd_str and "remote" in cmd:
+                return Mock(returncode=0, stdout="origin\n", stderr="")
+
+            # Git branch --show-current
+            elif "git branch --show-current" in cmd_str:
+                return Mock(returncode=0, stdout="master\n", stderr="")
+
+            # Git rev-parse HEAD
+            elif "git rev-parse HEAD" in cmd_str:
+                return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+
+            # Git status --porcelain (clean status)
+            elif "git status --porcelain" in cmd_str:
+                return Mock(returncode=0, stdout="", stderr="")
+
+            # Default fallback
+            return Mock(returncode=0, stdout="", stderr="")
+
+        with patch(
+            "services.git_service.run_subprocess_async",
+            side_effect=mock_git_status_commands,
+        ):
+            # Test getting repository info which includes status
+            result = await self.git_service.get_repository_info(repo_path)
+
+            assert result.is_success is True
+            repo_info = result.data
+            # has_remote should be True (boolean) if remotes exist
+            assert repo_info.has_remote == "origin" or repo_info.has_remote is True
+            assert "origin" in repo_info.remote_urls or repo_info.remote_urls == [
+                "origin"
+            ]
+            assert repo_info.current_branch == "master"
+            assert repo_info.is_clean is True
+            assert repo_info.uncommitted_changes == 0
 
     @pytest.mark.asyncio
     async def test_git_operations_on_non_repo(self):
@@ -292,36 +352,81 @@ ghi789|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
     @pytest.mark.asyncio
     async def test_concurrent_git_operations(self):
         """Test running multiple git operations concurrently"""
-        # Create multiple repos
+        # Create multiple repo directories
         repos = []
         for i in range(3):
             repo_path = Path(self.temp_dir) / f"repo_{i}"
-            self.create_git_repo(repo_path)
+            repo_path.mkdir(parents=True, exist_ok=True)
             repos.append(repo_path)
 
-        with patch("services.git_service.run_subprocess_async") as mock_run:
-            mock_run.return_value = (0, "origin", "")
+        # Mock repository info for each repo
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        # Mock successful fetch result
+        mock_fetch_result = Mock()
+        mock_fetch_result.returncode = 0
+        mock_fetch_result.stdout = "fetch completed"
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async", return_value=mock_fetch_result
+        ):
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
 
             # Run fetch on all repos concurrently
             tasks = [self.git_service.fetch_latest_commits(repo) for repo in repos]
             results = await asyncio.gather(*tasks)
 
-            # All should complete
+            # All should complete and return ServiceResult objects
             assert len(results) == 3
-            assert all(isinstance(r, tuple) and len(r) == 2 for r in results)
+            assert all(hasattr(r, "is_success") for r in results)
+            assert all(r.is_success for r in results)
 
     @pytest.mark.asyncio
     async def test_git_command_timeout(self):
         """Test handling of git command timeouts"""
         repo_path = Path(self.temp_dir) / "test_repo"
-        self.create_git_repo(repo_path)
+        repo_path.mkdir(parents=True, exist_ok=True)
 
-        with patch("services.git_service.run_subprocess_async") as mock_run:
-            # Simulate timeout
-            mock_run.side_effect = asyncio.TimeoutError("Command timed out")
+        def mock_timeout_commands(cmd, **kwargs):
+            """Mock git commands that simulate timeouts"""
+            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
 
-            # Test would handle timeout appropriately
-            # This is a placeholder for the test structure
+            # Git rev-parse --git-dir (successful check)
+            if "git rev-parse --git-dir" in cmd_str:
+                return Mock(returncode=0, stdout=".git\n", stderr="")
+
+            # Git remote check (successful)
+            elif "git remote" in cmd_str and "remote" in cmd:
+                return Mock(returncode=0, stdout="origin\n", stderr="")
+
+            # Git log commands will timeout
+            elif "git log" in cmd_str:
+                raise asyncio.TimeoutError("Git log command timed out")
+
+            # Other commands succeed
+            else:
+                return Mock(returncode=0, stdout="", stderr="")
+
+        with patch(
+            "services.git_service.run_subprocess_async",
+            side_effect=mock_timeout_commands,
+        ):
+            # Test that timeout is handled gracefully in get_git_commits
+            result = await self.git_service.get_git_commits(repo_path)
+
+            # Should handle timeout and return error result
+            assert result.is_error is True
+            assert (
+                "timeout" in str(result.error).lower()
+                or "error" in str(result.error).lower()
+            )
 
     def test_git_commit_equality(self):
         """Test GitCommit equality"""
@@ -382,9 +487,9 @@ ghi789|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
         repo_path.mkdir(parents=True, exist_ok=True)
 
         # Mock git log output - new format with parents field
-        mock_output = """abc123||John Doe|2023-12-01 10:00:00|Initial commit
-def456|abc123|Jane Smith|2023-12-02 11:30:00|Add feature X
-ghi789|def456|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
+        mock_output = """abc123||John Doe|2023-12-01|Initial commit
+def456|abc123|Jane Smith|2023-12-02|Add feature X
+ghi789|def456|Bob Johnson|2023-12-03|Fix bug in module Y"""
 
         mock_result = Mock()
         mock_result.returncode = 0
@@ -403,7 +508,7 @@ ghi789|def456|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
             # Check first commit
             assert commits[0].hash == "abc123"
             assert commits[0].author == "John Doe"
-            assert commits[0].date == "2023-12-01 10:00:00"
+            assert commits[0].date == "2023-12-01"
             assert commits[0].subject == "Initial commit"
 
     @pytest.mark.asyncio
@@ -759,18 +864,19 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
     @pytest.mark.asyncio
     async def test_concurrent_git_operations(self):
         """Test running multiple git operations concurrently"""
-        # Create multiple repos
+        # Create multiple repo directories
         repos = []
         for i in range(3):
             repo_path = Path(self.temp_dir) / f"repo_{i}"
             repo_path.mkdir(parents=True, exist_ok=True)
             repos.append(repo_path)
 
-        # Mock repository info and fetch results
+        # Mock repository info for each repo
         mock_repo_info = Mock()
         mock_repo_info.has_remote = True
         mock_repo_info.remote_urls = ["origin"]
 
+        # Mock successful fetch result
         mock_fetch_result = Mock()
         mock_fetch_result.returncode = 0
         mock_fetch_result.stdout = "fetch completed"
@@ -792,6 +898,7 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
             # All should complete and return ServiceResult objects
             assert len(results) == 3
             assert all(hasattr(r, "is_success") for r in results)
+            assert all(r.is_success for r in results)
 
     @pytest.mark.asyncio
     async def test_fetch_latest_commits_no_remote(self):
