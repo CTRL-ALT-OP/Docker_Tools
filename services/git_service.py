@@ -37,7 +37,75 @@ class GitCommit:
     @property
     def display(self) -> str:
         """Get display string for the commit"""
-        return f"{self.hash} - {self.date} - {self.author}: {self.subject}"
+        branch_info = ""
+        if self.source_branch:
+            # Clean up branch name for display - handle all common git reference formats
+            branch_display = self.source_branch
+
+            # Remove various git reference prefixes
+            if branch_display.startswith("refs/remotes/origin/"):
+                branch_display = branch_display[20:]  # Remove 'refs/remotes/origin/'
+            elif branch_display.startswith("refs/remotes/"):
+                # Handle other remotes (not just origin)
+                parts = branch_display.split("/", 3)
+                if len(parts) >= 4:
+                    branch_display = parts[
+                        3
+                    ]  # Get branch name after refs/remotes/remote/
+            elif branch_display.startswith("remotes/origin/"):
+                branch_display = branch_display[15:]  # Remove 'remotes/origin/'
+            elif branch_display.startswith("remotes/"):
+                # Handle other remotes
+                parts = branch_display.split("/", 2)
+                if len(parts) >= 3:
+                    branch_display = parts[2]  # Get branch name after remotes/remote/
+            elif branch_display.startswith("refs/heads/"):
+                branch_display = branch_display[11:]  # Remove 'refs/heads/'
+            elif branch_display.startswith("origin/"):
+                branch_display = branch_display[7:]  # Remove 'origin/'
+
+            # Remove any remaining git revision specifiers
+            if "~" in branch_display:
+                branch_display = branch_display.split("~")[0]
+            if "^" in branch_display:
+                branch_display = branch_display.split("^")[0]
+
+            # Handle special cases for more meaningful display
+            if branch_display.startswith("master") or branch_display.startswith("main"):
+                # These are commits on the main branch
+                branch_info = (
+                    "[master]"  # Standardize on [master] for main branch commits
+                )
+            elif branch_display not in ["master", "main", "HEAD", ""]:
+                # Show branch info for feature/topic branches
+                # Clean up any remaining unwanted characters
+                clean_branch = branch_display.strip()
+                if clean_branch and not clean_branch.startswith("HEAD"):
+                    branch_info = f"[{clean_branch}]"
+                else:
+                    branch_info = (
+                        "[master]"  # Fallback to master if branch name is unclear
+                    )
+            else:
+                # This is a master/main branch commit
+                branch_info = "[master]"
+        else:
+            # No source branch detected, this is a main branch commit
+            branch_info = "[master]"
+
+        merge_info = "(merge)" if self.is_merge_commit else ""
+
+        # Combine branch and merge info with space separator if both exist
+        tag_info = ""
+        if branch_info and merge_info:
+            tag_info = f"{branch_info} {merge_info}"
+        elif branch_info:
+            tag_info = branch_info
+        elif merge_info:
+            tag_info = merge_info
+
+        # Format: hash - date - author [branch] (merge): subject
+        return f"{self.hash} - {self.date} - {self.author} {tag_info}: {self.subject}"
 
     def to_dict(self) -> Dict[str, str]:
         """Convert to dictionary format"""
@@ -281,12 +349,17 @@ class GitService(AsyncServiceInterface):
                     self._parse_commits, result.stdout.strip()
                 )
 
+                # Detect source branches for each commit
+                commits_with_branches = await self._detect_source_branches(
+                    commits, project_path
+                )
+
                 return ServiceResult.success(
-                    commits,
-                    message=f"Retrieved {len(commits)} commits"
+                    commits_with_branches,
+                    message=f"Retrieved {len(commits_with_branches)} commits with branch information"
                     + (f" (limited to {limit})" if limit else " (all commits)"),
                     metadata={
-                        "total_commits": len(commits),
+                        "total_commits": len(commits_with_branches),
                         "limit_applied": limit,
                         "repository_path": str(project_path),
                     },
@@ -312,17 +385,257 @@ class GitService(AsyncServiceInterface):
                 clean_line = clean_line.strip()
 
                 if "|" in clean_line:
-                    parts = clean_line.split("|", 3)
-                    if len(parts) >= 4:
-                        hash_val, author, date, subject = parts
+                    parts = clean_line.split("|", 4)
+                    if len(parts) >= 5:
+                        hash_val, parents_str, author, date, subject = parts
+
+                        # Parse parent hashes
+                        parents = []
+                        if parents_str.strip():
+                            parents = [p.strip() for p in parents_str.strip().split()]
+
                         commit = GitCommit(
                             hash=hash_val.strip(),
                             author=author.strip(),
                             date=date.strip(),
                             subject=subject.strip(),
+                            parents=parents,
                         )
                         commits.append(commit)
         return commits
+
+    async def _detect_source_branches(
+        self, commits: List[GitCommit], project_path: Path
+    ) -> List[GitCommit]:
+        """Detect source branches for each commit using improved logic"""
+        try:
+            # Get the main branch commit history first
+            main_branch_commits = await self._get_main_branch_commits(project_path)
+
+            # Process commits in batches to avoid too many subprocess calls
+            batch_size = 5  # Smaller batch size for more complex operations
+            updated_commits = []
+
+            for i in range(0, len(commits), batch_size):
+                batch = commits[i : i + batch_size]
+                batch_results = await self._detect_branches_batch_improved(
+                    batch, project_path, main_branch_commits
+                )
+                updated_commits.extend(batch_results)
+
+            return updated_commits
+
+        except Exception as e:
+            self.logger.warning(f"Failed to detect source branches: {str(e)}")
+            # Return original commits if branch detection fails
+            return commits
+
+    async def _get_main_branch_commits(self, project_path: Path) -> set:
+        """Get set of commits that are in the main branch history"""
+        try:
+            # First, try to get main branch commits from the actual master/main branch
+            # instead of current HEAD (which might be detached)
+            main_branch_refs = ["origin/master", "origin/main", "master", "main"]
+
+            for branch_ref in main_branch_refs:
+                try:
+                    # Check if this branch reference exists
+                    ref_check = await run_subprocess_async(
+                        ["git", "rev-parse", "--verify", f"{branch_ref}^{{commit}}"],
+                        cwd=str(project_path),
+                        capture_output=True,
+                        timeout=5.0,
+                    )
+
+                    if ref_check.returncode == 0:
+                        # Get first-parent history from this specific branch
+                        result = await run_subprocess_async(
+                            [
+                                "git",
+                                "rev-list",
+                                "--first-parent",
+                                "--pretty=format:%h",
+                                branch_ref,
+                            ],
+                            cwd=str(project_path),
+                            capture_output=True,
+                            timeout=10.0,
+                        )
+
+                        if result.returncode == 0:
+                            main_commits = set()
+                            for line in result.stdout.strip().split("\n"):
+                                if line.strip() and not line.startswith("commit"):
+                                    if commit_hash := line.strip():
+                                        main_commits.add(commit_hash)
+
+                            self.logger.debug(
+                                f"Got main branch commits from {branch_ref}: {len(main_commits)} commits"
+                            )
+                            return main_commits
+                except Exception:
+                    continue  # Try next branch reference
+
+            # Fallback: use HEAD if no main branch found (original behavior)
+            self.logger.warning("No main branch reference found, falling back to HEAD")
+            result = await run_subprocess_async(
+                GIT_COMMANDS["log_first_parent"],
+                cwd=str(project_path),
+                capture_output=True,
+                timeout=10.0,
+            )
+
+            if result.returncode == 0:
+                main_commits = set()
+                for line in result.stdout.strip().split("\n"):
+                    if line.strip() and not line.startswith("commit"):
+                        if commit_hash := line.strip():
+                            main_commits.add(commit_hash)
+                return main_commits
+            else:
+                self.logger.warning(
+                    f"Failed to get main branch commits: {result.stderr}"
+                )
+                return set()
+        except Exception as e:
+            self.logger.warning(f"Error getting main branch commits: {str(e)}")
+            return set()
+
+    async def _detect_branches_batch_improved(
+        self, commits: List[GitCommit], project_path: Path, main_branch_commits: set
+    ) -> List[GitCommit]:
+        """Detect branches for a batch of commits using improved logic"""
+        import asyncio
+
+        async def detect_single_branch_improved(commit: GitCommit) -> GitCommit:
+            try:
+                # Check if commit is in main branch history
+                if commit.hash in main_branch_commits:
+                    # This is a main branch commit, no need to show branch info
+                    return commit
+
+                # For non-main branch commits, try multiple approaches to find original branch
+
+                # Approach 1: Use git name-rev with better parsing
+                try:
+                    name_rev_result = await run_subprocess_async(
+                        ["git", "name-rev", "--name-only", commit.hash],
+                        cwd=str(project_path),
+                        capture_output=True,
+                        timeout=5.0,
+                    )
+
+                    if (
+                        name_rev_result.returncode == 0
+                        and name_rev_result.stdout.strip()
+                    ):
+                        branch_name = name_rev_result.stdout.strip()
+
+                        # Parse name-rev output to extract meaningful branch names
+                        if branch_name and branch_name != "undefined":
+                            cleaned_branch = self._clean_branch_name(branch_name)
+                            if cleaned_branch and cleaned_branch not in [
+                                "master",
+                                "main",
+                                "HEAD",
+                            ]:
+                                commit.source_branch = cleaned_branch
+                                return commit
+                except Exception:
+                    pass  # Fall back to approach 2
+
+                # Approach 2: Use git branch --contains with better logic
+                branch_contains_cmd = [
+                    cmd.format(commit=commit.hash) if "{commit}" in cmd else cmd
+                    for cmd in GIT_COMMANDS["branch_contains"]
+                ]
+
+                result = await run_subprocess_async(
+                    branch_contains_cmd,
+                    cwd=str(project_path),
+                    capture_output=True,
+                    timeout=5.0,
+                )
+
+                if result.returncode == 0 and result.stdout.strip():
+                    feature_branches = []
+                    for line in result.stdout.strip().split("\n"):
+                        line = line.strip()
+                        if line and not line.startswith("*"):
+                            # Clean up branch name using the centralized method
+                            cleaned_branch = self._clean_branch_name(line)
+
+                            # Collect feature branches (not master/main)
+                            if (
+                                cleaned_branch
+                                and cleaned_branch not in ["master", "main", "HEAD"]
+                                and not cleaned_branch.startswith("HEAD")
+                                and not cleaned_branch.endswith("master")
+                                and not cleaned_branch.endswith("main")
+                            ):
+                                feature_branches.append(cleaned_branch)
+
+                    # If we found feature branches, use the first one
+                    # (this will be the original branch for commits that exist in multiple branches)
+                    if feature_branches:
+                        commit.source_branch = feature_branches[0]
+
+                return commit
+
+            except Exception as e:
+                self.logger.debug(
+                    f"Failed to detect branch for commit {commit.hash}: {str(e)}"
+                )
+                return commit
+
+        # Process commits in parallel for better performance
+        tasks = [detect_single_branch_improved(commit) for commit in commits]
+        return await asyncio.gather(*tasks)
+
+    def _clean_branch_name(self, branch_name: str) -> str:
+        """
+        Cleans up a branch name to remove common git reference prefixes and suffixes.
+        Returns the clean branch name without any formatting.
+        """
+        if not branch_name or branch_name.strip() == "":
+            return ""
+
+        cleaned = branch_name.strip()
+
+        # Remove common git reference prefixes
+        if cleaned.startswith("refs/remotes/origin/"):
+            cleaned = cleaned[20:]  # Remove 'refs/remotes/origin/'
+        elif cleaned.startswith("refs/remotes/"):
+            # Handle other remotes (not just origin)
+            parts = cleaned.split("/", 3)
+            if len(parts) >= 4:
+                cleaned = parts[3]  # Get branch name after refs/remotes/remote/
+        elif cleaned.startswith("remotes/origin/"):
+            cleaned = cleaned[15:]  # Remove 'remotes/origin/'
+        elif cleaned.startswith("remotes/"):
+            # Handle other remotes
+            parts = cleaned.split("/", 2)
+            if len(parts) >= 3:
+                cleaned = parts[2]  # Get branch name after remotes/remote/
+        elif cleaned.startswith("refs/heads/"):
+            cleaned = cleaned[11:]  # Remove 'refs/heads/'
+        elif cleaned.startswith("origin/"):
+            cleaned = cleaned[7:]  # Remove 'origin/'
+
+        # Remove any remaining git revision specifiers
+        if "~" in cleaned:
+            cleaned = cleaned.split("~")[0]
+        if "^" in cleaned:
+            cleaned = cleaned.split("^")[0]
+
+        # Remove any leading/trailing whitespace and special characters
+        cleaned = cleaned.strip()
+
+        # Handle special git patterns
+        if cleaned.startswith("HEAD"):
+            return ""  # HEAD references are not useful branch names
+
+        return cleaned
 
     async def checkout_commit(
         self, project_path: Path, commit_hash: str
