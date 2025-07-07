@@ -1927,6 +1927,201 @@ ghi789|abc123|Bob Johnson|2023-12-03|Hotfix branch work"""
                         internal not in display
                     ), f"Display should not contain git internal '{internal}'"
 
+    @pytest.mark.asyncio
+    async def test_main_branch_detection_functionality(self):
+        """
+        Comprehensive test for the main branch detection functionality.
+        Tests the primary get_git_commits() method to ensure it properly detects
+        and reports branch information for different types of commits.
+        """
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        # Mock git log output with a realistic commit history including:
+        # - Initial commit on master
+        # - Feature branch commits
+        # - Merge commit
+        # - Continuation on master
+        mock_log_output = """abc123||John Doe|2023-12-01|Initial commit on master
+def456|abc123|Jane Smith|2023-12-02|Add user authentication feature
+ghi789|def456|Jane Smith|2023-12-03|Fix authentication validation
+jkl012|abc123|Bob Johnson|2023-12-04|Add payment processing feature
+mno345|abc123 def456|John Doe|2023-12-05|Merge branch 'feature-auth' into master
+pqr678|mno345|John Doe|2023-12-06|Update documentation after merge"""
+
+        # Mock repository info
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        # Define which commits are on main branch vs feature branches
+        main_branch_commits = ["abc123", "mno345", "pqr678"]  # Main branch commits
+
+        # Branch mappings for feature branch commits
+        branch_mappings = {
+            "def456": "  feature-auth\n* master\n  remotes/origin/feature-auth\n  remotes/origin/master",
+            "ghi789": "  feature-auth\n* master\n  remotes/origin/feature-auth\n  remotes/origin/master",
+            "jkl012": "  feature-payment\n* master\n  remotes/origin/feature-payment\n  remotes/origin/master",
+        }
+
+        # Create comprehensive mock handler for all git commands used in branch detection
+        mock_handler = self.create_git_mock_handler(
+            log_output=mock_log_output,
+            main_branch_commits=main_branch_commits,
+            branch_mappings=branch_mappings,
+        )
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async", side_effect=mock_handler
+        ):
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            # Test the main branch detection functionality
+            result = await self.git_service.get_git_commits(repo_path)
+
+            # Verify successful execution
+            assert result.is_success is True, f"Branch detection failed: {result.error}"
+            commits = result.data
+            assert commits is not None, "Should return commits list"
+            assert len(commits) == 6, f"Expected 6 commits, got {len(commits)}"
+
+            # Create commit lookup for easier testing
+            commit_by_hash = {c.hash: c for c in commits}
+
+            # Test 1: Verify branch detection attributes are present
+            for commit in commits:
+                assert hasattr(
+                    commit, "source_branch"
+                ), f"Commit {commit.hash} missing source_branch attribute"
+                assert hasattr(
+                    commit, "parents"
+                ), f"Commit {commit.hash} missing parents attribute"
+                assert hasattr(
+                    commit, "is_merge_commit"
+                ), f"Commit {commit.hash} missing is_merge_commit property"
+                assert hasattr(
+                    commit, "display"
+                ), f"Commit {commit.hash} missing display property"
+
+            # Test 2: Verify main branch commits are correctly identified
+            main_commit_abc = commit_by_hash["abc123"]
+            assert (
+                main_commit_abc.source_branch is None
+                or main_commit_abc.source_branch == "master"
+            ), f"Main branch commit should have None or 'master' source_branch, got: {main_commit_abc.source_branch}"
+            assert (
+                "[master]" in main_commit_abc.display
+            ), f"Main branch commit display should contain [master], got: {main_commit_abc.display}"
+
+            # Test 3: Verify feature branch commits are correctly identified
+            feature_commit_def = commit_by_hash["def456"]
+            assert (
+                feature_commit_def.source_branch is not None
+            ), "Feature branch commit should have source_branch detected"
+            assert (
+                "feature-auth" in feature_commit_def.source_branch
+                or "[feature-auth]" in feature_commit_def.display
+            ), f"Feature commit should be associated with feature-auth branch, got source_branch: {feature_commit_def.source_branch}, display: {feature_commit_def.display}"
+
+            feature_commit_jkl = commit_by_hash["jkl012"]
+            assert (
+                feature_commit_jkl.source_branch is not None
+            ), "Feature branch commit should have source_branch detected"
+            assert (
+                "feature-payment" in feature_commit_jkl.source_branch
+                or "[feature-payment]" in feature_commit_jkl.display
+            ), f"Feature commit should be associated with feature-payment branch, got source_branch: {feature_commit_jkl.source_branch}, display: {feature_commit_jkl.display}"
+
+            # Test 4: Verify merge commit detection
+            merge_commit = commit_by_hash["mno345"]
+            assert (
+                merge_commit.is_merge_commit is True
+            ), f"Merge commit should be detected as merge, got: {merge_commit.is_merge_commit}"
+            assert (
+                len(merge_commit.parents) == 2
+            ), f"Merge commit should have 2 parents, got: {len(merge_commit.parents) if merge_commit.parents else 0}"
+            assert (
+                "abc123" in merge_commit.parents and "def456" in merge_commit.parents
+            ), f"Merge commit should have correct parents, got: {merge_commit.parents}"
+            assert (
+                "(merge)" in merge_commit.display
+            ), f"Merge commit display should contain (merge), got: {merge_commit.display}"
+
+            # Test 5: Verify display formatting includes branch information
+            for commit in commits:
+                display = commit.display
+                # Every commit should have some branch indication in display
+                assert (
+                    "[" in display and "]" in display
+                ), f"Commit {commit.hash} display should contain branch tags like [branch], got: {display}"
+
+                # Display should follow expected format: hash - date - author [branch] (merge): subject
+                assert (
+                    commit.hash in display
+                ), f"Display should contain commit hash: {display}"
+                assert (
+                    commit.author in display
+                ), f"Display should contain author: {display}"
+                assert (
+                    commit.subject in display
+                ), f"Display should contain subject: {display}"
+                assert (
+                    " - " in display
+                ), f"Display should have proper formatting: {display}"
+
+            # Test 6: Verify branch name cleanup (no git internal references in display)
+            for commit in commits:
+                display = commit.display
+                git_internals = ["refs/heads/", "refs/remotes/", "remotes/origin/"]
+                for internal in git_internals:
+                    assert (
+                        internal not in display
+                    ), f"Display should not contain git internal '{internal}', got: {display}"
+
+            # Test 7: Verify parent tracking for all commits
+            # Initial commit should have no parents
+            initial_commit = commit_by_hash["abc123"]
+            assert (
+                initial_commit.parents == []
+            ), f"Initial commit should have empty parents list, got: {initial_commit.parents}"
+
+            # Regular commits should have exactly one parent
+            regular_commits = ["def456", "ghi789", "jkl012", "pqr678"]
+            for hash_val in regular_commits:
+                commit = commit_by_hash[hash_val]
+                assert (
+                    len(commit.parents) == 1
+                ), f"Regular commit {hash_val} should have exactly 1 parent, got: {len(commit.parents) if commit.parents else 0}"
+
+            # Test 8: Verify that branch detection enhances commit information
+            # All commits should have either source_branch info or be properly identified as main branch
+            for commit in commits:
+                has_branch_info = (
+                    commit.source_branch is not None
+                    or "[master]" in commit.display
+                    or "[main]" in commit.display
+                )
+                assert (
+                    has_branch_info
+                ), f"Commit {commit.hash} should have branch information either in source_branch or display: {commit.display}"
+
+            # Test 9: Verify metadata and result structure
+            assert (
+                "Retrieved" in result.message
+            ), f"Result should have descriptive message: {result.message}"
+            assert result.metadata is not None, "Result should include metadata"
+            assert (
+                "total_commits" in result.metadata
+            ), "Metadata should include total_commits"
+            assert (
+                result.metadata["total_commits"] == 6
+            ), f"Metadata should show correct commit count: {result.metadata['total_commits']}"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

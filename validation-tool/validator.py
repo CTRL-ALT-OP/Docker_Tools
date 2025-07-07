@@ -11,10 +11,6 @@ from pathlib import Path
 from typing import Dict, Tuple
 from datetime import datetime
 
-# Add parent directory to path to import config
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from config.commands import DOCKER_COMMANDS
-
 
 class SimpleValidator:
     def __init__(self, cleanup: bool = True):
@@ -223,97 +219,82 @@ class SimpleValidator:
             return False, "", f"Build error: {str(e)}", build_time
 
     def _verify_docker_image_exists(self, image_name: str) -> bool:
-        """Verify that a Docker image exists"""
+        """Verify that a Docker image exists in the local registry"""
         try:
-            cmd = [
-                part.format(image_name=image_name) if "{image_name}" in part else part
-                for part in DOCKER_COMMANDS["images"]
-            ]
             result = subprocess.run(
-                cmd,
+                ["docker", "images", "-q", image_name],
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
+
+            # If the command succeeds and returns output, the image exists
             return result.returncode == 0 and result.stdout.strip() != ""
-        except Exception:
+
+        except (subprocess.TimeoutExpired, Exception) as e:
+            print(f"Warning: Could not verify image existence: {e}")
             return False
 
     def run_tests(
         self, image_name: str, extract_dir: Path
     ) -> Tuple[bool, str, str, float]:
-        """Run tests using the Docker image"""
+        """Run tests in Docker container using run_tests.sh"""
+        test_script = extract_dir / "run_tests.sh"
+
+        if not test_script.exists():
+            return False, "", "No run_tests.sh script found", 0.0
+
         start_time = time.time()
 
         try:
-            original_cwd = Path.cwd()
-            os.chdir(extract_dir)
-
             print(f"Running tests for: {image_name}")
-
-            # Clean environment for consistency, but include Docker connection variables for DinD
-            clean_env = {
-                "PATH": os.environ.get("PATH", ""),
-                "HOME": os.environ.get("HOME", ""),
-                "USER": os.environ.get("USER", ""),
-                "LANG": "C.UTF-8",
-                "LC_ALL": "C.UTF-8",
-                "DOCKER_HOST": os.environ.get("DOCKER_HOST", ""),
-                "DOCKER_CERT_PATH": os.environ.get("DOCKER_CERT_PATH", ""),
-                "DOCKER_TLS_VERIFY": os.environ.get("DOCKER_TLS_VERIFY", ""),
-            }
 
             result = subprocess.run(
                 [
                     "docker",
                     "run",
                     "--rm",
-                    "-v",
-                    f"{extract_dir}:/app",
-                    "-w",
-                    "/app",
+                    "--platform",
+                    "linux/amd64",
+                    "--env",
+                    "LANG=C.UTF-8",
+                    "--env",
+                    "LC_ALL=C.UTF-8",
+                    "--env",
+                    "TZ=UTC",
                     image_name,
                     "./run_tests.sh",
                 ],
                 capture_output=True,
                 text=True,
                 timeout=1200,
-                env=clean_env,
             )
 
-            os.chdir(original_cwd)
-            test_time = time.time() - start_time
+            execution_time = time.time() - start_time
 
             if result.returncode == 0:
-                print(f"✓ Tests passed: {image_name} ({test_time:.1f}s)")
-                return True, result.stdout, result.stderr, test_time
+                print(f"✓ Tests passed ({execution_time:.1f}s)")
+                return True, result.stdout, result.stderr, execution_time
             else:
-                print(f"✗ Tests failed: {image_name} ({test_time:.1f}s)")
-                print(f"Test stdout: {result.stdout}")
-                print(f"Test stderr: {result.stderr}")
-                print(f"Return code: {result.returncode}")
-                return False, result.stdout, result.stderr, test_time
+                print(f"✗ Tests failed ({execution_time:.1f}s)")
+                return False, result.stdout, result.stderr, execution_time
 
         except subprocess.TimeoutExpired:
-            os.chdir(original_cwd)
-            test_time = time.time() - start_time
-            return False, "", "Tests timed out", test_time
+            execution_time = time.time() - start_time
+            return False, "", "Test execution timed out", execution_time
         except Exception as e:
-            os.chdir(original_cwd)
-            test_time = time.time() - start_time
-            return False, "", f"Test error: {str(e)}", test_time
+            execution_time = time.time() - start_time
+            return False, "", f"Test error: {str(e)}", execution_time
 
     def cleanup_docker_image(self, image_name: str):
-        """Clean up Docker image"""
+        """Remove Docker image"""
         try:
-            cmd = [
-                part.format(image_name=image_name) if "{image_name}" in part else part
-                for part in DOCKER_COMMANDS["rmi"]
-            ]
-            subprocess.run(cmd, capture_output=True, timeout=60)
-            print(f"✓ Cleaned up image: {image_name}")
+            subprocess.run(
+                ["docker", "rmi", image_name], capture_output=True, check=False
+            )
+            print(f"Cleaned up Docker image: {image_name}")
         except Exception as e:
-            print(f"Warning: Could not clean up image {image_name}: {e}")
+            print(f"Warning: Could not remove image {image_name}: {e}")
 
     def validate_codebase(self, zip_path: Path) -> Dict:
         """Main validation function - extracts, builds, and tests a codebase"""
@@ -592,8 +573,8 @@ def main():
 
     # Check Docker availability and platform support
     try:
-        subprocess.run(DOCKER_COMMANDS["version"], capture_output=True, check=True)
-        result = subprocess.run(DOCKER_COMMANDS["info"], capture_output=True, text=True)
+        subprocess.run(["docker", "--version"], capture_output=True, check=True)
+        result = subprocess.run(["docker", "info"], capture_output=True, text=True)
         if "linux/amd64" not in result.stdout:
             print("Warning: linux/amd64 platform may not be available")
     except (subprocess.CalledProcessError, FileNotFoundError):
