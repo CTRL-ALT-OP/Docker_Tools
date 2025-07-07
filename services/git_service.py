@@ -26,6 +26,13 @@ class GitCommit:
     author: str
     date: str
     subject: str
+    parents: Optional[List[str]] = None
+    source_branch: Optional[str] = None
+
+    @property
+    def is_merge_commit(self) -> bool:
+        """Check if this is a merge commit (has multiple parents)"""
+        return self.parents and len(self.parents) > 1
 
     @property
     def display(self) -> str:
@@ -39,6 +46,9 @@ class GitCommit:
             "author": self.author,
             "date": self.date,
             "subject": self.subject,
+            "parents": self.parents,
+            "source_branch": self.source_branch,
+            "is_merge_commit": self.is_merge_commit,
             "display": self.display,
         }
 

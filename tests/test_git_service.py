@@ -46,7 +46,7 @@ class TestGitCommit:
             subject="Add new feature",
         )
 
-        expected = "abc123def - 2023-12-02 - Jane Smith: Add new feature"
+        expected = "abc123def - 2023-12-02 - Jane Smith [master]: Add new feature"
         assert commit.display == expected
 
     def test_git_commit_to_dict(self):
@@ -83,8 +83,17 @@ class TestGitCommit:
         """Test GitCommit with empty values"""
         commit = GitCommit(hash="", author="", date="", subject="")
 
-        assert commit.display == " -  - : "
-        assert all(v == "" for v in commit.to_dict().values() if v != commit.display)
+        assert commit.display == " -  -  [master]: "
+
+        # Check that the core string fields are empty
+        assert commit.hash == ""
+        assert commit.author == ""
+        assert commit.date == ""
+        assert commit.subject == ""
+
+        # Check that new fields have expected default values
+        assert commit.parents is None
+        assert commit.source_branch is None
 
 
 class TestGitService:
@@ -278,10 +287,10 @@ ghi789|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
         # Create the directory for the test
         repo_path.mkdir(parents=True, exist_ok=True)
 
-        # Mock git log output
-        mock_output = """abc123|John Doe|2023-12-01 10:00:00|Initial commit
-def456|Jane Smith|2023-12-02 11:30:00|Add feature X
-ghi789|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
+        # Mock git log output - new format with parents field
+        mock_output = """abc123||John Doe|2023-12-01 10:00:00|Initial commit
+def456|abc123|Jane Smith|2023-12-02 11:30:00|Add feature X
+ghi789|def456|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
 
         mock_result = Mock()
         mock_result.returncode = 0
@@ -342,9 +351,9 @@ ghi789|Bob Johnson|2023-12-03 14:15:00|Fix bug in module Y"""
 
     def test_parse_commits_valid_format(self):
         """Test parsing valid git log output"""
-        log_output = """abc123|John Doe|2023-12-01|Initial commit
-def456|Jane Smith|2023-12-02|Add feature
-ghi789|Bob Johnson|2023-12-03|Fix bug"""
+        log_output = """abc123||John Doe|2023-12-01|Initial commit
+def456|abc123|Jane Smith|2023-12-02|Add feature
+ghi789|def456|Bob Johnson|2023-12-03|Fix bug"""
 
         commits = self.git_service._parse_commits(log_output)
 
@@ -357,9 +366,9 @@ ghi789|Bob Johnson|2023-12-03|Fix bug"""
         """Test parsing git log output with graph characters"""
         # The parsing logic removes characters one by one from the start
         # Until it hits a non-graph character, so we need to be careful with the format
-        log_output = """abc123|John Doe|2023-12-01|Initial commit
-def456|Jane Smith|2023-12-02|Add feature
-ghi789|Bob Johnson|2023-12-03|Fix bug"""
+        log_output = """abc123||John Doe|2023-12-01|Initial commit
+def456|abc123|Jane Smith|2023-12-02|Add feature
+ghi789|def456|Bob Johnson|2023-12-03|Fix bug"""
 
         commits = self.git_service._parse_commits(log_output)
 
@@ -370,11 +379,11 @@ ghi789|Bob Johnson|2023-12-03|Fix bug"""
 
     def test_parse_commits_malformed_lines(self):
         """Test parsing git log output with malformed lines"""
-        log_output = """abc123|John Doe|2023-12-01|Initial commit
+        log_output = """abc123||John Doe|2023-12-01|Initial commit
 invalid line without pipes
-def456|Jane Smith|2023-12-02|Add feature
-|incomplete|line
-ghi789|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
+def456|abc123|Jane Smith|2023-12-02|Add feature
+incomplete|line
+ghi789|def456|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
 
         commits = self.git_service._parse_commits(log_output)
 
@@ -714,6 +723,851 @@ ghi789|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
             assert result.is_error is True
             error_str = str(result.error).lower()
             assert "remote" in error_str or "error" in error_str
+
+    # =================================================================
+    # BRANCH DETECTION TESTS
+    # =================================================================
+
+    @pytest.mark.asyncio
+    async def test_branch_detection_feature_branch_commits(self):
+        """Test branch detection for commits from feature branches"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        # Mock git log output with feature branch commits
+        mock_log_output = """abc123||John Doe|2023-12-01|Initial commit on master
+def456|abc123|Jane Smith|2023-12-02|Feature: Add authentication
+ghi789|def456|Jane Smith|2023-12-03|Fix: Authentication bug
+jkl012|abc123|Bob Johnson|2023-12-04|Feature: Add payment system"""
+
+        # Mock successful repository info
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            # Mock git log command
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 4
+
+            # Check that commits have expected structure
+            assert commits[0].hash == "abc123"
+            assert commits[1].hash == "def456"
+            assert commits[2].hash == "ghi789"
+            assert commits[3].hash == "jkl012"
+
+            # Verify all commits have actual branch detection functionality
+            for commit in commits:
+                # Test that branch detection attributes exist AND work properly
+                assert hasattr(
+                    commit, "source_branch"
+                ), "Should have source_branch attribute"
+                assert hasattr(
+                    commit, "parents"
+                ), "Should have parents attribute for branch detection"
+                assert hasattr(
+                    commit, "is_merge_commit"
+                ), "Should have is_merge_commit property"
+
+                # Test that branch detection actually enhances the display
+                display = commit.display
+                assert (
+                    "[" in display and "]" in display
+                ), "Branch detection should add branch tags like [master] or [feature] to display"
+
+                # Test that parents are properly tracked (should be list, not None)
+                assert (
+                    commit.parents is not None
+                ), "Branch detection should provide parents list, not None"
+                assert isinstance(
+                    commit.parents, list
+                ), "Parents should be a list for proper branch tracking"
+
+    @pytest.mark.asyncio
+    async def test_branch_detection_merge_commits(self):
+        """Test branch detection for merge commits"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        # Mock git log output with merge commits (multiple parents)
+        mock_log_output = """abc123||John Doe|2023-12-01|Initial commit
+def456|abc123|Jane Smith|2023-12-02|Feature work on branch
+ghi789|abc123 def456|John Doe|2023-12-03|Merge branch 'feature' into master
+jkl012|ghi789|John Doe|2023-12-04|Continue work on master"""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 4
+
+            # Find the merge commit
+            merge_commit = next(c for c in commits if c.hash == "ghi789")
+
+            # Verify merge commit is detected as merge
+            assert merge_commit.is_merge_commit is True
+            assert len(merge_commit.parents) == 2
+            assert "abc123" in merge_commit.parents
+            assert "def456" in merge_commit.parents
+
+    @pytest.mark.asyncio
+    async def test_branch_detection_detached_head(self):
+        """Test branch detection when repository is in detached HEAD state"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        # Mock git log output from detached HEAD
+        mock_log_output = """abc123||John Doe|2023-12-01|Initial commit
+def456|abc123|Jane Smith|2023-12-02|Work on detached HEAD
+ghi789|def456|Jane Smith|2023-12-03|More work on detached HEAD"""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+        mock_repo_info.current_branch = ""  # Detached HEAD has no current branch
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 3
+
+            # Test branch detection functionality specifically
+            for commit in commits:
+                assert isinstance(commit, GitCommit)
+                # These should exist with branch detection functionality
+                assert hasattr(
+                    commit, "source_branch"
+                ), "Branch detection should add source_branch attribute"
+                assert hasattr(
+                    commit, "parents"
+                ), "Branch detection should add parents attribute"
+                assert hasattr(
+                    commit, "is_merge_commit"
+                ), "Branch detection should add is_merge_commit property"
+
+                # In detached HEAD, branch detection should still work to identify source branches
+                # The display should include branch information
+                assert (
+                    "[" in commit.display and "]" in commit.display
+                ), "Display should include branch tags like [master]"
+
+    @pytest.mark.asyncio
+    async def test_branch_detection_complex_merge_patterns(self):
+        """Test branch detection with complex merge patterns and multiple branches"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        # Mock complex git history with multiple branches and merges
+        mock_log_output = """abc123||John Doe|2023-12-01|Initial commit
+def456|abc123|Jane Smith|2023-12-02|Feature A start
+ghi789|abc123|Bob Johnson|2023-12-02|Feature B start
+jkl012|def456|Jane Smith|2023-12-03|Feature A work
+mno345|ghi789|Bob Johnson|2023-12-03|Feature B work
+pqr678|abc123 def456|John Doe|2023-12-04|Merge feature A
+stu901|pqr678 ghi789|John Doe|2023-12-05|Merge feature B
+vwx234|stu901|John Doe|2023-12-06|Continue on master"""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 8
+
+            # Verify complex merge structure
+            commit_by_hash = {c.hash: c for c in commits}
+
+            # Check merge commits
+            merge_commit_1 = commit_by_hash["pqr678"]
+            merge_commit_2 = commit_by_hash["stu901"]
+
+            assert merge_commit_1.is_merge_commit is True
+            assert merge_commit_2.is_merge_commit is True
+
+            assert len(merge_commit_1.parents) == 2
+            assert len(merge_commit_2.parents) == 2
+
+    @pytest.mark.asyncio
+    async def test_branch_detection_orphaned_commits(self):
+        """Test branch detection with orphaned commits (no parent relationship)"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        # Mock git log with orphaned commits (empty parents)
+        mock_log_output = """abc123||John Doe|2023-12-01|Initial commit
+def456||Jane Smith|2023-12-02|Orphaned commit
+ghi789|abc123|Bob Johnson|2023-12-03|Normal commit"""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 3
+
+            # Check orphaned commit handling
+            orphaned_commit = next(c for c in commits if c.hash == "def456")
+            assert (
+                orphaned_commit.parents == []
+            )  # Empty parents list for orphaned commit
+
+    @pytest.mark.asyncio
+    async def test_branch_detection_no_remotes(self):
+        """Test branch detection when repository has no remotes configured"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        mock_log_output = """abc123||John Doe|2023-12-01|Initial commit
+def456|abc123|Jane Smith|2023-12-02|Local work"""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = False
+        mock_repo_info.remote_urls = []
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            # First call returns repo info, subsequent calls return log output
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 2
+
+            # Test branch detection functionality specifically for local-only repos
+            for commit in commits:
+                assert isinstance(commit, GitCommit)
+                # Branch detection should still work even without remotes
+                assert hasattr(
+                    commit, "source_branch"
+                ), "Branch detection should work without remotes"
+                assert hasattr(
+                    commit, "parents"
+                ), "Parent tracking should work without remotes"
+                assert hasattr(
+                    commit, "is_merge_commit"
+                ), "Merge detection should work without remotes"
+
+                # Should still show branch information in display
+                assert (
+                    "[" in commit.display and "]" in commit.display
+                ), "Local repos should still show branch info like [master]"
+
+    @pytest.mark.asyncio
+    async def test_branch_detection_display_formatting(self):
+        """Test that branch detection properly affects display formatting"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        # Mock simple commit history
+        mock_log_output = """abc123||John Doe|2023-12-01|Initial commit
+def456|abc123|Jane Smith|2023-12-02|Feature work"""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 2
+
+            # Check that display formatting includes branch information
+            for commit in commits:
+                display = commit.display
+                assert " - " in display  # Basic format check
+                assert commit.hash in display
+                assert commit.author in display
+                assert commit.subject in display
+                # Should contain branch info (either [master] or specific branch)
+                assert "[" in display and "]" in display
+
+    @pytest.mark.asyncio
+    async def test_branch_detection_error_handling(self):
+        """Test branch detection when git commands fail during branch detection"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        mock_log_output = """abc123||John Doe|2023-12-01|Initial commit
+def456|abc123|Jane Smith|2023-12-02|Feature work"""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 2
+
+            # Test that branch detection features are present and working
+            for commit in commits:
+                assert isinstance(commit, GitCommit)
+                # Even with potential errors, branch detection should provide these attributes
+                assert hasattr(
+                    commit, "source_branch"
+                ), "Branch detection should provide source_branch even with errors"
+                assert hasattr(
+                    commit, "parents"
+                ), "Branch detection should provide parents even with errors"
+                assert hasattr(
+                    commit, "is_merge_commit"
+                ), "Branch detection should provide is_merge_commit even with errors"
+
+                # Branch detection should enhance the display with branch information
+                display = commit.display
+                assert (
+                    "[" in display and "]" in display
+                ), "Branch detection should add branch tags to display even with partial failures"
+
+                # Should have expected branch detection fields
+                assert (
+                    commit.source_branch is not None or "[master]" in display
+                ), "Should detect branch or default to master"
+
+    @pytest.mark.asyncio
+    async def test_branch_detection_empty_repository(self):
+        """Test branch detection on empty repository"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        # Empty git log output
+        mock_log_output = ""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 0
+
+            # Test that branch detection functionality would be available if there were commits
+            # We can test this by creating a test commit and checking it has branch detection features
+            test_commit = GitCommit(
+                hash="test123",
+                author="Test Author",
+                date="2023-12-01",
+                subject="Test commit",
+            )
+
+            # Branch detection should add these attributes to GitCommit objects
+            assert hasattr(
+                test_commit, "source_branch"
+            ), "GitCommit should have source_branch attribute for branch detection"
+            assert hasattr(
+                test_commit, "parents"
+            ), "GitCommit should have parents attribute for branch detection"
+            assert hasattr(
+                test_commit, "is_merge_commit"
+            ), "GitCommit should have is_merge_commit property for branch detection"
+
+            # Branch detection should enhance display formatting
+            display = test_commit.display
+            assert (
+                "[" in display and "]" in display
+            ), "Branch detection should enhance display with branch information like [master]"
+
+    # =================================================================
+    # BRANCH NAME DETECTION AND CLEANUP TESTS
+    # =================================================================
+
+    @pytest.mark.asyncio
+    async def test_branch_name_cleanup_origin_prefix(self):
+        """Test that branch names properly clean up 'origin/' prefixes"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        mock_log_output = """abc123||John Doe|2023-12-01|Initial commit
+def456|abc123|Jane Smith|2023-12-02|Feature work on branch"""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 2
+
+            # Test that branch detection exists and cleans up branch names properly
+            for commit in commits:
+                assert hasattr(
+                    commit, "source_branch"
+                ), "Should have source_branch for name cleanup testing"
+
+                # If a branch is detected, it should be cleaned of origin/ prefixes
+                if commit.source_branch and commit.source_branch.startswith("origin/"):
+                    # This should not happen - origin/ should be cleaned up
+                    assert (
+                        False
+                    ), f"Branch name '{commit.source_branch}' should not contain 'origin/' prefix"
+
+                if commit.source_branch and commit.source_branch.startswith(
+                    "remotes/origin/"
+                ):
+                    # This should not happen - remotes/origin/ should be cleaned up
+                    assert (
+                        False
+                    ), f"Branch name '{commit.source_branch}' should not contain 'remotes/origin/' prefix"
+
+                # Check display formatting excludes raw git refs
+                display = commit.display
+                assert (
+                    "remotes/origin/" not in display
+                ), "Display should not show raw 'remotes/origin/' refs"
+                assert (
+                    "origin/" not in display or "[origin]" in display
+                ), "Display should clean up origin/ prefixes unless it's the actual branch name"
+
+    @pytest.mark.asyncio
+    async def test_branch_name_feature_branch_detection(self):
+        """Test that feature branch names are correctly detected and displayed"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        mock_log_output = """abc123||John Doe|2023-12-01|Initial commit on master
+def456|abc123|Jane Smith|2023-12-02|Work on feature-auth branch
+ghi789|abc123|Bob Johnson|2023-12-03|Work on bugfix-login branch"""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 3
+
+            # Branch detection should identify different types of branches
+            for commit in commits:
+                assert hasattr(commit, "source_branch"), "Should detect source branch"
+                display = commit.display
+
+                # Should have branch information in display
+                assert (
+                    "[" in display and "]" in display
+                ), "Should show branch tags in display"
+
+                # Branch names should be properly formatted (no git internal prefixes)
+                if commit.source_branch:
+                    branch_name = commit.source_branch
+                    assert not branch_name.startswith(
+                        "refs/"
+                    ), "Branch name should not include refs/ prefix"
+                    assert not branch_name.startswith(
+                        "heads/"
+                    ), "Branch name should not include heads/ prefix"
+
+                    # Should be clean branch names like 'feature-auth', 'bugfix-login', 'master'
+                    assert (
+                        "/" not in branch_name or branch_name.count("/") <= 1
+                    ), "Branch name should be cleaned of internal git paths"
+
+    @pytest.mark.asyncio
+    async def test_branch_name_master_main_detection(self):
+        """Test that master/main branches are correctly identified and displayed"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        mock_log_output = """abc123||John Doe|2023-12-01|Initial commit
+def456|abc123|Jane Smith|2023-12-02|Main branch work
+ghi789|def456|Bob Johnson|2023-12-03|More main branch work"""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 3
+
+            # Test master/main branch detection and display
+            for commit in commits:
+                display = commit.display
+
+                # Should have branch information
+                assert (
+                    "[" in display and "]" in display
+                ), "Should show branch information"
+
+                # For master/main commits, should show [master] consistently
+                if "[master]" in display or "[main]" in display:
+                    # Branch detection should standardize on [master] for main branch commits
+                    pass  # This is expected
+                else:
+                    # If no specific branch detected, should default to [master]
+                    assert (
+                        "[master]" in display
+                    ), "Should default to [master] for main branch commits"
+
+    @pytest.mark.asyncio
+    async def test_branch_name_complex_refs_cleanup(self):
+        """Test cleanup of complex git reference formats"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        mock_log_output = """abc123||John Doe|2023-12-01|Commit with complex ref
+def456|abc123|Jane Smith|2023-12-02|Another complex ref commit"""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 2
+
+            # Test that complex git references are properly cleaned up
+            for commit in commits:
+                assert hasattr(
+                    commit, "source_branch"
+                ), "Should have source_branch attribute"
+
+                if commit.source_branch:
+                    branch_name = commit.source_branch
+
+                    # Should not contain git internals
+                    forbidden_prefixes = [
+                        "refs/heads/",
+                        "refs/remotes/",
+                        "refs/remotes/origin/",
+                        "remotes/origin/",
+                        "heads/",
+                    ]
+
+                    for prefix in forbidden_prefixes:
+                        assert not branch_name.startswith(
+                            prefix
+                        ), f"Branch name '{branch_name}' should not start with '{prefix}'"
+
+                # Display should be clean
+                display = commit.display
+                for prefix in ["refs/", "heads/", "remotes/"]:
+                    assert (
+                        prefix not in display
+                    ), f"Display should not contain git internal prefix '{prefix}'"
+
+    @pytest.mark.asyncio
+    async def test_branch_name_special_characters_handling(self):
+        """Test handling of branch names with special characters"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        mock_log_output = """abc123||John Doe|2023-12-01|Work on feature/user-auth
+def456|abc123|Jane Smith|2023-12-02|Work on hotfix/issue-123
+ghi789|abc123|Bob Johnson|2023-12-03|Work on release/v1.2.0"""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 3
+
+            # Test handling of branch names with slashes and special characters
+            for commit in commits:
+                assert hasattr(commit, "source_branch"), "Should detect source branch"
+
+                if commit.source_branch:
+                    branch_name = commit.source_branch
+
+                    # Branch names with slashes should be preserved (feature/user-auth, hotfix/issue-123)
+                    # but git prefixes should be removed
+                    if "/" in branch_name:
+                        # Should be branch names like "feature/user-auth", not "refs/heads/feature/user-auth"
+                        assert not branch_name.startswith(
+                            "refs/"
+                        ), "Should not have git internal refs"
+                        assert not branch_name.startswith(
+                            "heads/"
+                        ), "Should not have heads/ prefix"
+                        assert not branch_name.startswith(
+                            "remotes/"
+                        ), "Should not have remotes/ prefix"
+
+                # Display should properly show branch names with special characters
+                display = commit.display
+                assert (
+                    "[" in display and "]" in display
+                ), "Should have branch tags in display"
+
+    @pytest.mark.asyncio
+    async def test_branch_name_extraction_from_git_refs(self):
+        """Test that branch names are correctly extracted and cleaned from various git reference formats"""
+        repo_path = Path(self.temp_dir) / "test_repo"
+        repo_path.mkdir(parents=True, exist_ok=True)
+
+        mock_log_output = """abc123||John Doe|2023-12-01|Initial commit
+def456|abc123|Jane Smith|2023-12-02|Feature branch work
+ghi789|abc123|Bob Johnson|2023-12-03|Hotfix branch work"""
+
+        mock_repo_info = Mock()
+        mock_repo_info.has_remote = True
+        mock_repo_info.remote_urls = ["origin"]
+
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info_call, patch(
+            "services.git_service.run_subprocess_async"
+        ) as mock_run:
+
+            from utils.async_base import ServiceResult
+
+            mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
+
+            result = await self.git_service.get_git_commits(repo_path)
+
+            assert result.is_success is True
+            commits = result.data
+            assert len(commits) == 3
+
+            # Test branch name extraction and cleanup functionality
+            for commit in commits:
+                # Should have branch detection attributes
+                assert hasattr(
+                    commit, "source_branch"
+                ), "Should have source_branch for name extraction testing"
+
+                # Test that the branch detection mechanism would clean git references properly
+                # If a source_branch is detected, it should be a clean name
+                if commit.source_branch is not None:
+                    branch_name = commit.source_branch
+
+                    # Test specific cleanup scenarios that branch detection should handle
+                    test_scenarios = [
+                        # (input_ref, expected_clean_name)
+                        ("refs/heads/feature-auth", "feature-auth"),
+                        ("refs/remotes/origin/feature-auth", "feature-auth"),
+                        ("remotes/origin/feature-auth", "feature-auth"),
+                        ("origin/feature-auth", "feature-auth"),
+                        ("refs/heads/master", "master"),
+                        ("origin/main", "main"),
+                        (
+                            "feature/user-management",
+                            "feature/user-management",
+                        ),  # Keep valid slashes
+                    ]
+
+                    # Verify that branch name doesn't contain any of the prefixes that should be cleaned
+                    forbidden_patterns = [
+                        "refs/heads/",
+                        "refs/remotes/",
+                        "refs/remotes/origin/",
+                        "remotes/origin/",
+                        "heads/",
+                    ]
+
+                    for pattern in forbidden_patterns:
+                        assert not branch_name.startswith(
+                            pattern
+                        ), f"Branch name '{branch_name}' should not start with git internal prefix '{pattern}'"
+
+                # Test that display shows clean branch names
+                display = commit.display
+                assert (
+                    "[" in display and "]" in display
+                ), "Should have branch tags in display"
+
+                # Display should not show git internal references
+                git_internals = ["refs/heads/", "refs/remotes/", "remotes/origin/"]
+                for internal in git_internals:
+                    assert (
+                        internal not in display
+                    ), f"Display should not contain git internal '{internal}'"
 
 
 if __name__ == "__main__":

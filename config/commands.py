@@ -25,7 +25,7 @@ GIT_COMMANDS = {
         "git",
         "log",
         "--oneline",
-        "--pretty=format:%h|%an|%ad|%s",
+        "--pretty=format:%h|%P|%an|%ad|%s",
         "--date=short",
         "--all",
     ],
