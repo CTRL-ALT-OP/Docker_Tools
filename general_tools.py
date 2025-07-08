@@ -959,15 +959,12 @@ class ProjectControlPanel:
         """Generate language-specific test command"""
         from config.commands import TEST_COMMAND_TEMPLATES, DEFAULT_TEST_COMMANDS
 
-        if test_paths and test_paths.strip():
-            # Use template with specific test paths
-            template = TEST_COMMAND_TEMPLATES.get(
-                language, "pytest -vv -s {test_paths}"
-            )
-            return template.format(test_paths=test_paths)
-        else:
+        if not test_paths or not test_paths.strip():
             # Use default command for the language
             return DEFAULT_TEST_COMMANDS.get(language, "pytest -vv -s tests/")
+        # Use template with specific test paths
+        template = TEST_COMMAND_TEMPLATES.get(language, "pytest -vv -s {test_paths}")
+        return template.format(test_paths=test_paths)
 
     def _is_test_command_line(self, line: str, language: str) -> bool:
         """Check if a line contains a test command for the specified language"""
@@ -994,31 +991,22 @@ class ProjectControlPanel:
         """Preserve command prefixes when updating test commands"""
         # Language-specific prefix preservation
         if language == "python":
-            # Handle cases like "python3.12 -m pytest"
-            if "python" in old_command and "-m pytest" in old_command:
-                python_prefix = old_command.split("pytest")[0] + "pytest"
-                # Replace the base command but keep the prefix
-                return new_command.replace("pytest", python_prefix, 1)
-            else:
+            if "python" not in old_command or "-m pytest" not in old_command:
                 return new_command
-        elif language in ["javascript", "typescript"]:
+            python_prefix = old_command.split("pytest")[0] + "pytest"
+            # Replace the base command but keep the prefix
+            return new_command.replace("pytest", python_prefix, 1)
+        elif language in {"javascript", "typescript"}:
             # Handle cases like "export CI=true && npm test"
             if "export" in old_command and "CI=true" in old_command:
                 return f"export CI=true\n{new_command}"
             else:
                 return new_command
         elif language == "java":
-            # Handle Maven wrapper or specific flags
-            if "mvn" in old_command:
-                # Extract Maven prefix (like ./mvnw or specific flags)
-                mvn_index = old_command.find("mvn")
-                prefix = old_command[:mvn_index]
-                if prefix.strip():
-                    return f"{prefix}{new_command}"
-                else:
-                    return new_command
-            else:
+            if "mvn" not in old_command:
                 return new_command
+            prefix = old_command[: old_command.find("mvn")]
+            return f"{prefix}{new_command}" if prefix.strip() else new_command
         else:
             # For other languages, return as-is
             return new_command

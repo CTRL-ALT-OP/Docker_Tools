@@ -655,12 +655,9 @@ class ValidationService(AsyncServiceInterface):
                     f"🔄 Validating {zip_file.name} ({i+1}/{len(zip_files)})...\n"
                 )
 
-                # Get project info for this zip file
-                archive_info = project_info_map.get(zip_file.name)
-
                 # Create a temporary project object for type determination
                 temp_project = None
-                if archive_info:
+                if archive_info := project_info_map.get(zip_file.name):
                     temp_project = Project(
                         parent=archive_info.project_parent,
                         name=archive_info.project_name,

@@ -597,7 +597,7 @@ class GitService(AsyncServiceInterface):
         Cleans up a branch name to remove common git reference prefixes and suffixes.
         Returns the clean branch name without any formatting.
         """
-        if not branch_name or branch_name.strip() == "":
+        if not branch_name or not branch_name.strip():
             return ""
 
         cleaned = branch_name.strip()
@@ -632,10 +632,7 @@ class GitService(AsyncServiceInterface):
         cleaned = cleaned.strip()
 
         # Handle special git patterns
-        if cleaned.startswith("HEAD"):
-            return ""  # HEAD references are not useful branch names
-
-        return cleaned
+        return "" if cleaned.startswith("HEAD") else cleaned
 
     async def checkout_commit(
         self, project_path: Path, commit_hash: str
