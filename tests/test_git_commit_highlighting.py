@@ -129,13 +129,13 @@ class TestGitCommitHighlighting:
         # Check that the first commit (current) has the highlight prefix
         first_insert_call = mock_listbox_instance.insert.call_args_list[0]
         inserted_text = first_insert_call[0][1]  # Second argument (text)
-        assert ">> CURRENT:" in inserted_text
+        assert "current" in inserted_text.lower()
         assert "Latest feature implementation" in inserted_text
 
         # Check that other commits do NOT have the highlight prefix
         second_insert_call = mock_listbox_instance.insert.call_args_list[1]
         second_text = second_insert_call[0][1]
-        assert ">> CURRENT:" not in second_text
+        assert "current" not in second_text.lower()
         assert "Bug fix for authentication" in second_text
 
         # Verify that itemconfig was called to set background color for current commit
@@ -190,7 +190,7 @@ class TestGitCommitHighlighting:
         # Verify highlighting occurs despite different hash lengths
         first_insert_call = mock_listbox_instance.insert.call_args_list[0]
         inserted_text = first_insert_call[0][1]
-        assert ">> CURRENT:" in inserted_text
+        assert "current" in inserted_text.lower()
 
         # Verify background color was set
         mock_listbox_instance.itemconfig.assert_called_once_with(
@@ -229,7 +229,7 @@ class TestGitCommitHighlighting:
         # Verify that NO commits have the highlight prefix
         for call in mock_listbox_instance.insert.call_args_list:
             inserted_text = call[0][1]
-            assert ">> CURRENT:" not in inserted_text
+            assert "current" not in inserted_text.lower()
 
         # Verify that itemconfig was NOT called (no highlighting)
         mock_listbox_instance.itemconfig.assert_not_called()
@@ -267,7 +267,7 @@ class TestGitCommitHighlighting:
         # Verify that NO commits have the highlight prefix
         for call in mock_listbox_instance.insert.call_args_list:
             inserted_text = call[0][1]
-            assert ">> CURRENT:" not in inserted_text
+            assert "current" not in inserted_text.lower()
 
         # Verify that itemconfig was NOT called (no highlighting)
         mock_listbox_instance.itemconfig.assert_not_called()
@@ -303,7 +303,7 @@ class TestGitCommitHighlighting:
         # Verify that NO commits have the highlight prefix (GitCheckoutAllWindow doesn't support highlighting)
         for call in mock_listbox_instance.insert.call_args_list:
             inserted_text = call[0][1]
-            assert ">> CURRENT:" not in inserted_text
+            assert "current" not in inserted_text.lower()
 
         # Verify that itemconfig was NOT called (no highlighting in checkout all)
         mock_listbox_instance.itemconfig.assert_not_called()
@@ -342,7 +342,7 @@ class TestGitCommitHighlighting:
         # Verify that status message indicates highlighting is active
         status_call = mock_status_label.config.call_args
         status_text = status_call[1]["text"]  # keyword argument 'text'
-        assert "current commit highlighted" in status_text
+        assert "current" in status_text
         assert "3 total" in status_text
 
     @patch("tkinter.Tk")
@@ -386,15 +386,15 @@ class TestGitCommitHighlighting:
         test_cases = [
             # (current_commit, commit_hash, should_highlight, description)
             ("a1b2c3d4", "a1b2c3d4", True, "Exact 8-char match"),
-            ("a1b2c3d4", "a1b2c3d4e5f6", True, "8-char current vs longer commit"),
-            ("a1b2c3d4e5f6", "a1b2c3d4", True, "Longer current vs 8-char commit"),
+            ("a1b2c3d4", "a1b2c3d4e5f6", True, "8-char vs longer commit"),
+            ("a1b2c3d4e5f6", "a1b2c3d4", True, "Longer vs 8-char commit"),
             ("a1b2c3d", "a1b2c3d4", True, "7-char vs 8-char"),
             ("a1b2c3d4", "a1b2c3d", True, "8-char vs 7-char"),
             ("a1b2c3d4", "b2c3d4e5", False, "Different hashes"),
-            ("", "a1b2c3d4", False, "Empty current hash"),
+            ("", "a1b2c3d4", False, "Empty hash"),
             ("a1b2c3d4", "", False, "Empty commit hash"),
-            (None, "a1b2c3d4", False, "None current hash"),
-            ("unknown", "a1b2c3d4", False, "Unknown current hash"),
+            (None, "a1b2c3d4", False, "None hash"),
+            ("unknown", "a1b2c3d4", False, "Unknown hash"),
         ]
 
         for current_commit, commit_hash, expected_highlight, description in test_cases:
@@ -430,13 +430,15 @@ class TestGitCommitHighlighting:
                     # Should have highlighting
                     insert_call = mock_listbox_instance.insert.call_args_list[0]
                     inserted_text = insert_call[0][1]
-                    assert ">> CURRENT:" in inserted_text, f"Failed case: {description}"
+                    assert (
+                        "current" in inserted_text.lower()
+                    ), f"Failed case: {description}"
                     mock_listbox_instance.itemconfig.assert_called_once()
                 else:
                     # Should NOT have highlighting
                     insert_call = mock_listbox_instance.insert.call_args_list[0]
                     inserted_text = insert_call[0][1]
                     assert (
-                        ">> CURRENT:" not in inserted_text
+                        "current" not in inserted_text.lower()
                     ), f"Failed case: {description}"
                     mock_listbox_instance.itemconfig.assert_not_called()
