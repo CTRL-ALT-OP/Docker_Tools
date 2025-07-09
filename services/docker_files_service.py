@@ -2,7 +2,6 @@
 Service for building Docker files based on codebase analysis
 """
 
-import os
 import shutil
 import asyncio
 from pathlib import Path
@@ -10,6 +9,7 @@ from typing import Tuple, List, Callable, Optional
 
 from config.settings import FOLDER_ALIASES, LANGUAGE_EXTENSIONS, LANGUAGE_REQUIRED_FILES
 from services.project_group_service import ProjectGroup
+from services.platform_service import PlatformService
 from models.project import Project
 
 
@@ -446,12 +446,30 @@ require (
         if not source.exists():
             raise FileNotFoundError(f"Template file not found: {source}")
 
-        shutil.copy2(source, dest)
-        # Make it executable
-        os.chmod(dest, 0o755)
-        output_callback(
-            f"   ✅ Copied {language} build_docker.sh and made executable\n"
+        # Read source content and normalize line endings
+        source_content = source.read_text(encoding="utf-8")
+        normalized_content = source_content.replace("\r\n", "\n").replace("\r", "\n")
+
+        # Write with Unix line endings
+        dest.write_text(normalized_content, encoding="utf-8", newline="\n")
+
+        # Make it executable using platform service
+        success, error = await PlatformService.run_command_with_result_async(
+            "FILE_PERMISSION_COMMANDS",
+            subkey="make_executable",
+            file_path=str(dest),
+            capture_output=True,
+            text=True,
         )
+
+        if success:
+            output_callback(
+                f"   ✅ Copied {language} build_docker.sh with Unix line endings and made executable\n"
+            )
+        else:
+            output_callback(
+                f"   ⚠️  Copied {language} build_docker.sh but failed to make executable: {error}\n"
+            )
 
     async def _copy_run_tests_sh(
         self,
@@ -487,10 +505,30 @@ require (
         if not source.exists():
             raise FileNotFoundError(f"Template file not found: {source}")
 
-        shutil.copy2(source, dest)
-        # Make it executable
-        os.chmod(dest, 0o755)
-        output_callback(f"   ✅ Copied {description}: run_tests.sh\n")
+        # Read source content and normalize line endings
+        source_content = source.read_text(encoding="utf-8")
+        normalized_content = source_content.replace("\r\n", "\n").replace("\r", "\n")
+
+        # Write with Unix line endings
+        dest.write_text(normalized_content, encoding="utf-8", newline="\n")
+
+        # Make it executable using platform service
+        success, error = await PlatformService.run_command_with_result_async(
+            "FILE_PERMISSION_COMMANDS",
+            subkey="make_executable",
+            file_path=str(dest),
+            capture_output=True,
+            text=True,
+        )
+
+        if success:
+            output_callback(
+                f"   ✅ Copied {description}: run_tests.sh with Unix line endings\n"
+            )
+        else:
+            output_callback(
+                f"   ⚠️  Copied {description}: run_tests.sh but failed to make executable: {error}\n"
+            )
 
     async def _copy_dockerfile(
         self,
@@ -574,10 +612,34 @@ require (
                 target_file = version.path / file_name
 
                 if source_file.exists():
-                    shutil.copy2(source_file, target_file)
+                    if file_name.endswith(".sh"):
+                        # For shell scripts, read and normalize line endings
+                        source_content = source_file.read_text(encoding="utf-8")
+                        normalized_content = source_content.replace(
+                            "\r\n", "\n"
+                        ).replace("\r", "\n")
+                        target_file.write_text(
+                            normalized_content, encoding="utf-8", newline="\n"
+                        )
+                    else:
+                        # For other files, use regular copy
+                        shutil.copy2(source_file, target_file)
+
                     # Preserve executable permissions for shell scripts
                     if file_name.endswith(".sh"):
-                        os.chmod(target_file, 0o755)
+                        success, error = (
+                            await PlatformService.run_command_with_result_async(
+                                "FILE_PERMISSION_COMMANDS",
+                                subkey="make_executable",
+                                file_path=str(target_file),
+                                capture_output=True,
+                                text=True,
+                            )
+                        )
+                        if not success:
+                            output_callback(
+                                f"      ⚠️  Failed to make {file_name} executable: {error}\n"
+                            )
 
             copied_count += 1
             output_callback(f"      ✅ Copied {len(docker_files)} files\n")

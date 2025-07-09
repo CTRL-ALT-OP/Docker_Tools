@@ -22,7 +22,7 @@ from services.file_service import FileService
 from services.project_service import ProjectService
 from services.project_group_service import ProjectGroup
 from models.project import Project
-from config.commands import DOCKER_COMMANDS
+from config.commands import COMMANDS
 from config.settings import FOLDER_ALIASES
 from utils.async_base import (
     AsyncServiceInterface,
@@ -762,10 +762,10 @@ class ValidationService(AsyncServiceInterface):
             # Start the process with real-time output streaming
             if self.platform_service.is_windows():
                 # Use docker compose directly to get better output
-                cmd = DOCKER_COMMANDS["compose_up"]
+                cmd = COMMANDS["DOCKER_COMMANDS"]["compose_up"]
             else:
                 # Use docker compose directly to get better output
-                cmd = DOCKER_COMMANDS["compose_up"]
+                cmd = COMMANDS["DOCKER_COMMANDS"]["compose_up"]
 
             # Start the process
             process = subprocess.Popen(
@@ -802,7 +802,10 @@ class ValidationService(AsyncServiceInterface):
             # Use docker info to check if Docker daemon is running
             result = await run_in_executor(
                 lambda: subprocess.run(
-                    DOCKER_COMMANDS["info"], capture_output=True, text=True, timeout=10
+                    COMMANDS["DOCKER_COMMANDS"]["info"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
             )
             return result.returncode == 0

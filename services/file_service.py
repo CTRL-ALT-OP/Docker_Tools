@@ -395,8 +395,8 @@ class FileService(AsyncServiceInterface):
                 file_count = await run_in_executor(self._count_files, project_path)
 
                 # Create archive
-                archive_result = await run_in_executor(
-                    self._create_archive_sync, project_path, archive_name
+                archive_result = await self._create_archive_async(
+                    project_path, archive_name
                 )
 
                 if archive_result["success"]:
@@ -460,42 +460,40 @@ class FileService(AsyncServiceInterface):
             pass  # Skip files we can't access
         return file_count
 
-    def _create_archive_sync(
+    async def _create_archive_async(
         self, project_path: Path, archive_name: str
     ) -> Dict[str, Any]:
-        """Synchronous implementation of archive creation"""
+        """Async implementation of archive creation using new command structure"""
         original_cwd = None
         try:
             # Change to project directory
             original_cwd = os.getcwd()
             os.chdir(project_path)
 
-            # Get platform-specific archive command
-            cmd, use_shell = self.platform_service.create_archive_command(archive_name)
-
-            result = self.platform_service.run_command(
-                cmd,
-                use_shell=use_shell,
+            # Use the new async command structure
+            success, output = await self.platform_service.run_command_with_result_async(
+                "ARCHIVE_COMMANDS",
+                subkey="create",
+                archive_name=archive_name,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
             )
 
-            if result.returncode == 0:
+            if success:
                 logger.info("Successfully created archive: %s", archive_name)
                 return {
                     "success": True,
                     "archive_name": archive_name,
-                    "output": result.stdout,
+                    "output": output,
                 }
             else:
-                error_msg = result.stderr or result.stdout
-                logger.error("Archive creation failed: %s", error_msg)
+                logger.error("Archive creation failed: %s", output)
                 return {
                     "success": False,
-                    "error": error_msg,
-                    "return_code": result.returncode,
+                    "error": output,
+                    "return_code": 1,
                 }
 
         except FileNotFoundError:

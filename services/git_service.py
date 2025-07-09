@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 
-from config.commands import GIT_COMMANDS
+from config.commands import COMMANDS
+from services.platform_service import PlatformService
 from utils.async_base import (
     AsyncServiceInterface,
     ServiceResult,
@@ -143,9 +144,12 @@ class GitService(AsyncServiceInterface):
         """Check Git service health"""
         async with self.operation_context("health_check", timeout=10.0) as ctx:
             try:
-                # Check if git is available
-                result = await run_subprocess_async(
-                    GIT_COMMANDS["version"], capture_output=True, timeout=5.0
+                # Check if git is available using PlatformService
+                result = await PlatformService.run_command_async(
+                    "GIT_COMMANDS",
+                    subkey="version",
+                    capture_output=True,
+                    timeout=5.0,
                 )
 
                 if result.returncode == 0:
@@ -153,7 +157,7 @@ class GitService(AsyncServiceInterface):
                         {
                             "status": "healthy",
                             "git_version": result.stdout.strip(),
-                            "available_commands": list(GIT_COMMANDS.keys()),
+                            "available_commands": list(COMMANDS["GIT_COMMANDS"].keys()),
                         }
                     )
                 error = ProcessError(
@@ -179,8 +183,9 @@ class GitService(AsyncServiceInterface):
         async with self.operation_context("get_repository_info", timeout=30.0) as ctx:
             try:
                 # Check if it's a git repository
-                git_dir_check = await run_subprocess_async(
-                    GIT_COMMANDS["rev_parse_git_dir"],
+                git_dir_check = await PlatformService.run_command_async(
+                    "GIT_COMMANDS",
+                    subkey="rev_parse_git_dir",
                     cwd=str(project_path),
                     capture_output=True,
                 )
@@ -190,8 +195,9 @@ class GitService(AsyncServiceInterface):
                     return ServiceResult.error(error)
 
                 # Get remote information
-                remote_result = await run_subprocess_async(
-                    GIT_COMMANDS["remote_check"],
+                remote_result = await PlatformService.run_command_async(
+                    "GIT_COMMANDS",
+                    subkey="remote_check",
                     cwd=str(project_path),
                     capture_output=True,
                 )
@@ -204,8 +210,9 @@ class GitService(AsyncServiceInterface):
                 )
 
                 # Get current branch
-                branch_result = await run_subprocess_async(
-                    GIT_COMMANDS["branch_show_current"],
+                branch_result = await PlatformService.run_command_async(
+                    "GIT_COMMANDS",
+                    subkey="branch_show_current",
                     cwd=str(project_path),
                     capture_output=True,
                 )
@@ -216,8 +223,9 @@ class GitService(AsyncServiceInterface):
                 )
 
                 # Get current commit
-                commit_result = await run_subprocess_async(
-                    GIT_COMMANDS["rev_parse_head"],
+                commit_result = await PlatformService.run_command_async(
+                    "GIT_COMMANDS",
+                    subkey="rev_parse_head",
                     cwd=str(project_path),
                     capture_output=True,
                 )
@@ -228,8 +236,9 @@ class GitService(AsyncServiceInterface):
                 )
 
                 # Check if working tree is clean
-                status_result = await run_subprocess_async(
-                    GIT_COMMANDS["status_porcelain"],
+                status_result = await PlatformService.run_command_async(
+                    "GIT_COMMANDS",
+                    subkey="status_porcelain",
                     cwd=str(project_path),
                     capture_output=True,
                 )
@@ -280,9 +289,12 @@ class GitService(AsyncServiceInterface):
                     error = ResourceError("No remote repository configured")
                     return ServiceResult.error(error)
 
-                # Fetch from all remotes
-                fetch_result = await run_subprocess_async(
-                    GIT_COMMANDS["fetch"], cwd=str(project_path), capture_output=True
+                # Fetch from all remotes using PlatformService
+                fetch_result = await PlatformService.run_command_async(
+                    "GIT_COMMANDS",
+                    subkey="fetch",
+                    cwd=str(project_path),
+                    capture_output=True,
                 )
 
                 if fetch_result.returncode == 0:
@@ -328,13 +340,20 @@ class GitService(AsyncServiceInterface):
 
                 # Run git log command with or without limit
                 if limit is not None:
-                    git_log_cmd = GIT_COMMANDS["log"] + [f"-{limit}"]
+                    # For limited results, we need to construct the command manually
+                    # since the platform service doesn't handle dynamic argument appending
+                    git_log_cmd = COMMANDS["GIT_COMMANDS"]["log"] + [f"-{limit}"]
+                    result = await run_subprocess_async(
+                        git_log_cmd, cwd=str(project_path), capture_output=True
+                    )
                 else:
-                    git_log_cmd = GIT_COMMANDS["log"]  # Get ALL commits
-
-                result = await run_subprocess_async(
-                    git_log_cmd, cwd=str(project_path), capture_output=True
-                )
+                    # Get ALL commits using PlatformService
+                    result = await PlatformService.run_command_async(
+                        "GIT_COMMANDS",
+                        subkey="log",
+                        cwd=str(project_path),
+                        capture_output=True,
+                    )
 
                 if result.returncode != 0:
                     error = ProcessError(
@@ -478,8 +497,9 @@ class GitService(AsyncServiceInterface):
 
             # Fallback: use HEAD if no main branch found (original behavior)
             self.logger.warning("No main branch reference found, falling back to HEAD")
-            result = await run_subprocess_async(
-                GIT_COMMANDS["log_first_parent"],
+            result = await PlatformService.run_command_async(
+                "GIT_COMMANDS",
+                subkey="log_first_parent",
                 cwd=str(project_path),
                 capture_output=True,
                 timeout=10.0,
@@ -545,13 +565,11 @@ class GitService(AsyncServiceInterface):
                     pass  # Fall back to approach 2
 
                 # Approach 2: Use git branch --contains with better logic
-                branch_contains_cmd = [
-                    cmd.format(commit=commit.hash) if "{commit}" in cmd else cmd
-                    for cmd in GIT_COMMANDS["branch_contains"]
-                ]
-
-                result = await run_subprocess_async(
-                    branch_contains_cmd,
+                # Using PlatformService for branch contains check
+                result = await PlatformService.run_command_async(
+                    "GIT_COMMANDS",
+                    subkey="branch_contains",
+                    commit=commit.hash,
                     cwd=str(project_path),
                     capture_output=True,
                     timeout=5.0,
@@ -656,15 +674,13 @@ class GitService(AsyncServiceInterface):
 
                 repo_info = repo_info_result.data
 
-                # Create checkout command with commit hash
-                checkout_cmd = [
-                    cmd.format(commit=commit_hash) if "{commit}" in cmd else cmd
-                    for cmd in GIT_COMMANDS["checkout"]
-                ]
-
-                # Perform checkout
-                result = await run_subprocess_async(
-                    checkout_cmd, cwd=str(project_path), capture_output=True
+                # Perform checkout using PlatformService
+                result = await PlatformService.run_command_async(
+                    "GIT_COMMANDS",
+                    subkey="checkout",
+                    commit=commit_hash,
+                    cwd=str(project_path),
+                    capture_output=True,
                 )
 
                 if result.returncode == 0:
@@ -715,24 +731,27 @@ class GitService(AsyncServiceInterface):
 
                 repo_info = repo_info_result.data
 
-                # First, reset any staged changes
-                reset_result = await run_subprocess_async(
-                    GIT_COMMANDS["reset_hard"],
+                # First, reset any staged changes using PlatformService
+                reset_result = await PlatformService.run_command_async(
+                    "GIT_COMMANDS",
+                    subkey="reset_hard",
                     cwd=str(project_path),
                     capture_output=True,
                 )
 
-                # Clean untracked files
-                clean_result = await run_subprocess_async(
-                    GIT_COMMANDS["clean"], cwd=str(project_path), capture_output=True
+                # Clean untracked files using PlatformService
+                clean_result = await PlatformService.run_command_async(
+                    "GIT_COMMANDS",
+                    subkey="clean",
+                    cwd=str(project_path),
+                    capture_output=True,
                 )
 
-                # Now try force checkout
-                force_result = await run_subprocess_async(
-                    [
-                        cmd.format(commit=commit_hash) if "{commit}" in cmd else cmd
-                        for cmd in GIT_COMMANDS["force_checkout"]
-                    ],
+                # Now try force checkout using PlatformService
+                force_result = await PlatformService.run_command_async(
+                    "GIT_COMMANDS",
+                    subkey="force_checkout",
+                    commit=commit_hash,
                     cwd=str(project_path),
                     capture_output=True,
                 )
@@ -800,17 +819,12 @@ class GitService(AsyncServiceInterface):
                     )
                     return ServiceResult.error(error)
 
-                # Now perform the clone
-                clone_cmd = [
-                    (
-                        part.format(repo_url=repo_url, project_name=project_name)
-                        if "{repo_url}" in part or "{project_name}" in part
-                        else part
-                    )
-                    for part in GIT_COMMANDS["clone"]
-                ]
-                result = await run_subprocess_async(
-                    clone_cmd,
+                # Now perform the clone using PlatformService
+                result = await PlatformService.run_command_async(
+                    "GIT_COMMANDS",
+                    subkey="clone",
+                    repo_url=repo_url,
+                    project_name=project_name,
                     cwd=str(destination_path),
                     capture_output=True,
                     timeout=300.0,

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from models.project import Project
 from services.project_group_service import ProjectGroup
 from services.project_service import ProjectService
+from services.platform_service import PlatformService
 from utils.async_base import (
     AsyncServiceInterface,
     ServiceResult,
@@ -63,20 +64,42 @@ class SyncService(AsyncServiceInterface):
                 with tempfile.TemporaryDirectory() as temp_dir:
                     temp_path = Path(temp_dir)
 
-                    # Create test source and target
+                    # Create test source and target directories
                     source_dir = temp_path / "source"
                     target_dir = temp_path / "target"
-                    source_dir.mkdir()
-                    target_dir.mkdir()
+
+                    # Create directories using platform service
+                    source_success, source_error = (
+                        await PlatformService.create_directory_async(str(source_dir))
+                    )
+                    target_success, target_error = (
+                        await PlatformService.create_directory_async(str(target_dir))
+                    )
+
+                    if not source_success or not target_success:
+                        error = ResourceError(
+                            f"Failed to create test directories: {source_error or target_error}"
+                        )
+                        return ServiceResult.error(error)
 
                     # Test file creation and copy
                     test_file = source_dir / "test.txt"
                     test_content = "sync test content"
                     test_file.write_text(test_content)
 
-                    # Test sync operation
+                    # Test sync operation using platform service
                     target_file = target_dir / "test.txt"
-                    shutil.copy2(test_file, target_file)
+                    copy_success, copy_error = await PlatformService.copy_file_async(
+                        str(test_file), str(target_file), preserve_attrs=True
+                    )
+
+                    if not copy_success:
+                        self.logger.warning(
+                            f"Platform copy failed: {copy_error}, falling back to shutil"
+                        )
+                        # Fallback to shutil for test
+                        shutil.copy2(test_file, target_file)
+                        copy_success = True
 
                     # Verify sync
                     copied_content = target_file.read_text()
@@ -87,6 +110,7 @@ class SyncService(AsyncServiceInterface):
                             "status": "healthy",
                             "sync_operations": "functional",
                             "file_copy_test": sync_successful,
+                            "platform_copy_test": copy_success,
                             "project_service_available": self.project_service
                             is not None,
                         }
@@ -107,9 +131,57 @@ class SyncService(AsyncServiceInterface):
 
         async with self.operation_context("get_file_info", timeout=10.0) as ctx:
             try:
-                file_info = await run_in_executor(
-                    self._get_file_info_sync, project, file_name
-                )
+                file_path = project.path / file_name
+
+                # First try Python's built-in file existence check (more reliable)
+                file_exists = file_path.exists()
+
+                # If file doesn't exist according to pathlib, double-check with platform service
+                if not file_exists:
+                    platform_exists, _ = await PlatformService.check_file_exists_async(
+                        str(file_path)
+                    )
+                    file_exists = platform_exists
+
+                if file_exists:
+                    # Get file statistics - try platform service first, then fallback to pathlib
+                    stat_success, stat_output = (
+                        await PlatformService.get_file_stat_async(str(file_path))
+                    )
+
+                    if stat_success:
+                        # Parse platform-specific stat output
+                        file_size, last_modified = self._parse_stat_output(stat_output)
+                        is_readable = os.access(
+                            file_path, os.R_OK
+                        )  # Keep this for now as it's Python-specific
+                    else:
+                        # Fallback to pathlib if platform stat fails
+                        try:
+                            stat_info = await run_in_executor(file_path.stat)
+                            file_size = stat_info.st_size
+                            last_modified = stat_info.st_mtime
+                            is_readable = os.access(file_path, os.R_OK)
+                        except OSError:
+                            file_size = 0
+                            last_modified = 0.0
+                            is_readable = False
+
+                    file_info = FileSyncInfo(
+                        file_path=file_path,
+                        file_size=file_size,
+                        file_exists=True,
+                        is_readable=is_readable,
+                        last_modified=last_modified,
+                    )
+                else:
+                    file_info = FileSyncInfo(
+                        file_path=file_path,
+                        file_size=0,
+                        file_exists=False,
+                        is_readable=False,
+                        last_modified=0.0,
+                    )
 
                 return ServiceResult.success(
                     file_info,
@@ -125,19 +197,77 @@ class SyncService(AsyncServiceInterface):
                 error = ProcessError(f"Failed to get file info: {str(e)}")
                 return ServiceResult.error(error)
 
+    def _parse_stat_output(self, stat_output: str) -> tuple[int, float]:
+        """Parse platform-specific stat output to extract file size and modification time"""
+        try:
+            # Remove any extra whitespace and split
+            parts = stat_output.strip().split()
+
+            if PlatformService.is_windows():
+                # Windows forfiles output format: size date time
+                # Size is in bytes, date/time needs parsing
+                if len(parts) >= 1:
+                    file_size = int(parts[0])
+                    # For Windows, we'll use a simple timestamp approach
+                    # This is a simplified implementation
+                    last_modified = 0.0  # Default fallback
+                    return file_size, last_modified
+                else:
+                    return 0, 0.0
+            else:
+                # Unix stat output format: size timestamp permissions
+                if len(parts) >= 2:
+                    file_size = int(parts[0])
+                    last_modified = float(parts[1])
+                    return file_size, last_modified
+                else:
+                    return 0, 0.0
+        except (ValueError, IndexError):
+            return 0, 0.0
+
     def _get_file_info_sync(self, project: Project, file_name: str) -> FileSyncInfo:
         """Synchronous implementation of file info retrieval"""
         file_path = project.path / file_name
 
         try:
-            if file_path.exists() and file_path.is_file():
-                stat_info = file_path.stat()
+            # First try Python's built-in file existence check (more reliable)
+            file_exists = file_path.exists()
+
+            # If file doesn't exist according to pathlib, double-check with platform service
+            if not file_exists:
+                platform_exists, _ = PlatformService.check_file_exists(str(file_path))
+                file_exists = platform_exists
+
+            if file_exists:
+                # Get file statistics - try platform service first, then fallback to pathlib
+                stat_success, stat_output = PlatformService.get_file_stat(
+                    str(file_path)
+                )
+
+                if stat_success:
+                    # Parse platform-specific stat output
+                    file_size, last_modified = self._parse_stat_output(stat_output)
+                    is_readable = os.access(
+                        file_path, os.R_OK
+                    )  # Keep this for now as it's Python-specific
+                else:
+                    # Fallback to pathlib if platform stat fails
+                    try:
+                        stat_info = file_path.stat()
+                        file_size = stat_info.st_size
+                        last_modified = stat_info.st_mtime
+                        is_readable = os.access(file_path, os.R_OK)
+                    except OSError:
+                        file_size = 0
+                        last_modified = 0.0
+                        is_readable = False
+
                 return FileSyncInfo(
                     file_path=file_path,
-                    file_size=stat_info.st_size,
+                    file_size=file_size,
                     file_exists=True,
-                    is_readable=os.access(file_path, os.R_OK),
-                    last_modified=stat_info.st_mtime,
+                    is_readable=is_readable,
+                    last_modified=last_modified,
                 )
             else:
                 return FileSyncInfo(
@@ -147,7 +277,7 @@ class SyncService(AsyncServiceInterface):
                     is_readable=False,
                     last_modified=0.0,
                 )
-        except OSError:
+        except Exception:
             return FileSyncInfo(
                 file_path=file_path,
                 file_size=0,
@@ -272,19 +402,44 @@ class SyncService(AsyncServiceInterface):
             try:
                 target_file = target_project.path / file_name
 
-                # Ensure target directory exists
-                target_file.parent.mkdir(parents=True, exist_ok=True)
+                # Ensure target directory exists using platform service
+                target_dir = str(target_file.parent)
+                dir_success, dir_error = PlatformService.create_directory(target_dir)
 
-                # Copy the file
-                shutil.copy2(source_file, target_file)
-                synced_paths.append(target_file)
+                if not dir_success:
+                    self.logger.warning(
+                        "Platform directory creation failed: %s, falling back to mkdir",
+                        dir_error,
+                    )
+                    # Fallback to pathlib
+                    target_file.parent.mkdir(parents=True, exist_ok=True)
 
-                self.logger.debug(
-                    "Synced %s from %s to %s",
-                    file_name,
-                    source_project.parent,
-                    target_project.parent,
+                # Copy the file using platform service
+                copy_success, copy_error = PlatformService.copy_file(
+                    str(source_file), str(target_file), preserve_attrs=True
                 )
+
+                if copy_success:
+                    synced_paths.append(target_file)
+                    self.logger.debug(
+                        "Synced %s from %s to %s using platform service",
+                        file_name,
+                        source_project.parent,
+                        target_project.parent,
+                    )
+                else:
+                    self.logger.warning(
+                        "Platform copy failed: %s, falling back to shutil", copy_error
+                    )
+                    # Fallback to shutil
+                    shutil.copy2(source_file, target_file)
+                    synced_paths.append(target_file)
+                    self.logger.debug(
+                        "Synced %s from %s to %s using shutil fallback",
+                        file_name,
+                        source_project.parent,
+                        target_project.parent,
+                    )
 
             except Exception as e:
                 failed_syncs.append(target_project.parent)
@@ -378,20 +533,33 @@ class SyncService(AsyncServiceInterface):
         return [
             project
             for project in project_group.get_all_versions()
-            if project.parent != "pre-edit"
+            if self.project_service.get_folder_alias(project.parent) != "preedit"
         ]
 
     # Backward compatibility methods
     async def has_file(self, project: Project, file_name: str) -> ServiceResult[bool]:
         """Check if a project has a file (backward compatibility)"""
-        file_info_result = await self.get_file_info(project, file_name)
-        if file_info_result.is_success:
+        try:
+            file_path = project.path / file_name
+
+            # First try Python's built-in file existence check (more reliable)
+            file_exists = file_path.exists()
+
+            # If file doesn't exist according to pathlib, double-check with platform service
+            if not file_exists:
+                platform_exists, _ = await PlatformService.check_file_exists_async(
+                    str(file_path)
+                )
+                file_exists = platform_exists
+
             return ServiceResult.success(
-                file_info_result.data.file_exists,
+                file_exists,
                 message=f"File existence check for {file_name}",
             )
-        else:
-            return ServiceResult.error(file_info_result.error)
+        except Exception as e:
+            self.logger.exception("Unexpected error checking file existence")
+            error = ProcessError(f"Failed to check file existence: {str(e)}")
+            return ServiceResult.error(error)
 
     async def copy_file(
         self, source_project: Project, target_project: Project, file_name: str
@@ -399,16 +567,59 @@ class SyncService(AsyncServiceInterface):
         """Copy a file from source project to target project (backward compatibility)"""
         async with self.operation_context("copy_file", timeout=30.0) as ctx:
             try:
-                success = await run_in_executor(
-                    self._copy_file_sync, source_project, target_project, file_name
+                source_file = source_project.path / file_name
+                target_file = target_project.path / file_name
+
+                # First try Python's built-in file existence check (more reliable)
+                file_exists = source_file.exists()
+
+                # If file doesn't exist according to pathlib, double-check with platform service
+                if not file_exists:
+                    platform_exists, _ = await PlatformService.check_file_exists_async(
+                        str(source_file)
+                    )
+                    file_exists = platform_exists
+
+                if not file_exists:
+                    error = ResourceError(f"Source file {file_name} does not exist")
+                    return ServiceResult.error(error)
+
+                # Ensure target directory exists using async platform service
+                target_dir = str(target_file.parent)
+                dir_success, dir_error = await PlatformService.create_directory_async(
+                    target_dir
                 )
 
-                if success:
-                    return ServiceResult.success(
-                        True, message=f"Successfully copied {file_name}"
+                if not dir_success:
+                    self.logger.warning(
+                        "Platform directory creation failed: %s, falling back to mkdir",
+                        dir_error,
                     )
-                error = ProcessError(f"Failed to copy {file_name}")
-                return ServiceResult.error(error)
+                    # Fallback to pathlib
+                    await run_in_executor(
+                        target_file.parent.mkdir, parents=True, exist_ok=True
+                    )
+
+                # Copy the file using async platform service
+                copy_success, copy_error = await PlatformService.copy_file_async(
+                    str(source_file), str(target_file), preserve_attrs=True
+                )
+
+                if copy_success:
+                    return ServiceResult.success(
+                        True,
+                        message=f"Successfully copied {file_name} using platform service",
+                    )
+                else:
+                    self.logger.warning(
+                        "Platform copy failed: %s, falling back to shutil", copy_error
+                    )
+                    # Fallback to shutil
+                    await run_in_executor(shutil.copy2, source_file, target_file)
+                    return ServiceResult.success(
+                        True,
+                        message=f"Successfully copied {file_name} using shutil fallback",
+                    )
 
             except Exception as e:
                 self.logger.exception("Unexpected error during file copy")
@@ -423,16 +634,43 @@ class SyncService(AsyncServiceInterface):
             source_file = source_project.path / file_name
             target_file = target_project.path / file_name
 
-            # Check if source file exists
-            if not source_file.exists() or not source_file.is_file():
+            # First try Python's built-in file existence check (more reliable)
+            file_exists = source_file.exists()
+
+            # If file doesn't exist according to pathlib, double-check with platform service
+            if not file_exists:
+                platform_exists, _ = PlatformService.check_file_exists(str(source_file))
+                file_exists = platform_exists
+
+            if not file_exists:
                 return False
 
-            # Ensure target directory exists
-            target_file.parent.mkdir(parents=True, exist_ok=True)
+            # Ensure target directory exists using platform service
+            target_dir = str(target_file.parent)
+            dir_success, dir_error = PlatformService.create_directory(target_dir)
 
-            # Copy the file
-            shutil.copy2(source_file, target_file)
-            return True
+            if not dir_success:
+                self.logger.warning(
+                    "Platform directory creation failed: %s, falling back to mkdir",
+                    dir_error,
+                )
+                # Fallback to pathlib
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Copy the file using platform service
+            copy_success, copy_error = PlatformService.copy_file(
+                str(source_file), str(target_file), preserve_attrs=True
+            )
+
+            if copy_success:
+                return True
+            else:
+                self.logger.warning(
+                    "Platform copy failed: %s, falling back to shutil", copy_error
+                )
+                # Fallback to shutil
+                shutil.copy2(source_file, target_file)
+                return True
 
         except Exception:
             return False

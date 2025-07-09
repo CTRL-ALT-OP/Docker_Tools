@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Callable, Dict, Any
 
 from services.platform_service import PlatformService
-from config.commands import DOCKER_COMMANDS
 from utils.async_base import (
     AsyncServiceInterface,
     ServiceResult,
@@ -15,8 +14,6 @@ from utils.async_base import (
     AsyncServiceContext,
 )
 from utils.async_utils import (
-    run_subprocess_async,
-    run_subprocess_streaming_async,
     run_in_executor,
 )
 
@@ -32,29 +29,92 @@ class DockerService(AsyncServiceInterface):
         """Check Docker service health"""
         async with self.operation_context("health_check", timeout=10.0) as ctx:
             try:
-                # Check if Docker is available
-                result = await run_subprocess_async(
-                    DOCKER_COMMANDS["version"], capture_output=True, timeout=5.0
+                # Check if Docker is available using new async method
+                success, result_output = (
+                    await PlatformService.run_command_with_result_async(
+                        "DOCKER_COMMANDS",
+                        subkey="version",
+                        capture_output=True,
+                        text=True,
+                        timeout=5.0,
+                    )
                 )
 
-                if result.returncode == 0:
+                if success:
                     return ServiceResult.success(
                         {
                             "status": "healthy",
-                            "docker_version": result.stdout.strip(),
+                            "docker_version": result_output,
                             "platform": self.platform_service.get_platform(),
                         }
                     )
-                error = ProcessError(
-                    "Docker is not available",
-                    return_code=result.returncode,
-                    stderr=result.stderr,
-                )
-                return ServiceResult.error(error)
+                else:
+                    error = ProcessError(
+                        f"Docker is not available: {result_output}",
+                        error_code="DOCKER_NOT_AVAILABLE",
+                    )
+                    return ServiceResult.error(error)
 
             except Exception as e:
                 error = ProcessError(f"Failed to check Docker availability: {str(e)}")
                 return ServiceResult.error(error)
+
+    async def _validate_shell_script_shebang(self, script_path: Path) -> bool:
+        """
+        Validate and fix shebang line in shell script
+        Returns True if successful, False otherwise
+        """
+        try:
+            content = script_path.read_text(encoding="utf-8")
+            lines = content.split("\n")
+
+            # Check if first line is a valid shebang
+            if lines and lines[0].startswith("#!"):
+                # Already has shebang, validate it's appropriate
+                shebang = lines[0].strip()
+                if shebang in ["#!/bin/sh", "#!/bin/bash", "#!/usr/bin/env bash"]:
+                    return True
+                else:
+                    # Fix shebang to use /bin/sh for maximum compatibility
+                    lines[0] = "#!/bin/sh"
+                    fixed_content = "\n".join(lines)
+                    script_path.write_text(
+                        fixed_content, encoding="utf-8", newline="\n"
+                    )
+                    return True
+            else:
+                # No shebang, add one
+                fixed_content = "#!/bin/sh\n" + content
+                script_path.write_text(fixed_content, encoding="utf-8", newline="\n")
+                return True
+
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to validate shebang in {script_path}: {str(e)}"
+            )
+            return False
+
+    async def _normalize_shell_script(self, script_path: Path) -> bool:
+        """
+        Normalize line endings in shell script to Unix format (LF)
+        Returns True if successful, False otherwise
+        """
+        try:
+            # Read the file content
+            content = script_path.read_text(encoding="utf-8")
+
+            # Convert Windows line endings (CRLF) to Unix line endings (LF)
+            normalized_content = content.replace("\r\n", "\n").replace("\r", "\n")
+
+            # Write back with Unix line endings
+            script_path.write_text(normalized_content, encoding="utf-8", newline="\n")
+
+            return True
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to normalize line endings in {script_path}: {str(e)}"
+            )
+            return False
 
     async def build_docker_image(
         self,
@@ -77,25 +137,126 @@ class DockerService(AsyncServiceInterface):
 
         async with self.operation_context("build_docker_image", timeout=300.0) as ctx:
             try:
-                # Prepare build command
-                build_cmd = DOCKER_COMMANDS["build_script"].format(tag=docker_tag)
-                cmd_list, cmd_display = await run_in_executor(
-                    self.platform_service.create_bash_command, build_cmd
-                )
-
                 if progress_callback:
                     progress_callback(f"=== DOCKER BUILD ===\n")
-                    progress_callback(f"Command: {cmd_display}\n\n")
 
-                # Stream build output
-                use_shell = isinstance(cmd_list[0], str) and "bash -c" in cmd_list[0]
-                cmd_to_run = cmd_list[0] if use_shell else cmd_list
+                # Check if build_docker.sh exists and fix permissions if needed
+                build_script_path = project_path / "build_docker.sh"
+                if not build_script_path.exists():
+                    error = ValidationError(
+                        f"build_docker.sh not found in {project_path}"
+                    )
+                    return ServiceResult.error(error)
 
-                return_code, build_output = await run_subprocess_streaming_async(
-                    cmd_to_run,
-                    shell=use_shell,
-                    cwd=str(project_path),
-                    output_callback=progress_callback,
+                # Also check if run_tests.sh exists and fix it
+                run_tests_path = project_path / "run_tests.sh"
+                if not run_tests_path.exists():
+                    error = ValidationError(f"run_tests.sh not found in {project_path}")
+                    return ServiceResult.error(error)
+
+                # Validate and fix shebang line for build_docker.sh
+                if progress_callback:
+                    progress_callback(f"Validating shebang in {build_script_path}...\n")
+
+                shebang_success = await self._validate_shell_script_shebang(
+                    build_script_path
+                )
+                if not shebang_success and progress_callback:
+                    progress_callback(f"Warning: Failed to validate shebang line\n")
+
+                # Validate and fix shebang line for run_tests.sh
+                if progress_callback:
+                    progress_callback(f"Validating shebang in {run_tests_path}...\n")
+
+                shebang_success = await self._validate_shell_script_shebang(
+                    run_tests_path
+                )
+                if not shebang_success and progress_callback:
+                    progress_callback(
+                        f"Warning: Failed to validate run_tests.sh shebang line\n"
+                    )
+
+                # Normalize line endings to Unix format for build_docker.sh
+                if progress_callback:
+                    progress_callback(
+                        f"Normalizing line endings in {build_script_path}...\n"
+                    )
+
+                normalize_success = await self._normalize_shell_script(
+                    build_script_path
+                )
+                if not normalize_success and progress_callback:
+                    progress_callback(f"Warning: Failed to normalize line endings\n")
+
+                # Normalize line endings to Unix format for run_tests.sh
+                if progress_callback:
+                    progress_callback(
+                        f"Normalizing line endings in {run_tests_path}...\n"
+                    )
+
+                normalize_success = await self._normalize_shell_script(run_tests_path)
+                if not normalize_success and progress_callback:
+                    progress_callback(
+                        f"Warning: Failed to normalize run_tests.sh line endings\n"
+                    )
+
+                # Ensure the build script has execute permissions
+                if progress_callback:
+                    progress_callback(
+                        f"Setting execute permissions for {build_script_path}...\n"
+                    )
+
+                success, error_msg = (
+                    await PlatformService.run_command_with_result_async(
+                        "FILE_PERMISSION_COMMANDS",
+                        subkey="make_executable",
+                        file_path=str(build_script_path),
+                        capture_output=True,
+                        text=True,
+                    )
+                )
+
+                if not success and progress_callback:
+                    progress_callback(
+                        f"Warning: Failed to set execute permissions: {error_msg}\n"
+                    )
+
+                # Ensure the run_tests.sh script has execute permissions
+                if progress_callback:
+                    progress_callback(
+                        f"Setting execute permissions for {run_tests_path}...\n"
+                    )
+
+                success, error_msg = (
+                    await PlatformService.run_command_with_result_async(
+                        "FILE_PERMISSION_COMMANDS",
+                        subkey="make_executable",
+                        file_path=str(run_tests_path),
+                        capture_output=True,
+                        text=True,
+                    )
+                )
+
+                if not success and progress_callback:
+                    progress_callback(
+                        f"Warning: Failed to set run_tests.sh execute permissions: {error_msg}\n"
+                    )
+
+                # Use bash command execution for the build script
+                build_cmd = f"./build_docker.sh {docker_tag}"
+
+                if progress_callback:
+                    progress_callback(f"Command: {build_cmd}\n\n")
+
+                # Stream build output using new async method
+                return_code, build_output = (
+                    await PlatformService.run_command_streaming_async(
+                        "SHELL_COMMANDS",
+                        subkey="bash_execute",
+                        command=build_cmd,
+                        cwd=str(project_path),
+                        output_callback=progress_callback,
+                    )
                 )
 
                 if return_code == 0:
@@ -108,7 +269,7 @@ class DockerService(AsyncServiceInterface):
                         metadata={
                             "build_output": build_output,
                             "project_path": str(project_path),
-                            "command": cmd_display,
+                            "command": build_cmd,
                         },
                     )
                 else:
@@ -155,17 +316,21 @@ class DockerService(AsyncServiceInterface):
                 if progress_callback:
                     progress_callback(f"\n=== DOCKER TEST ===\n")
 
-                test_cmd = DOCKER_COMMANDS["run_tests"].format(tag=docker_tag)
+                # Use bash command execution for the test command
+                test_cmd = f"docker run --rm {docker_tag} ./run_tests.sh"
 
                 if progress_callback:
                     progress_callback(f"Command: {test_cmd}\n\n")
 
                 # Use streaming subprocess for real-time output
-                return_code, test_output = await run_subprocess_streaming_async(
-                    test_cmd,
-                    shell=True,
-                    cwd=str(project_path),
-                    output_callback=progress_callback,
+                return_code, test_output = (
+                    await PlatformService.run_command_streaming_async(
+                        "SHELL_COMMANDS",
+                        subkey="bash_execute",
+                        command=test_cmd,
+                        cwd=str(project_path),
+                        output_callback=progress_callback,
+                    )
                 )
 
                 # Analyze test results

@@ -1094,8 +1094,8 @@ class ValidateProjectGroupCommand(AsyncCommand):
                             from services.platform_service import PlatformService
 
                             success, error_msg = (
-                                PlatformService.open_file_with_default_application(
-                                    str(results_file)
+                                PlatformService.run_command_with_result(
+                                    "FILE_OPEN_COMMANDS", file_path=str(results_file)
                                 )
                             )
                             if not success:
