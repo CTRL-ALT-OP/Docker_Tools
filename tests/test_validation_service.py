@@ -551,7 +551,7 @@ class TestValidationServiceIntegration:
                             )
                         )
 
-                        assert result.is_success  # Process completed successfully
+                        assert result.success  # Process completed successfully
                         assert result.data.success is False  # But validation failed
                         assert len(result.data.archived_projects) == 2
                         assert result.data.total_projects == 2

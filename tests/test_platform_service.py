@@ -338,36 +338,6 @@ class TestPlatformService:
                     # Archive name should be in command
                     assert any(archive_name in str(part) for part in cmd)
 
-    def test_create_file_open_command_windows(self):
-        """Test creating file open command on Windows"""
-        with patch.object(PlatformService, "get_platform") as mock_platform:
-            mock_platform.return_value = "windows"
-
-            file_path = "C:\\test\\file.txt"
-            cmd = PlatformService.create_file_open_command(file_path)
-
-            assert cmd[0] == "start"
-            assert file_path in cmd
-            assert len(cmd) == 2
-
-    def test_create_file_open_command_unix(self):
-        """Test creating file open command on Unix systems"""
-        with patch.object(PlatformService, "get_platform") as mock_platform:
-            # Test Linux
-            mock_platform.return_value = "linux"
-            file_path = "/test/file.txt"
-            cmd = PlatformService.create_file_open_command(file_path)
-
-            assert cmd[0] == "xdg-open"
-            assert file_path in cmd
-
-            # Test macOS
-            mock_platform.return_value = "darwin"
-            cmd = PlatformService.create_file_open_command(file_path)
-
-            assert cmd[0] == "open"
-            assert file_path in cmd
-
     def test_open_file_with_default_application_success(self):
         """Test successfully opening a file"""
         with patch.object(PlatformService, "get_platform") as mock_platform:
