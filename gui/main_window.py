@@ -32,6 +32,8 @@ class MainWindow:
         self.scrollable_frame = None
         self.project_selector = None
         self.navigation_frame = None
+        self.archive_buttons = {}  # Dictionary to track archive buttons
+        self.archived_projects = {}  # Dictionary to track archived project states
 
         # Callbacks for main window operations
         self.on_project_selected_callback = None
@@ -436,6 +438,18 @@ class MainWindow:
     def run(self):
         """Start the GUI main loop"""
         self.window.mainloop()
+
+    def _get_project_key(self, project):
+        return ""
+
+    def mark_project_archived(self, project):
+        pass
+
+    def _on_file_change(self, project_key):
+        pass
+
+    def reset_archive_button_color(self, project):
+        pass
 
     def destroy(self):
         """Destroy the main window"""
