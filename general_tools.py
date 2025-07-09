@@ -348,9 +348,9 @@ class ProjectControlPanel:
 
                     cleanup_message = "\n".join(cleanup_items)
 
-                    # Show dialog on main thread and wait for response
+                    # Show dialog on main thread and wait for response using async bridge
                     response = None
-                    response_event = asyncio.Event()
+                    event_id, response_event = self.async_bridge.create_sync_event()
 
                     def show_cleanup_dialog():
                         nonlocal response
@@ -362,12 +362,15 @@ class ProjectControlPanel:
                             f"• No: Archive without cleanup\n"
                             f"• Cancel: Don't archive",
                         )
-                        response_event.set()
+                        # Signal the event using the async bridge (thread-safe)
+                        self.async_bridge.signal_from_gui(event_id)
 
                     # Show dialog on main thread
                     self.window.after(0, show_cleanup_dialog)
                     # Wait for user response
                     await response_event.wait()
+                    # Clean up the event
+                    self.async_bridge.cleanup_event(event_id)
 
                     if response is None:  # Cancel
                         self._update_status("Archive cancelled by user", "info")
