@@ -134,9 +134,7 @@ class TestDockerService:
     async def test_run_tests_async(self):
         """Test async test execution"""
         # Mock the async utilities
-        with patch(
-            "services.docker_service.run_subprocess_streaming_async"
-        ) as mock_run:
+        with patch("utils.async_utils.run_subprocess_streaming_async") as mock_run:
             mock_run.return_value = (0, "stdout", "stderr")
 
             # Create a mock project
@@ -155,7 +153,7 @@ class TestDockerService:
     async def test_build_and_test_async(self):
         """Test async build and test execution"""
         # Mock the async utilities
-        with patch("services.docker_service.run_subprocess_async") as mock_run:
+        with patch("utils.async_utils.run_subprocess_async") as mock_run:
             mock_run.return_value = (0, "Build successful", "")
 
             # Create a mock project
@@ -207,25 +205,29 @@ class TestDockerService:
             project_path = Path(temp_dir)
             docker_tag = "test:latest"
 
+            # Create required script files
+            build_script = project_path / "build_docker.sh"
+            run_tests_script = project_path / "run_tests.sh"
+
+            build_script.write_text("#!/bin/bash\necho 'Building Docker image...'\n")
+            run_tests_script.write_text("#!/bin/bash\necho 'Running tests...'\n")
+
             # Mock callbacks
             output_callback = Mock()
             status_callback = Mock()
 
-            # Mock platform service and subprocess calls
+            # Mock platform service calls
             with patch(
-                "services.docker_service.run_in_executor"
-            ) as mock_executor, patch(
-                "services.docker_service.run_subprocess_streaming_async"
-            ) as mock_streaming:
+                "services.platform_service.PlatformService.run_command_with_result_async"
+            ) as mock_cmd_result, patch(
+                "services.platform_service.PlatformService.run_command_streaming_async"
+            ) as mock_cmd_streaming:
 
-                # Mock platform service response
-                mock_executor.return_value = (
-                    ["docker", "build", "-t", "test:latest", "."],
-                    "docker build -t test:latest .",
-                )
+                # Mock file permission commands to succeed
+                mock_cmd_result.return_value = (True, "")
 
                 # Mock successful build
-                mock_streaming.return_value = (0, "Build successful")
+                mock_cmd_streaming.return_value = (0, "Build successful")
 
                 result = await self.docker_service.build_docker_image(
                     project_path, docker_tag, output_callback, status_callback
@@ -242,25 +244,29 @@ class TestDockerService:
             project_path = Path(temp_dir)
             docker_tag = "test:latest"
 
+            # Create required script files
+            build_script = project_path / "build_docker.sh"
+            run_tests_script = project_path / "run_tests.sh"
+
+            build_script.write_text("#!/bin/bash\necho 'Building Docker image...'\n")
+            run_tests_script.write_text("#!/bin/bash\necho 'Running tests...'\n")
+
             # Mock callbacks
             output_callback = Mock()
             status_callback = Mock()
 
-            # Mock platform service and subprocess calls
+            # Mock platform service calls
             with patch(
-                "services.docker_service.run_in_executor"
-            ) as mock_executor, patch(
-                "services.docker_service.run_subprocess_streaming_async"
-            ) as mock_streaming:
+                "services.platform_service.PlatformService.run_command_with_result_async"
+            ) as mock_cmd_result, patch(
+                "services.platform_service.PlatformService.run_command_streaming_async"
+            ) as mock_cmd_streaming:
 
-                # Mock platform service response
-                mock_executor.return_value = (
-                    ["docker", "build", "-t", "test:latest", "."],
-                    "docker build -t test:latest .",
-                )
+                # Mock file permission commands to succeed
+                mock_cmd_result.return_value = (True, "")
 
                 # Mock failed build
-                mock_streaming.return_value = (1, "Build failed")
+                mock_cmd_streaming.return_value = (1, "Build failed")
 
                 result = await self.docker_service.build_docker_image(
                     project_path, docker_tag, output_callback, status_callback
@@ -282,13 +288,20 @@ class TestDockerService:
             project_path = Path(temp_dir)
             docker_tag = "test:latest"
 
+            # Create required script files
+            build_script = project_path / "build_docker.sh"
+            run_tests_script = project_path / "run_tests.sh"
+
+            build_script.write_text("#!/bin/bash\necho 'Building Docker image...'\n")
+            run_tests_script.write_text("#!/bin/bash\necho 'Running tests...'\n")
+
             # Mock callbacks
             output_callback = Mock()
             status_callback = Mock()
 
             # Mock platform service to raise exception
             with patch(
-                "services.docker_service.run_in_executor",
+                "services.platform_service.PlatformService.run_command_streaming_async",
                 side_effect=Exception("Platform error"),
             ):
                 result = await self.docker_service.build_docker_image(
@@ -318,7 +331,7 @@ class TestDockerService:
             test_output = "collected 5 items\ntest.py::test_one PASSED\n===== 5 passed in 0.5s ====="
 
             with patch(
-                "services.docker_service.run_subprocess_streaming_async",
+                "services.platform_service.PlatformService.run_command_streaming_async",
                 return_value=(0, test_output),
             ):
                 result = await self.docker_service.run_docker_tests(
@@ -345,7 +358,7 @@ class TestDockerService:
             test_output = "collected 3 items\ntest.py::test_one PASSED\ntest.py::test_two FAILED\n===== 1 passed, 1 failed in 0.5s ====="
 
             with patch(
-                "services.docker_service.run_subprocess_streaming_async",
+                "services.platform_service.PlatformService.run_command_streaming_async",
                 return_value=(1, test_output),
             ):
                 result = await self.docker_service.run_docker_tests(
@@ -369,7 +382,7 @@ class TestDockerService:
             status_callback = Mock()
 
             with patch(
-                "services.docker_service.run_subprocess_streaming_async",
+                "services.platform_service.PlatformService.run_command_streaming_async",
                 side_effect=Exception("Docker error"),
             ):
                 result = await self.docker_service.run_docker_tests(
@@ -399,7 +412,7 @@ class TestDockerService:
             test_output = "collected 2 items\n===== 2 passed in 0.3s =====\nWARNING: deprecated feature used"
 
             with patch(
-                "services.docker_service.run_subprocess_streaming_async",
+                "services.platform_service.PlatformService.run_command_streaming_async",
                 return_value=(0, test_output),
             ):
                 result = await self.docker_service.run_docker_tests(
@@ -571,33 +584,37 @@ class TestDockerService:
             project_path = Path(temp_dir)
             docker_tag = "test:latest"
 
+            # Create required script files
+            build_script = project_path / "build_docker.sh"
+            run_tests_script = project_path / "run_tests.sh"
+
+            build_script.write_text("#!/bin/bash\necho 'Building Docker image...'\n")
+            run_tests_script.write_text("#!/bin/bash\necho 'Running tests...'\n")
+
             # Mock callbacks
             output_callback = Mock()
             status_callback = Mock()
 
-            # Mock platform service methods
+            # Mock platform service calls
             with patch(
-                "services.docker_service.run_in_executor"
-            ) as mock_executor, patch(
-                "services.docker_service.run_subprocess_streaming_async"
-            ) as mock_streaming:
+                "services.platform_service.PlatformService.run_command_with_result_async"
+            ) as mock_cmd_result, patch(
+                "services.platform_service.PlatformService.run_command_streaming_async"
+            ) as mock_cmd_streaming:
 
-                # Mock platform service response
-                mock_executor.return_value = (
-                    ["docker", "build", "-t", "test:latest", "."],
-                    "docker build -t test:latest .",
-                )
+                # Mock file permission commands to succeed
+                mock_cmd_result.return_value = (True, "")
 
                 # Mock successful streaming
-                mock_streaming.return_value = (0, "Build successful")
+                mock_cmd_streaming.return_value = (0, "Build successful")
 
                 result = await self.docker_service.build_docker_image(
                     project_path, docker_tag, output_callback, status_callback
                 )
 
                 assert result.is_success is True
-                mock_executor.assert_called_once()
-                mock_streaming.assert_called_once()
+                mock_cmd_result.assert_called()
+                mock_cmd_streaming.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_docker_command_formatting(self):
@@ -607,25 +624,29 @@ class TestDockerService:
             project_path = Path(temp_dir)
             docker_tag = "test-image:v1.0"
 
+            # Create required script files
+            build_script = project_path / "build_docker.sh"
+            run_tests_script = project_path / "run_tests.sh"
+
+            build_script.write_text("#!/bin/bash\necho 'Building Docker image...'\n")
+            run_tests_script.write_text("#!/bin/bash\necho 'Running tests...'\n")
+
             # Mock callbacks
             output_callback = Mock()
             status_callback = Mock()
 
-            # Mock platform service
+            # Mock platform service calls
             with patch(
-                "services.docker_service.run_in_executor"
-            ) as mock_executor, patch(
-                "services.docker_service.run_subprocess_streaming_async"
-            ) as mock_streaming:
+                "services.platform_service.PlatformService.run_command_with_result_async"
+            ) as mock_cmd_result, patch(
+                "services.platform_service.PlatformService.run_command_streaming_async"
+            ) as mock_cmd_streaming:
 
-                # Mock platform service response
-                mock_executor.return_value = (
-                    ["docker", "build", "-t", docker_tag, "."],
-                    f"docker build -t {docker_tag} .",
-                )
+                # Mock file permission commands to succeed
+                mock_cmd_result.return_value = (True, "")
 
                 # Mock successful streaming
-                mock_streaming.return_value = (0, "Build successful")
+                mock_cmd_streaming.return_value = (0, "Build successful")
 
                 result = await self.docker_service.build_docker_image(
                     project_path, docker_tag, output_callback, status_callback
@@ -633,12 +654,13 @@ class TestDockerService:
 
                 assert result.is_success is True
                 # Verify platform service was called with correct parameters
-                mock_executor.assert_called_once()
-                args, kwargs = mock_executor.call_args
-                # The first argument should be the platform service method call
-                assert callable(
-                    args[0]
-                )  # Should be a callable (platform service method)
+                mock_cmd_result.assert_called()
+                mock_cmd_streaming.assert_called_once()
+
+                # Check the command formatting by examining the streaming call
+                args, kwargs = mock_cmd_streaming.call_args
+                # Should have command_key as first argument
+                assert args[0] == "SHELL_COMMANDS"
 
 
 if __name__ == "__main__":

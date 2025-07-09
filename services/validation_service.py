@@ -83,6 +83,7 @@ class ValidationService(AsyncServiceInterface):
         self.platform_service = PlatformService()
         self.file_service = FileService()
         self.project_service = ProjectService()
+        self._streaming_task = None  # Store reference to background streaming task
 
     def _determine_codebase_type(self, project: Project) -> str:
         """Determine codebase type based on project parent directory"""
@@ -579,8 +580,31 @@ class ValidationService(AsyncServiceInterface):
             # Run the output reading in a thread to avoid blocking
             await run_in_executor(read_output)
 
+        except asyncio.CancelledError:
+            # Task was cancelled, this is expected during cleanup
+            output_callback("🔄 Docker output streaming stopped\n")
+            raise
         except Exception as e:
             output_callback(f"❌ Error streaming Docker output: {str(e)}\n")
+
+    async def _cleanup_validation_process(self):
+        """Clean up validation process and associated tasks"""
+        try:
+            # Cancel streaming task if it exists
+            if self._streaming_task and not self._streaming_task.done():
+                self._streaming_task.cancel()
+                try:
+                    await self._streaming_task
+                except asyncio.CancelledError:
+                    pass  # Expected when cancelling
+
+            # Clean up process reference
+            if hasattr(self, "_validation_process"):
+                self._validation_process = None
+
+        except Exception as e:
+            # Don't let cleanup errors propagate
+            self.logger.warning(f"Error during validation process cleanup: {e}")
 
     async def _run_validation_script(
         self,
@@ -781,8 +805,10 @@ class ValidationService(AsyncServiceInterface):
             # Store process for potential cleanup
             self._validation_process = process
 
-            # Start a background task to stream output (don't await it!)
-            asyncio.create_task(self._stream_docker_output(process, output_callback))
+            # Start a background task to stream output and store reference to avoid warnings
+            self._streaming_task = asyncio.create_task(
+                self._stream_docker_output(process, output_callback)
+            )
 
             output_callback(f"🔄 Docker Compose started (PID: {process.pid})\n")
             output_callback("📋 Starting health checks while Docker builds...\n\n")

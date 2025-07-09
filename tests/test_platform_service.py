@@ -210,7 +210,8 @@ class TestPlatformService:
                 command = "echo 'Hello World'"
                 cmd_list, display_cmd = PlatformService.create_bash_command(command)
 
-                assert cmd_list == [f'bash -c "{command}"']
+                # New implementation returns separate elements, not a single string
+                assert cmd_list == ["bash", "-c", command]
                 assert display_cmd == f'bash -c "{command}"'
 
     def test_get_error_message_windows(self):
@@ -270,20 +271,24 @@ class TestPlatformService:
             mock_result.stdout = "Success"
             mock_run.return_value = mock_result
 
-            # Test without shell
+            # Test without shell - using new API with cmd parameter
             cmd = ["echo", "test"]
-            result = PlatformService.run_command(cmd)
+            result = PlatformService.run_command("SHELL_COMMANDS", cmd=cmd)
             mock_run.assert_called_with(cmd, shell=False)
             assert result.returncode == 0
 
-            # Test with shell
+            # Test with shell - using new API with cmd parameter
             cmd = ["echo test"]
-            result = PlatformService.run_command(cmd, use_shell=True)
+            result = PlatformService.run_command(
+                "SHELL_COMMANDS", cmd=cmd, use_shell=True
+            )
             mock_run.assert_called_with(cmd, shell=True)
 
-            # Test with additional kwargs
+            # Test with additional kwargs - using new API with cmd parameter
             cmd = ["ls", "-la"]
-            result = PlatformService.run_command(cmd, cwd="/tmp", capture_output=True)
+            result = PlatformService.run_command(
+                "SHELL_COMMANDS", cmd=cmd, cwd="/tmp", capture_output=True
+            )
             mock_run.assert_called_with(
                 cmd, shell=False, cwd="/tmp", capture_output=True
             )
@@ -368,8 +373,8 @@ class TestPlatformService:
         with patch.object(PlatformService, "get_platform") as mock_platform:
             mock_platform.return_value = "linux"
 
-            with patch.object(PlatformService, "run_command") as mock_run:
-                mock_run.return_value = Mock(returncode=0)
+            with patch.object(PlatformService, "run_command_with_result") as mock_run:
+                mock_run.return_value = (True, "")
 
                 success, error_msg = PlatformService.open_file_with_default_application(
                     "/test/file.txt"
@@ -384,15 +389,15 @@ class TestPlatformService:
         with patch.object(PlatformService, "get_platform") as mock_platform:
             mock_platform.return_value = "linux"
 
-            with patch.object(PlatformService, "run_command") as mock_run:
-                mock_run.side_effect = subprocess.CalledProcessError(1, "xdg-open")
+            with patch.object(PlatformService, "run_command_with_result") as mock_run:
+                mock_run.return_value = (False, "Error: Command failed")
 
                 success, error_msg = PlatformService.open_file_with_default_application(
                     "/test/file.txt"
                 )
 
                 assert success is False
-                assert "Failed to open file" in error_msg
+                assert "Error" in error_msg
 
     def test_is_unix_like(self):
         """Test Unix-like platform detection"""
@@ -411,14 +416,14 @@ class TestPlatformService:
 
     def test_get_pwd_command(self):
         """Test getting platform-specific pwd command"""
-        with patch.object(PlatformService, "is_windows") as mock_is_windows:
+        with patch.object(PlatformService, "get_platform") as mock_get_platform:
             # Test Windows
-            mock_is_windows.return_value = True
+            mock_get_platform.return_value = "windows"
             cmd = PlatformService.get_pwd_command()
             assert cmd == ["cd"]
 
             # Test Unix
-            mock_is_windows.return_value = False
+            mock_get_platform.return_value = "linux"
             cmd = PlatformService.get_pwd_command()
             assert cmd == ["pwd"]
 
@@ -447,36 +452,36 @@ class TestPlatformService:
 
     def test_check_docker_available_success(self):
         """Test successful Docker availability check"""
-        with patch.object(PlatformService, "run_command") as mock_run:
-            mock_run.return_value = Mock(returncode=0)
+        with patch.object(PlatformService, "run_command_with_result") as mock_run:
+            mock_run.return_value = (True, "")
 
             available, error_msg = PlatformService.check_docker_available()
 
             assert available is True
             assert error_msg == ""
             mock_run.assert_called_once_with(
-                ["docker", "--version"], capture_output=True, check=True
+                "DOCKER_COMMANDS", subkey="version", capture_output=True, check=True
             )
 
     def test_check_docker_available_not_running(self):
         """Test Docker not running"""
-        with patch.object(PlatformService, "run_command") as mock_run:
-            mock_run.side_effect = subprocess.CalledProcessError(1, "docker")
+        with patch.object(PlatformService, "run_command_with_result") as mock_run:
+            mock_run.return_value = (False, "Docker daemon not running")
 
             available, error_msg = PlatformService.check_docker_available()
 
             assert available is False
-            assert "not available or not running" in error_msg
+            assert "Docker daemon not running" in error_msg
 
     def test_check_docker_available_not_installed(self):
         """Test Docker not installed"""
-        with patch.object(PlatformService, "run_command") as mock_run:
-            mock_run.side_effect = FileNotFoundError("docker command not found")
+        with patch.object(PlatformService, "run_command_with_result") as mock_run:
+            mock_run.return_value = (False, "Docker command not found")
 
             available, error_msg = PlatformService.check_docker_available()
 
             assert available is False
-            assert "not installed" in error_msg
+            assert "Docker command not found" in error_msg
 
 
 if __name__ == "__main__":

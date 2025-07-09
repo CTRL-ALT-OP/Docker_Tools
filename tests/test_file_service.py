@@ -343,11 +343,10 @@ class TestFileService:
 
         # Mock platform service
         with patch.object(
-            self.file_service.platform_service, "create_archive_command"
-        ) as mock_cmd, patch("subprocess.run") as mock_run:
+            self.file_service.platform_service, "run_command_with_result_async"
+        ) as mock_cmd:
 
-            mock_cmd.return_value = (["tar", "-czf", archive_name, "."], True)
-            mock_run.return_value = Mock(returncode=0)
+            mock_cmd.return_value = (True, "Archive created successfully")
 
             result = await self.file_service.create_archive(project_path, archive_name)
 
@@ -403,7 +402,7 @@ class TestFileService:
         # Mock OS error in platform service
         with patch.object(
             self.file_service.platform_service,
-            "create_archive_command",
+            "run_command_with_result_async",
             side_effect=OSError("Disk full"),
         ):
             result = await self.file_service.create_archive(project_path, archive_name)
@@ -419,78 +418,73 @@ class TestFileService:
         # Mock unexpected error
         with patch.object(
             self.file_service.platform_service,
-            "create_archive_command",
+            "run_command_with_result_async",
             side_effect=ValueError("Unexpected error"),
         ):
             result = await self.file_service.create_archive(project_path, archive_name)
 
             assert result.is_error is True
 
-    def test_sync_create_archive_success(self):
-        """Test synchronous archive creation"""
+    @pytest.mark.asyncio
+    async def test_async_create_archive_success(self):
+        """Test asynchronous archive creation"""
         project_path = self.create_test_directory_structure()
         archive_name = "test_archive.zip"
 
         # Mock platform service
         with patch.object(
-            self.file_service.platform_service, "create_archive_command"
-        ) as mock_cmd, patch("subprocess.run") as mock_run:
+            self.file_service.platform_service, "run_command_with_result_async"
+        ) as mock_run:
 
-            mock_cmd.return_value = (["tar", "-czf", archive_name, "."], True)
-            mock_run.return_value = Mock(returncode=0)
+            mock_run.return_value = (True, "")
 
-            result_dict = self.file_service._create_archive_sync(
+            result_dict = await self.file_service._create_archive_async(
                 project_path, archive_name
             )
 
             assert result_dict["success"] is True
-            mock_cmd.assert_called_once()
+            mock_run.assert_called_once()
 
-    def test_sync_create_archive_restores_cwd(self):
-        """Test that sync archive creation restores original working directory"""
+    @pytest.mark.asyncio
+    async def test_async_create_archive_restores_cwd(self):
+        """Test that async archive creation restores original working directory"""
         project_path = self.create_test_directory_structure()
         archive_name = "test_archive.zip"
         original_cwd = os.getcwd()
 
         # Mock platform service methods
-        mock_cmd = ["tar", "-czf", archive_name, "."]
-        self.file_service.platform_service.create_archive_command = Mock(
-            return_value=(mock_cmd, False)
-        )
+        with patch.object(
+            self.file_service.platform_service, "run_command_with_result_async"
+        ) as mock_run:
+            mock_run.return_value = (True, "")
 
-        mock_result = Mock()
-        mock_result.returncode = 0
-        self.file_service.platform_service.run_command = Mock(return_value=mock_result)
+            # Call the method
+            await self.file_service._create_archive_async(project_path, archive_name)
 
-        # Call the method
-        self.file_service._create_archive_sync(project_path, archive_name)
+            # Verify we're back in original directory
+            assert os.getcwd() == original_cwd
 
-        # Verify we're back in original directory
-        assert os.getcwd() == original_cwd
-
-    def test_sync_create_archive_restores_cwd_on_error(self):
-        """Test that sync archive creation restores cwd even when command fails"""
+    @pytest.mark.asyncio
+    async def test_async_create_archive_restores_cwd_on_error(self):
+        """Test that async archive creation restores cwd even when command fails"""
         project_path = self.create_test_directory_structure()
         archive_name = "test_archive.zip"
         original_cwd = os.getcwd()
 
         # Mock platform service methods to fail
-        mock_cmd = ["tar", "-czf", archive_name, "."]
-        self.file_service.platform_service.create_archive_command = Mock(
-            return_value=(mock_cmd, False)
-        )
+        with patch.object(
+            self.file_service.platform_service, "run_command_with_result_async"
+        ) as mock_run:
+            mock_run.return_value = (False, "Command failed")
 
-        mock_result = Mock()
-        mock_result.returncode = 1
-        mock_result.stderr = "Command failed"
-        self.file_service.platform_service.run_command = Mock(return_value=mock_result)
+            # Call the method and get the result dict
+            result_dict = await self.file_service._create_archive_async(
+                project_path, archive_name
+            )
 
-        # Call the method and get the result dict
-        result_dict = self.file_service._create_archive_sync(project_path, archive_name)
-
-        # Verify we're back in original directory even after failure
-        assert os.getcwd() == original_cwd
-        assert result_dict["success"] is False
+            # Verify we're back in original directory even after failure
+            assert os.getcwd() == original_cwd
+            assert result_dict["success"] is False
 
     @pytest.mark.asyncio
     async def test_cleanup_with_deeply_nested_directories(self):

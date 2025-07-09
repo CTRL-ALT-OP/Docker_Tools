@@ -146,6 +146,7 @@ COMMANDS = {
                 "{target_dir}",
                 "{file_name}",
                 "/COPY:DAT",
+                "/IS",
             ],
             "linux": ["cp", "-p", "{source_path}", "{target_path}"],
             "darwin": ["cp", "-p", "{source_path}", "{target_path}"],

@@ -112,96 +112,128 @@ class TestGitService:
     def create_git_mock_handler(
         self, log_output, main_branch_commits=None, branch_mappings=None
     ):
-        """Helper to create a mock subprocess handler for git commands"""
+        """Helper to create a mock handler for git commands supporting both APIs"""
         if main_branch_commits is None:
             main_branch_commits = ["abc123"]
         if branch_mappings is None:
             branch_mappings = {}
 
-        def mock_subprocess_call(cmd, **kwargs):
-            """Mock different git commands with appropriate outputs"""
-            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+        def dual_mock_call(*args, **kwargs):
+            """Mock handler that works with both PlatformService.run_command_async and run_subprocess_async"""
 
-            # Git log command (main commit history)
-            if "git log" in cmd_str and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str:
-                return Mock(returncode=0, stdout=log_output, stderr="")
+            # Handle PlatformService.run_command_async(command_group, subkey=None, **kwargs)
+            if len(args) >= 1 and isinstance(args[0], str) and "subkey" in kwargs:
+                command_group, subkey = args[0], kwargs["subkey"]
 
-            # Git rev-list for main branch commits
-            elif "git rev-list --first-parent" in cmd_str:
-                main_commits_output = ""
-                for commit in main_branch_commits:
-                    main_commits_output += f"commit {commit}\n{commit}\n"
-                return Mock(returncode=0, stdout=main_commits_output, stderr="")
-
-            # Git rev-parse for branch verification
-            elif "git rev-parse --verify" in cmd_str:
-                if "origin/master" in cmd_str or "master" in cmd_str:
-                    return Mock(returncode=0, stdout="abc123\n", stderr="")
+                # Repository info operations
+                if subkey == "rev_parse_git_dir":
+                    return Mock(returncode=0, stdout=".git\n", stderr="")
+                elif subkey == "remote_check":
+                    return Mock(returncode=0, stdout="origin\n", stderr="")
+                elif subkey == "branch_show_current":
+                    return Mock(returncode=0, stdout="master\n", stderr="")
+                elif subkey == "rev_parse_head":
+                    return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+                elif subkey == "status_porcelain":
+                    return Mock(returncode=0, stdout="", stderr="")
+                elif subkey == "log":
+                    return Mock(returncode=0, stdout=log_output, stderr="")
+                elif subkey == "fetch":
+                    return Mock(returncode=0, stdout="fetch completed", stderr="")
                 else:
-                    return Mock(
-                        returncode=1, stdout="", stderr="fatal: ambiguous argument"
-                    )
+                    return Mock(returncode=0, stdout="", stderr="")
 
-            # Git branch --contains for branch detection
-            elif "git branch --contains" in cmd_str:
-                # Extract commit hash from command
-                commit_hash = None
-                for part in cmd:
-                    if (
-                        len(part) == 6 and part.isalnum()
-                    ):  # Simple commit hash detection
-                        commit_hash = part
-                        break
+            # Handle run_subprocess_async(cmd, **kwargs)
+            elif len(args) >= 1 and isinstance(args[0], (list, tuple)):
+                cmd = args[0]
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
 
-                if commit_hash in branch_mappings:
-                    return Mock(
-                        returncode=0, stdout=branch_mappings[commit_hash], stderr=""
-                    )
-                else:
-                    return Mock(
-                        returncode=0,
-                        stdout="* master\n  remotes/origin/master\n",
-                        stderr="",
-                    )
+                # Git log command (main commit history)
+                if (
+                    "git log" in cmd_str
+                    and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str
+                ):
+                    return Mock(returncode=0, stdout=log_output, stderr="")
 
-            # Git name-rev for commit branch names
-            elif "git name-rev --name-only" in cmd_str:
-                # Extract commit hash from command
-                commit_hash = None
-                for part in cmd:
-                    if (
-                        len(part) == 6 and part.isalnum()
-                    ):  # Simple commit hash detection
-                        commit_hash = part
-                        break
+                # Git rev-list for main branch commits
+                elif "git rev-list --first-parent" in cmd_str:
+                    main_commits_output = ""
+                    for commit in main_branch_commits:
+                        main_commits_output += f"commit {commit}\n{commit}\n"
+                    return Mock(returncode=0, stdout=main_commits_output, stderr="")
 
-                if commit_hash in branch_mappings:
-                    # Extract first non-master branch from branch_mappings
-                    branches = branch_mappings[commit_hash].split("\n")
-                    for branch in branches:
-                        branch = branch.strip()
+                # Git rev-parse for branch verification
+                elif "git rev-parse --verify" in cmd_str:
+                    if "origin/master" in cmd_str or "master" in cmd_str:
+                        return Mock(returncode=0, stdout="abc123\n", stderr="")
+                    else:
+                        return Mock(
+                            returncode=1, stdout="", stderr="fatal: ambiguous argument"
+                        )
+
+                # Git branch --contains for branch detection
+                elif "git branch --contains" in cmd_str:
+                    # Extract commit hash from command
+                    commit_hash = None
+                    for part in cmd:
                         if (
-                            branch
-                            and not branch.startswith("*")
-                            and "master" not in branch
-                        ):
-                            if branch.startswith("remotes/origin/"):
-                                return Mock(
-                                    returncode=0, stdout=f"{branch}\n", stderr=""
-                                )
-                            elif branch.strip():
-                                return Mock(
-                                    returncode=0,
-                                    stdout=f"remotes/origin/{branch.strip()}\n",
-                                    stderr="",
-                                )
+                            len(part) == 6 and part.isalnum()
+                        ):  # Simple commit hash detection
+                            commit_hash = part
+                            break
 
-                return Mock(returncode=0, stdout="master\n", stderr="")
+                    if commit_hash in branch_mappings:
+                        return Mock(
+                            returncode=0, stdout=branch_mappings[commit_hash], stderr=""
+                        )
+                    else:
+                        return Mock(
+                            returncode=0,
+                            stdout="* master\n  remotes/origin/master\n",
+                            stderr="",
+                        )
+
+                # Git name-rev for commit branch names
+                elif "git name-rev --name-only" in cmd_str:
+                    # Extract commit hash from command
+                    commit_hash = None
+                    for part in cmd:
+                        if (
+                            len(part) == 6 and part.isalnum()
+                        ):  # Simple commit hash detection
+                            commit_hash = part
+                            break
+
+                    if commit_hash in branch_mappings:
+                        # Extract first non-master branch from branch_mappings
+                        branches = branch_mappings[commit_hash].split("\n")
+                        for branch in branches:
+                            branch = branch.strip()
+                            if (
+                                branch
+                                and not branch.startswith("*")
+                                and "master" not in branch
+                            ):
+                                if branch.startswith("remotes/origin/"):
+                                    return Mock(
+                                        returncode=0, stdout=f"{branch}\n", stderr=""
+                                    )
+                                elif branch.strip():
+                                    return Mock(
+                                        returncode=0,
+                                        stdout=f"remotes/origin/{branch.strip()}\n",
+                                        stderr="",
+                                    )
+
+                    return Mock(returncode=0, stdout="master\n", stderr="")
+
+                # Default fallback for run_subprocess_async
+                return Mock(returncode=0, stdout="", stderr="")
 
             # Default fallback
             return Mock(returncode=0, stdout="", stderr="")
 
-        return mock_subprocess_call
+        return dual_mock_call
 
     @pytest.mark.asyncio
     async def test_fetch_latest_commits_no_remote(self):
@@ -267,6 +299,9 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug in module Y"""
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
             "services.git_service.run_subprocess_async", side_effect=mock_handler
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_handler,
         ):
 
             from utils.async_base import ServiceResult
@@ -289,35 +324,34 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug in module Y"""
         repo_path = Path(self.temp_dir) / "test_repo"
         repo_path.mkdir(parents=True, exist_ok=True)
 
-        def mock_git_status_commands(cmd, **kwargs):
-            """Mock git commands for status checking"""
-            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+        def mock_git_status_commands(command_group, subkey, **kwargs):
+            """Mock git commands for status checking - updated for PlatformService.run_command_async"""
 
             # Git rev-parse --git-dir (check if git repo)
-            if "git rev-parse --git-dir" in cmd_str:
+            if subkey == "rev_parse_git_dir":
                 return Mock(returncode=0, stdout=".git\n", stderr="")
 
             # Git remote check
-            elif "git remote" in cmd_str and "remote" in cmd:
+            elif subkey == "remote_check":
                 return Mock(returncode=0, stdout="origin\n", stderr="")
 
             # Git branch --show-current
-            elif "git branch --show-current" in cmd_str:
+            elif subkey == "branch_show_current":
                 return Mock(returncode=0, stdout="master\n", stderr="")
 
             # Git rev-parse HEAD
-            elif "git rev-parse HEAD" in cmd_str:
+            elif subkey == "rev_parse_head":
                 return Mock(returncode=0, stdout="abc123def456\n", stderr="")
 
             # Git status --porcelain (clean status)
-            elif "git status --porcelain" in cmd_str:
+            elif subkey == "status_porcelain":
                 return Mock(returncode=0, stdout="", stderr="")
 
             # Default fallback
             return Mock(returncode=0, stdout="", stderr="")
 
         with patch(
-            "services.git_service.run_subprocess_async",
+            "services.platform_service.PlatformService.run_command_async",
             side_effect=mock_git_status_commands,
         ):
             # Test getting repository info which includes status
@@ -369,15 +403,36 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug in module Y"""
         mock_fetch_result.returncode = 0
         mock_fetch_result.stdout = "fetch completed"
 
+        def mock_platform_commands(command_group, subkey, **kwargs):
+            """Mock platform commands with proper subkey handling"""
+            if subkey == "fetch":
+                return mock_fetch_result
+            # Handle other subkeys used by get_repository_info
+            elif subkey == "rev_parse_git_dir":
+                return Mock(returncode=0, stdout=".git\n", stderr="")
+            elif subkey == "remote_check":
+                return Mock(returncode=0, stdout="origin\n", stderr="")
+            elif subkey == "branch_show_current":
+                return Mock(returncode=0, stdout="master\n", stderr="")
+            elif subkey == "rev_parse_head":
+                return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+            elif subkey == "status_porcelain":
+                return Mock(returncode=0, stdout="", stderr="")
+            else:
+                return Mock(returncode=0, stdout="", stderr="")
+
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_platform_commands,
+        ), patch(
             "services.git_service.run_subprocess_async", return_value=mock_fetch_result
         ):
 
-            from utils.async_base import ServiceResult
-
             mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
+
+            from utils.async_base import ServiceResult
 
             # Run fetch on all repos concurrently
             tasks = [self.git_service.fetch_latest_commits(repo) for repo in repos]
@@ -394,20 +449,19 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug in module Y"""
         repo_path = Path(self.temp_dir) / "test_repo"
         repo_path.mkdir(parents=True, exist_ok=True)
 
-        def mock_timeout_commands(cmd, **kwargs):
-            """Mock git commands that simulate timeouts"""
-            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+        def mock_timeout_commands(command_group, subkey, **kwargs):
+            """Mock git commands that simulate timeouts - updated for PlatformService.run_command_async"""
 
             # Git rev-parse --git-dir (successful check)
-            if "git rev-parse --git-dir" in cmd_str:
+            if subkey == "rev_parse_git_dir":
                 return Mock(returncode=0, stdout=".git\n", stderr="")
 
             # Git remote check (successful)
-            elif "git remote" in cmd_str and "remote" in cmd:
+            elif subkey == "remote_check":
                 return Mock(returncode=0, stdout="origin\n", stderr="")
 
             # Git log commands will timeout
-            elif "git log" in cmd_str:
+            elif subkey == "log":
                 raise asyncio.TimeoutError("Git log command timed out")
 
             # Other commands succeed
@@ -415,7 +469,7 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug in module Y"""
                 return Mock(returncode=0, stdout="", stderr="")
 
         with patch(
-            "services.git_service.run_subprocess_async",
+            "services.platform_service.PlatformService.run_command_async",
             side_effect=mock_timeout_commands,
         ):
             # Test that timeout is handled gracefully in get_git_commits
@@ -495,9 +549,19 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug in module Y"""
         mock_result.returncode = 0
         mock_result.stdout = mock_output
 
-        with patch(
+        # Mock repository info to succeed and both async methods
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info, patch(
             "services.git_service.run_subprocess_async", return_value=mock_result
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            return_value=mock_result,
         ):
+            from utils.async_base import ServiceResult
+
+            mock_repo_info.return_value = ServiceResult.success(Mock())
+
             result = await self.git_service.get_git_commits(repo_path)
 
             assert result.is_success is True
@@ -539,10 +603,17 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug in module Y"""
         # Create the directory for the test
         repo_path.mkdir(parents=True, exist_ok=True)
 
-        with patch(
+        # Mock repository info to succeed, but git command to fail
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info, patch(
             "services.git_service.run_subprocess_async",
             side_effect=Exception("Test error"),
         ):
+            from utils.async_base import ServiceResult
+
+            mock_repo_info.return_value = ServiceResult.success(Mock())
+
             result = await self.git_service.get_git_commits(repo_path)
 
             assert result.is_error is True
@@ -609,7 +680,7 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info, patch(
-            "services.git_service.run_subprocess_async"
+            "services.platform_service.PlatformService.run_command_async"
         ) as mock_run:
 
             from utils.async_base import ServiceResult
@@ -659,10 +730,17 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
         repo_path.mkdir(parents=True, exist_ok=True)
         commit_hash = "abc123"
 
-        with patch(
-            "services.git_service.run_subprocess_async",
+        # Mock repository info to succeed, but checkout command to fail
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info, patch(
+            "services.platform_service.PlatformService.run_command_async",
             side_effect=Exception("Test error"),
         ):
+            from utils.async_base import ServiceResult
+
+            mock_repo_info.return_value = ServiceResult.success(Mock())
+
             result = await self.git_service.checkout_commit(repo_path, commit_hash)
 
             assert result.is_error is True
@@ -680,7 +758,7 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info, patch(
-            "services.git_service.run_subprocess_async"
+            "services.platform_service.PlatformService.run_command_async"
         ) as mock_run:
 
             from utils.async_base import ServiceResult
@@ -738,10 +816,17 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
         repo_path.mkdir(parents=True, exist_ok=True)
         commit_hash = "abc123"
 
-        with patch(
-            "services.git_service.run_subprocess_async",
+        # Mock repository info to succeed, but force checkout commands to fail
+        with patch.object(
+            self.git_service, "get_repository_info"
+        ) as mock_repo_info, patch(
+            "services.platform_service.PlatformService.run_command_async",
             side_effect=Exception("Test error"),
         ):
+            from utils.async_base import ServiceResult
+
+            mock_repo_info.return_value = ServiceResult.success(Mock())
+
             result = await self.git_service.force_checkout_commit(
                 repo_path, commit_hash
             )
@@ -802,7 +887,8 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
-            "services.git_service.run_subprocess_async", return_value=mock_fetch_result
+            "services.platform_service.PlatformService.run_command_async",
+            return_value=mock_fetch_result,
         ):
 
             from utils.async_base import ServiceResult
@@ -833,7 +919,8 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
-            "services.git_service.run_subprocess_async", return_value=mock_fetch_result
+            "services.platform_service.PlatformService.run_command_async",
+            return_value=mock_fetch_result,
         ):
 
             from utils.async_base import ServiceResult
@@ -864,6 +951,8 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
     @pytest.mark.asyncio
     async def test_concurrent_git_operations(self):
         """Test running multiple git operations concurrently"""
+        from utils.async_base import ServiceResult
+
         # Create multiple repo directories
         repos = []
         for i in range(3):
@@ -881,13 +970,32 @@ ghi789|def456|Bob Johnson|2023-12-03|Fix bug with multiple|parts|in|subject"""
         mock_fetch_result.returncode = 0
         mock_fetch_result.stdout = "fetch completed"
 
+        def mock_platform_commands(command_group, subkey, **kwargs):
+            """Mock platform commands with proper subkey handling"""
+            if subkey == "fetch":
+                return mock_fetch_result
+            # Handle other subkeys used by get_repository_info
+            elif subkey == "rev_parse_git_dir":
+                return Mock(returncode=0, stdout=".git\n", stderr="")
+            elif subkey == "remote_check":
+                return Mock(returncode=0, stdout="origin\n", stderr="")
+            elif subkey == "branch_show_current":
+                return Mock(returncode=0, stdout="master\n", stderr="")
+            elif subkey == "rev_parse_head":
+                return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+            elif subkey == "status_porcelain":
+                return Mock(returncode=0, stdout="", stderr="")
+            else:
+                return Mock(returncode=0, stdout="", stderr="")
+
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_platform_commands,
+        ), patch(
             "services.git_service.run_subprocess_async", return_value=mock_fetch_result
         ):
-
-            from utils.async_base import ServiceResult
 
             mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
 
@@ -946,78 +1054,112 @@ jkl012|abc123|Bob Johnson|2023-12-04|Feature: Add payment system"""
         mock_repo_info.has_remote = True
         mock_repo_info.remote_urls = ["origin"]
 
-        def mock_subprocess_call(cmd, **kwargs):
-            """Mock different git commands with appropriate outputs"""
-            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+        def mock_subprocess_call(*args, **kwargs):
+            """Mock different git commands with appropriate outputs - dual API support"""
 
-            # Git log command (main commit history)
-            if "git log" in cmd_str and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str:
-                return Mock(returncode=0, stdout=mock_log_output, stderr="")
+            # Handle PlatformService.run_command_async(command_group, subkey=None, **kwargs)
+            if len(args) >= 1 and isinstance(args[0], str) and "subkey" in kwargs:
+                command_group, subkey = args[0], kwargs["subkey"]
 
-            # Git rev-list for main branch commits
-            elif "git rev-list --first-parent" in cmd_str:
-                return Mock(
-                    returncode=0,
-                    stdout="commit abc123\nabc123\n",
-                    stderr="",
-                )
-
-            # Git rev-parse for branch verification
-            elif "git rev-parse --verify" in cmd_str:
-                if "origin/master" in cmd_str:
-                    return Mock(returncode=0, stdout="abc123\n", stderr="")
-                else:
-                    return Mock(
-                        returncode=1, stdout="", stderr="fatal: ambiguous argument"
-                    )
-
-            # Git branch --contains for branch detection
-            elif "git branch --contains" in cmd_str:
-                if "def456" in cmd_str:
-                    return Mock(
-                        returncode=0,
-                        stdout="  feature-auth\n* master\n  remotes/origin/feature-auth\n  remotes/origin/master\n",
-                        stderr="",
-                    )
-                elif "ghi789" in cmd_str:
-                    return Mock(
-                        returncode=0,
-                        stdout="  feature-auth\n* master\n  remotes/origin/feature-auth\n  remotes/origin/master\n",
-                        stderr="",
-                    )
-                elif "jkl012" in cmd_str:
-                    return Mock(
-                        returncode=0,
-                        stdout="  feature-payment\n* master\n  remotes/origin/feature-payment\n  remotes/origin/master\n",
-                        stderr="",
-                    )
-                else:
-                    return Mock(
-                        returncode=0,
-                        stdout="* master\n  remotes/origin/master\n",
-                        stderr="",
-                    )
-
-            # Git name-rev for commit branch names
-            elif "git name-rev --name-only" in cmd_str:
-                if "def456" in cmd_str:
-                    return Mock(
-                        returncode=0, stdout="remotes/origin/feature-auth\n", stderr=""
-                    )
-                elif "ghi789" in cmd_str:
-                    return Mock(
-                        returncode=0,
-                        stdout="remotes/origin/feature-auth~1\n",
-                        stderr="",
-                    )
-                elif "jkl012" in cmd_str:
-                    return Mock(
-                        returncode=0,
-                        stdout="remotes/origin/feature-payment\n",
-                        stderr="",
-                    )
-                else:
+                # Repository info operations
+                if subkey == "rev_parse_git_dir":
+                    return Mock(returncode=0, stdout=".git\n", stderr="")
+                elif subkey == "remote_check":
+                    return Mock(returncode=0, stdout="origin\n", stderr="")
+                elif subkey == "branch_show_current":
                     return Mock(returncode=0, stdout="master\n", stderr="")
+                elif subkey == "rev_parse_head":
+                    return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+                elif subkey == "status_porcelain":
+                    return Mock(returncode=0, stdout="", stderr="")
+                elif subkey == "log":
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                elif subkey == "fetch":
+                    return Mock(returncode=0, stdout="fetch completed", stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+            # Handle run_subprocess_async(cmd, **kwargs)
+            elif len(args) >= 1 and isinstance(args[0], (list, tuple)):
+                cmd = args[0]
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+
+                # Git log command (main commit history)
+                if (
+                    "git log" in cmd_str
+                    and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str
+                ):
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+
+                # Git rev-list for main branch commits
+                elif "git rev-list --first-parent" in cmd_str:
+                    return Mock(
+                        returncode=0,
+                        stdout="commit abc123\nabc123\n",
+                        stderr="",
+                    )
+
+                # Git rev-parse for branch verification
+                elif "git rev-parse --verify" in cmd_str:
+                    if "origin/master" in cmd_str:
+                        return Mock(returncode=0, stdout="abc123\n", stderr="")
+                    else:
+                        return Mock(
+                            returncode=1, stdout="", stderr="fatal: ambiguous argument"
+                        )
+
+                # Git branch --contains for branch detection
+                elif "git branch --contains" in cmd_str:
+                    if "def456" in cmd_str:
+                        return Mock(
+                            returncode=0,
+                            stdout="  feature-auth\n* master\n  remotes/origin/feature-auth\n  remotes/origin/master\n",
+                            stderr="",
+                        )
+                    elif "ghi789" in cmd_str:
+                        return Mock(
+                            returncode=0,
+                            stdout="  feature-auth\n* master\n  remotes/origin/feature-auth\n  remotes/origin/master\n",
+                            stderr="",
+                        )
+                    elif "jkl012" in cmd_str:
+                        return Mock(
+                            returncode=0,
+                            stdout="  feature-payment\n* master\n  remotes/origin/feature-payment\n  remotes/origin/master\n",
+                            stderr="",
+                        )
+                    else:
+                        return Mock(
+                            returncode=0,
+                            stdout="* master\n  remotes/origin/master\n",
+                            stderr="",
+                        )
+
+                # Git name-rev for commit branch names
+                elif "git name-rev --name-only" in cmd_str:
+                    if "def456" in cmd_str:
+                        return Mock(
+                            returncode=0,
+                            stdout="remotes/origin/feature-auth\n",
+                            stderr="",
+                        )
+                    elif "ghi789" in cmd_str:
+                        return Mock(
+                            returncode=0,
+                            stdout="remotes/origin/feature-auth~1\n",
+                            stderr="",
+                        )
+                    elif "jkl012" in cmd_str:
+                        return Mock(
+                            returncode=0,
+                            stdout="remotes/origin/feature-payment\n",
+                            stderr="",
+                        )
+                    else:
+                        return Mock(returncode=0, stdout="master\n", stderr="")
+
+                # Default fallback for run_subprocess_async
+                return Mock(returncode=0, stdout="", stderr="")
 
             # Default fallback
             return Mock(returncode=0, stdout="", stderr="")
@@ -1027,6 +1169,9 @@ jkl012|abc123|Bob Johnson|2023-12-04|Feature: Add payment system"""
         ) as mock_repo_info_call, patch(
             "services.git_service.run_subprocess_async",
             side_effect=mock_subprocess_call,
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_subprocess_call,
         ):
 
             from utils.async_base import ServiceResult
@@ -1035,9 +1180,14 @@ jkl012|abc123|Bob Johnson|2023-12-04|Feature: Add payment system"""
 
             result = await self.git_service.get_git_commits(repo_path)
 
-            assert result.is_success is True
+            assert (
+                result.is_success is True
+            ), f"Expected success but got error: {result.error}"
             commits = result.data
-            assert len(commits) == 4
+            assert commits is not None, "Expected commits data but got None"
+            assert (
+                len(commits) == 4
+            ), f"Expected 4 commits but got {len(commits)}: {commits}"
 
             # Check that commits have expected structure
             assert commits[0].hash == "abc123"
@@ -1088,9 +1238,33 @@ jkl012|ghi789|John Doe|2023-12-04|Continue work on master"""
         mock_repo_info.has_remote = True
         mock_repo_info.remote_urls = ["origin"]
 
-        def mock_subprocess_call(cmd, **kwargs):
-            """Mock different git commands with appropriate outputs"""
-            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+        def mock_subprocess_call(*args, **kwargs):
+            """Mock different git commands with appropriate outputs - dual API support"""
+
+            # Handle PlatformService.run_command_async(command_group, subkey=None, **kwargs)
+            if len(args) >= 1 and isinstance(args[0], str) and "subkey" in kwargs:
+                command_group, subkey = args[0], kwargs["subkey"]
+
+                # Repository info operations
+                if subkey == "rev_parse_git_dir":
+                    return Mock(returncode=0, stdout=".git\n", stderr="")
+                elif subkey == "remote_check":
+                    return Mock(returncode=0, stdout="origin\n", stderr="")
+                elif subkey == "branch_show_current":
+                    return Mock(returncode=0, stdout="master\n", stderr="")
+                elif subkey == "rev_parse_head":
+                    return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+                elif subkey == "status_porcelain":
+                    return Mock(returncode=0, stdout="", stderr="")
+                elif subkey == "log":
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+            # Handle run_subprocess_async(cmd, **kwargs)
+            elif len(args) >= 1 and isinstance(args[0], (list, tuple)):
+                cmd = args[0]
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
 
             # Git log command (main commit history)
             if "git log" in cmd_str and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str:
@@ -1145,6 +1319,9 @@ jkl012|ghi789|John Doe|2023-12-04|Continue work on master"""
                 else:
                     return Mock(returncode=0, stdout="master\n", stderr="")
 
+                # Default fallback for run_subprocess_async
+                return Mock(returncode=0, stdout="", stderr="")
+
             # Default fallback
             return Mock(returncode=0, stdout="", stderr="")
 
@@ -1152,6 +1329,9 @@ jkl012|ghi789|John Doe|2023-12-04|Continue work on master"""
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
             "services.git_service.run_subprocess_async",
+            side_effect=mock_subprocess_call,
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
             side_effect=mock_subprocess_call,
         ):
 
@@ -1190,17 +1370,62 @@ ghi789|def456|Jane Smith|2023-12-03|More work on detached HEAD"""
         mock_repo_info.remote_urls = ["origin"]
         mock_repo_info.current_branch = ""  # Detached HEAD has no current branch
 
+        def mock_subprocess_call(*args, **kwargs):
+            """Mock different git commands with appropriate outputs - dual API support"""
+
+            # Handle PlatformService.run_command_async(command_group, subkey=None, **kwargs)
+            if len(args) >= 1 and isinstance(args[0], str) and "subkey" in kwargs:
+                command_group, subkey = args[0], kwargs["subkey"]
+
+                # Repository info operations
+                if subkey == "rev_parse_git_dir":
+                    return Mock(returncode=0, stdout=".git\n", stderr="")
+                elif subkey == "remote_check":
+                    return Mock(returncode=0, stdout="origin\n", stderr="")
+                elif subkey == "branch_show_current":
+                    return Mock(returncode=0, stdout="master\n", stderr="")
+                elif subkey == "rev_parse_head":
+                    return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+                elif subkey == "status_porcelain":
+                    return Mock(returncode=0, stdout="", stderr="")
+                elif subkey == "log":
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+            # Handle run_subprocess_async(cmd, **kwargs)
+            elif len(args) >= 1 and isinstance(args[0], (list, tuple)):
+                cmd = args[0]
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+
+                # Git log command (main commit history)
+                if (
+                    "git log" in cmd_str
+                    and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str
+                ):
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+                # Default fallback for run_subprocess_async
+                return Mock(returncode=0, stdout="", stderr="")
+
+            # Default fallback
+            return Mock(returncode=0, stdout="", stderr="")
+
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
-            "services.git_service.run_subprocess_async"
-        ) as mock_run:
+            "services.git_service.run_subprocess_async",
+            side_effect=mock_subprocess_call,
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_subprocess_call,
+        ):
 
             from utils.async_base import ServiceResult
 
             mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
-
-            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
 
             result = await self.git_service.get_git_commits(repo_path)
 
@@ -1248,17 +1473,62 @@ vwx234|stu901|John Doe|2023-12-06|Continue on master"""
         mock_repo_info.has_remote = True
         mock_repo_info.remote_urls = ["origin"]
 
+        def mock_subprocess_call(*args, **kwargs):
+            """Mock different git commands with appropriate outputs - dual API support"""
+
+            # Handle PlatformService.run_command_async(command_group, subkey=None, **kwargs)
+            if len(args) >= 1 and isinstance(args[0], str) and "subkey" in kwargs:
+                command_group, subkey = args[0], kwargs["subkey"]
+
+                # Repository info operations
+                if subkey == "rev_parse_git_dir":
+                    return Mock(returncode=0, stdout=".git\n", stderr="")
+                elif subkey == "remote_check":
+                    return Mock(returncode=0, stdout="origin\n", stderr="")
+                elif subkey == "branch_show_current":
+                    return Mock(returncode=0, stdout="master\n", stderr="")
+                elif subkey == "rev_parse_head":
+                    return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+                elif subkey == "status_porcelain":
+                    return Mock(returncode=0, stdout="", stderr="")
+                elif subkey == "log":
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+            # Handle run_subprocess_async(cmd, **kwargs)
+            elif len(args) >= 1 and isinstance(args[0], (list, tuple)):
+                cmd = args[0]
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+
+                # Git log command (main commit history)
+                if (
+                    "git log" in cmd_str
+                    and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str
+                ):
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+                # Default fallback for run_subprocess_async
+                return Mock(returncode=0, stdout="", stderr="")
+
+            # Default fallback
+            return Mock(returncode=0, stdout="", stderr="")
+
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
-            "services.git_service.run_subprocess_async"
-        ) as mock_run:
+            "services.git_service.run_subprocess_async",
+            side_effect=mock_subprocess_call,
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_subprocess_call,
+        ):
 
             from utils.async_base import ServiceResult
 
             mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
-
-            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
 
             result = await self.git_service.get_git_commits(repo_path)
 
@@ -1294,17 +1564,62 @@ ghi789|abc123|Bob Johnson|2023-12-03|Normal commit"""
         mock_repo_info.has_remote = True
         mock_repo_info.remote_urls = ["origin"]
 
+        def mock_subprocess_call(*args, **kwargs):
+            """Mock different git commands with appropriate outputs - dual API support"""
+
+            # Handle PlatformService.run_command_async(command_group, subkey=None, **kwargs)
+            if len(args) >= 1 and isinstance(args[0], str) and "subkey" in kwargs:
+                command_group, subkey = args[0], kwargs["subkey"]
+
+                # Repository info operations
+                if subkey == "rev_parse_git_dir":
+                    return Mock(returncode=0, stdout=".git\n", stderr="")
+                elif subkey == "remote_check":
+                    return Mock(returncode=0, stdout="origin\n", stderr="")
+                elif subkey == "branch_show_current":
+                    return Mock(returncode=0, stdout="master\n", stderr="")
+                elif subkey == "rev_parse_head":
+                    return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+                elif subkey == "status_porcelain":
+                    return Mock(returncode=0, stdout="", stderr="")
+                elif subkey == "log":
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+            # Handle run_subprocess_async(cmd, **kwargs)
+            elif len(args) >= 1 and isinstance(args[0], (list, tuple)):
+                cmd = args[0]
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+
+                # Git log command (main commit history)
+                if (
+                    "git log" in cmd_str
+                    and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str
+                ):
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+                # Default fallback for run_subprocess_async
+                return Mock(returncode=0, stdout="", stderr="")
+
+            # Default fallback
+            return Mock(returncode=0, stdout="", stderr="")
+
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
-            "services.git_service.run_subprocess_async"
-        ) as mock_run:
+            "services.git_service.run_subprocess_async",
+            side_effect=mock_subprocess_call,
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_subprocess_call,
+        ):
 
             from utils.async_base import ServiceResult
 
             mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
-
-            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
 
             result = await self.git_service.get_git_commits(repo_path)
 
@@ -1331,18 +1646,62 @@ def456|abc123|Jane Smith|2023-12-02|Local work"""
         mock_repo_info.has_remote = False
         mock_repo_info.remote_urls = []
 
+        def mock_subprocess_call(*args, **kwargs):
+            """Mock different git commands with appropriate outputs - dual API support"""
+
+            # Handle PlatformService.run_command_async(command_group, subkey=None, **kwargs)
+            if len(args) >= 1 and isinstance(args[0], str) and "subkey" in kwargs:
+                command_group, subkey = args[0], kwargs["subkey"]
+
+                # Repository info operations
+                if subkey == "rev_parse_git_dir":
+                    return Mock(returncode=0, stdout=".git\n", stderr="")
+                elif subkey == "remote_check":
+                    return Mock(returncode=0, stdout="", stderr="")  # No remotes
+                elif subkey == "branch_show_current":
+                    return Mock(returncode=0, stdout="master\n", stderr="")
+                elif subkey == "rev_parse_head":
+                    return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+                elif subkey == "status_porcelain":
+                    return Mock(returncode=0, stdout="", stderr="")
+                elif subkey == "log":
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+            # Handle run_subprocess_async(cmd, **kwargs)
+            elif len(args) >= 1 and isinstance(args[0], (list, tuple)):
+                cmd = args[0]
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+
+                # Git log command (main commit history)
+                if (
+                    "git log" in cmd_str
+                    and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str
+                ):
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+                # Default fallback for run_subprocess_async
+                return Mock(returncode=0, stdout="", stderr="")
+
+            # Default fallback
+            return Mock(returncode=0, stdout="", stderr="")
+
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
-            "services.git_service.run_subprocess_async"
-        ) as mock_run:
+            "services.git_service.run_subprocess_async",
+            side_effect=mock_subprocess_call,
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_subprocess_call,
+        ):
 
             from utils.async_base import ServiceResult
 
             mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
-
-            # First call returns repo info, subsequent calls return log output
-            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
 
             result = await self.git_service.get_git_commits(repo_path)
 
@@ -1398,6 +1757,9 @@ def456|abc123|Jane Smith|2023-12-02|Feature work"""
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
             "services.git_service.run_subprocess_async", side_effect=mock_handler
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_handler,
         ):
 
             from utils.async_base import ServiceResult
@@ -1433,17 +1795,62 @@ def456|abc123|Jane Smith|2023-12-02|Feature work"""
         mock_repo_info.has_remote = True
         mock_repo_info.remote_urls = ["origin"]
 
+        def mock_subprocess_call(*args, **kwargs):
+            """Mock different git commands with appropriate outputs - dual API support"""
+
+            # Handle PlatformService.run_command_async(command_group, subkey=None, **kwargs)
+            if len(args) >= 1 and isinstance(args[0], str) and "subkey" in kwargs:
+                command_group, subkey = args[0], kwargs["subkey"]
+
+                # Repository info operations
+                if subkey == "rev_parse_git_dir":
+                    return Mock(returncode=0, stdout=".git\n", stderr="")
+                elif subkey == "remote_check":
+                    return Mock(returncode=0, stdout="origin\n", stderr="")
+                elif subkey == "branch_show_current":
+                    return Mock(returncode=0, stdout="master\n", stderr="")
+                elif subkey == "rev_parse_head":
+                    return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+                elif subkey == "status_porcelain":
+                    return Mock(returncode=0, stdout="", stderr="")
+                elif subkey == "log":
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+            # Handle run_subprocess_async(cmd, **kwargs)
+            elif len(args) >= 1 and isinstance(args[0], (list, tuple)):
+                cmd = args[0]
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+
+                # Git log command (main commit history)
+                if (
+                    "git log" in cmd_str
+                    and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str
+                ):
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+                # Default fallback for run_subprocess_async
+                return Mock(returncode=0, stdout="", stderr="")
+
+            # Default fallback
+            return Mock(returncode=0, stdout="", stderr="")
+
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
-            "services.git_service.run_subprocess_async"
-        ) as mock_run:
+            "services.git_service.run_subprocess_async",
+            side_effect=mock_subprocess_call,
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_subprocess_call,
+        ):
 
             from utils.async_base import ServiceResult
 
             mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
-
-            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
 
             result = await self.git_service.get_git_commits(repo_path)
 
@@ -1489,17 +1896,62 @@ def456|abc123|Jane Smith|2023-12-02|Feature work"""
         mock_repo_info.has_remote = True
         mock_repo_info.remote_urls = ["origin"]
 
+        def mock_subprocess_call(*args, **kwargs):
+            """Mock different git commands with appropriate outputs - dual API support"""
+
+            # Handle PlatformService.run_command_async(command_group, subkey=None, **kwargs)
+            if len(args) >= 1 and isinstance(args[0], str) and "subkey" in kwargs:
+                command_group, subkey = args[0], kwargs["subkey"]
+
+                # Repository info operations
+                if subkey == "rev_parse_git_dir":
+                    return Mock(returncode=0, stdout=".git\n", stderr="")
+                elif subkey == "remote_check":
+                    return Mock(returncode=0, stdout="origin\n", stderr="")
+                elif subkey == "branch_show_current":
+                    return Mock(returncode=0, stdout="master\n", stderr="")
+                elif subkey == "rev_parse_head":
+                    return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+                elif subkey == "status_porcelain":
+                    return Mock(returncode=0, stdout="", stderr="")
+                elif subkey == "log":
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+            # Handle run_subprocess_async(cmd, **kwargs)
+            elif len(args) >= 1 and isinstance(args[0], (list, tuple)):
+                cmd = args[0]
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+
+                # Git log command (main commit history)
+                if (
+                    "git log" in cmd_str
+                    and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str
+                ):
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+                # Default fallback for run_subprocess_async
+                return Mock(returncode=0, stdout="", stderr="")
+
+            # Default fallback
+            return Mock(returncode=0, stdout="", stderr="")
+
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
-            "services.git_service.run_subprocess_async"
-        ) as mock_run:
+            "services.git_service.run_subprocess_async",
+            side_effect=mock_subprocess_call,
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_subprocess_call,
+        ):
 
             from utils.async_base import ServiceResult
 
             mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
-
-            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
 
             result = await self.git_service.get_git_commits(repo_path)
 
@@ -1550,11 +2002,32 @@ def456|abc123|Jane Smith|2023-12-02|Feature work on branch"""
         mock_repo_info.has_remote = True
         mock_repo_info.remote_urls = ["origin"]
 
+        def mock_platform_commands(command_group, subkey, **kwargs):
+            """Mock platform commands with proper subkey handling"""
+            # Handle repository info operations
+            if subkey == "rev_parse_git_dir":
+                return Mock(returncode=0, stdout=".git\n", stderr="")
+            elif subkey == "remote_check":
+                return Mock(returncode=0, stdout="origin\n", stderr="")
+            elif subkey == "branch_show_current":
+                return Mock(returncode=0, stdout="master\n", stderr="")
+            elif subkey == "rev_parse_head":
+                return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+            elif subkey == "status_porcelain":
+                return Mock(returncode=0, stdout="", stderr="")
+            elif subkey == "log":
+                return Mock(returncode=0, stdout=mock_log_output, stderr="")
+            else:
+                return Mock(returncode=0, stdout="", stderr="")
+
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
             "services.git_service.run_subprocess_async"
-        ) as mock_run:
+        ) as mock_run, patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_platform_commands,
+        ):
 
             from utils.async_base import ServiceResult
 
@@ -1628,6 +2101,9 @@ ghi789|abc123|Bob Johnson|2023-12-03|Work on bugfix-login branch"""
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
             "services.git_service.run_subprocess_async", side_effect=mock_handler
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_handler,
         ):
 
             from utils.async_base import ServiceResult
@@ -1690,6 +2166,9 @@ ghi789|def456|Bob Johnson|2023-12-03|More main branch work"""
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
             "services.git_service.run_subprocess_async", side_effect=mock_handler
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_handler,
         ):
 
             from utils.async_base import ServiceResult
@@ -1734,17 +2213,62 @@ def456|abc123|Jane Smith|2023-12-02|Another complex ref commit"""
         mock_repo_info.has_remote = True
         mock_repo_info.remote_urls = ["origin"]
 
+        def mock_subprocess_call(*args, **kwargs):
+            """Mock different git commands with appropriate outputs - dual API support"""
+
+            # Handle PlatformService.run_command_async(command_group, subkey=None, **kwargs)
+            if len(args) >= 1 and isinstance(args[0], str) and "subkey" in kwargs:
+                command_group, subkey = args[0], kwargs["subkey"]
+
+                # Repository info operations
+                if subkey == "rev_parse_git_dir":
+                    return Mock(returncode=0, stdout=".git\n", stderr="")
+                elif subkey == "remote_check":
+                    return Mock(returncode=0, stdout="origin\n", stderr="")
+                elif subkey == "branch_show_current":
+                    return Mock(returncode=0, stdout="master\n", stderr="")
+                elif subkey == "rev_parse_head":
+                    return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+                elif subkey == "status_porcelain":
+                    return Mock(returncode=0, stdout="", stderr="")
+                elif subkey == "log":
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+            # Handle run_subprocess_async(cmd, **kwargs)
+            elif len(args) >= 1 and isinstance(args[0], (list, tuple)):
+                cmd = args[0]
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+
+                # Git log command (main commit history)
+                if (
+                    "git log" in cmd_str
+                    and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str
+                ):
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+                # Default fallback for run_subprocess_async
+                return Mock(returncode=0, stdout="", stderr="")
+
+            # Default fallback
+            return Mock(returncode=0, stdout="", stderr="")
+
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
-            "services.git_service.run_subprocess_async"
-        ) as mock_run:
+            "services.git_service.run_subprocess_async",
+            side_effect=mock_subprocess_call,
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_subprocess_call,
+        ):
 
             from utils.async_base import ServiceResult
 
             mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
-
-            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
 
             result = await self.git_service.get_git_commits(repo_path)
 
@@ -1796,17 +2320,62 @@ ghi789|abc123|Bob Johnson|2023-12-03|Work on release/v1.2.0"""
         mock_repo_info.has_remote = True
         mock_repo_info.remote_urls = ["origin"]
 
+        def mock_subprocess_call(*args, **kwargs):
+            """Mock different git commands with appropriate outputs - dual API support"""
+
+            # Handle PlatformService.run_command_async(command_group, subkey=None, **kwargs)
+            if len(args) >= 1 and isinstance(args[0], str) and "subkey" in kwargs:
+                command_group, subkey = args[0], kwargs["subkey"]
+
+                # Repository info operations
+                if subkey == "rev_parse_git_dir":
+                    return Mock(returncode=0, stdout=".git\n", stderr="")
+                elif subkey == "remote_check":
+                    return Mock(returncode=0, stdout="origin\n", stderr="")
+                elif subkey == "branch_show_current":
+                    return Mock(returncode=0, stdout="master\n", stderr="")
+                elif subkey == "rev_parse_head":
+                    return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+                elif subkey == "status_porcelain":
+                    return Mock(returncode=0, stdout="", stderr="")
+                elif subkey == "log":
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+            # Handle run_subprocess_async(cmd, **kwargs)
+            elif len(args) >= 1 and isinstance(args[0], (list, tuple)):
+                cmd = args[0]
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+
+                # Git log command (main commit history)
+                if (
+                    "git log" in cmd_str
+                    and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str
+                ):
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+                # Default fallback for run_subprocess_async
+                return Mock(returncode=0, stdout="", stderr="")
+
+            # Default fallback
+            return Mock(returncode=0, stdout="", stderr="")
+
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
-            "services.git_service.run_subprocess_async"
-        ) as mock_run:
+            "services.git_service.run_subprocess_async",
+            side_effect=mock_subprocess_call,
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_subprocess_call,
+        ):
 
             from utils.async_base import ServiceResult
 
             mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
-
-            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
 
             result = await self.git_service.get_git_commits(repo_path)
 
@@ -1855,17 +2424,62 @@ ghi789|abc123|Bob Johnson|2023-12-03|Hotfix branch work"""
         mock_repo_info.has_remote = True
         mock_repo_info.remote_urls = ["origin"]
 
+        def mock_subprocess_call(*args, **kwargs):
+            """Mock different git commands with appropriate outputs - dual API support"""
+
+            # Handle PlatformService.run_command_async(command_group, subkey=None, **kwargs)
+            if len(args) >= 1 and isinstance(args[0], str) and "subkey" in kwargs:
+                command_group, subkey = args[0], kwargs["subkey"]
+
+                # Repository info operations
+                if subkey == "rev_parse_git_dir":
+                    return Mock(returncode=0, stdout=".git\n", stderr="")
+                elif subkey == "remote_check":
+                    return Mock(returncode=0, stdout="origin\n", stderr="")
+                elif subkey == "branch_show_current":
+                    return Mock(returncode=0, stdout="master\n", stderr="")
+                elif subkey == "rev_parse_head":
+                    return Mock(returncode=0, stdout="abc123def456\n", stderr="")
+                elif subkey == "status_porcelain":
+                    return Mock(returncode=0, stdout="", stderr="")
+                elif subkey == "log":
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+            # Handle run_subprocess_async(cmd, **kwargs)
+            elif len(args) >= 1 and isinstance(args[0], (list, tuple)):
+                cmd = args[0]
+                cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+
+                # Git log command (main commit history)
+                if (
+                    "git log" in cmd_str
+                    and "--pretty=format:%h|%P|%an|%ad|%s" in cmd_str
+                ):
+                    return Mock(returncode=0, stdout=mock_log_output, stderr="")
+                else:
+                    return Mock(returncode=0, stdout="", stderr="")
+
+                # Default fallback for run_subprocess_async
+                return Mock(returncode=0, stdout="", stderr="")
+
+            # Default fallback
+            return Mock(returncode=0, stdout="", stderr="")
+
         with patch.object(
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
-            "services.git_service.run_subprocess_async"
-        ) as mock_run:
+            "services.git_service.run_subprocess_async",
+            side_effect=mock_subprocess_call,
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_subprocess_call,
+        ):
 
             from utils.async_base import ServiceResult
 
             mock_repo_info_call.return_value = ServiceResult.success(mock_repo_info)
-
-            mock_run.return_value = Mock(returncode=0, stdout=mock_log_output)
 
             result = await self.git_service.get_git_commits(repo_path)
 
@@ -1975,6 +2589,9 @@ pqr678|mno345|John Doe|2023-12-06|Update documentation after merge"""
             self.git_service, "get_repository_info"
         ) as mock_repo_info_call, patch(
             "services.git_service.run_subprocess_async", side_effect=mock_handler
+        ), patch(
+            "services.platform_service.PlatformService.run_command_async",
+            side_effect=mock_handler,
         ):
 
             from utils.async_base import ServiceResult
