@@ -426,7 +426,7 @@ class GitCommitWindow:
                 # Window was destroyed - ignore silently
                 pass
 
-    def update_with_commits(self, commits):
+    def update_with_commits(self, commits, current_commit_hash=None):
         """Update window with loaded commits"""
         self.commits = commits
         self.commit_listbox.config(state="normal")
