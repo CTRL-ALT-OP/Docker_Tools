@@ -824,6 +824,27 @@ class ProjectControlPanel:
                             lines = current_content.split("\n")
                             new_lines = []
 
+                            # Ensure proper shebang line
+                            if lines and lines[0].startswith("#!"):
+                                # Already has shebang, validate it's appropriate
+                                shebang = lines[0].strip()
+                                if shebang not in [
+                                    "#!/bin/sh",
+                                    "#!/bin/bash",
+                                    "#!/usr/bin/env bash",
+                                ]:
+                                    # Fix shebang to use /bin/sh for maximum compatibility
+                                    lines[0] = "#!/bin/sh"
+                                    output_window.append_output(
+                                        f"   🔧 Fixed shebang: {shebang} -> #!/bin/sh\n"
+                                    )
+                            else:
+                                # No shebang, add one
+                                lines.insert(0, "#!/bin/sh")
+                                output_window.append_output(
+                                    f"   🔧 Added shebang: #!/bin/sh\n"
+                                )
+
                             updated_line = False
                             for line in lines:
                                 stripped_line = line.strip()
@@ -861,6 +882,8 @@ class ProjectControlPanel:
                             new_content = "\n".join(new_lines)
                             # Ensure Unix line endings (LF only) for compatibility with Docker containers
                             run_tests_path.write_text(new_content, newline="\n")
+                            # Ensure the file has execute permissions
+                            run_tests_path.chmod(0o755)
 
                             output_window.append_output(
                                 f"   ✅ Successfully updated {run_tests_path}\n"
