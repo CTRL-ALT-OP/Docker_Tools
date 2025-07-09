@@ -2,12 +2,14 @@
 Main Window GUI Components for Project Control Panel
 """
 
+import os
 import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Optional, Callable, Dict, Any, List
 from pathlib import Path
 
 from config.settings import WINDOW_TITLE, MAIN_WINDOW_SIZE, COLORS, FONTS
+from services.platform_service import PlatformService
 from gui.gui_utils import GuiUtils
 from gui.popup_windows import AddProjectWindow
 from services.project_group_service import ProjectGroup
@@ -44,6 +46,20 @@ class MainWindow:
         self.validate_project_group_callback = None
         self.build_docker_files_callback = None
         self.git_checkout_all_callback = None
+
+    def _open_file_manager(self, project_path: Path):
+        """Open the file manager at the specified project path"""
+        path = Path(project_path).resolve()
+        if not path.exists():
+            messagebox.showerror("Error", f"Path does not exist: {path}")
+            return
+
+        success, error_message = PlatformService.run_command_with_result(
+            "FILE_OPEN_COMMANDS", file_path=str(path)
+        )
+
+        if not success:
+            messagebox.showerror("Error", error_message)
 
     def set_callbacks(self, callbacks: Dict[str, Callable]):
         """Set callback functions for GUI events"""
@@ -378,7 +394,16 @@ class MainWindow:
             command=lambda: self._git_view(project),
             style="git",
         )
-        git_btn.pack(side="left")
+        git_btn.pack(side="left", padx=(0, 5))
+
+        # File Manager button
+        file_manager_btn = GuiUtils.create_styled_button(
+            parent,
+            text="📁",
+            command=lambda: self._open_file_manager(project.path),
+            style="file_manager",
+        )
+        file_manager_btn.pack(side="left")
 
     def _cleanup_project(self, project: Project):
         """Handle cleanup project button click"""

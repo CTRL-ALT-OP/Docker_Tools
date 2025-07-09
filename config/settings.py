@@ -106,6 +106,7 @@ BUTTON_STYLES = {
     "archive": {"bg": "#3498db", "fg": "white"},
     "docker": {"bg": "#9b59b6", "fg": "white"},
     "git": {"bg": "#f39c12", "fg": "white"},
+    "file_manager": {"bg": "#2ecc71", "fg": "white"},
     "refresh": {"bg": "#27ae60", "fg": "white"},
     "sync": {"bg": "#16a085", "fg": "white"},
     "edit": {"bg": "#e67e22", "fg": "white"},
