@@ -148,6 +148,7 @@ class ArchiveProjectCommand(AsyncCommand):
                 "compression_ratio": archive_result.data.compression_ratio,
                 "cleanup_needed": cleanup_needed,
                 "cleanup_message": cleanup_message,
+                "project": self.project,  # Include project for button color management
             }
 
             self._update_progress("Archive created successfully", "success")

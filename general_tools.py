@@ -20,6 +20,7 @@ from services.docker_service import DockerService
 from services.sync_service import SyncService
 from services.validation_service import ValidationService
 from services.docker_files_service import DockerFilesService
+from services.file_monitor_service import file_monitor
 from gui import (
     MainWindow,
     TerminalOutputWindow,
@@ -169,6 +170,8 @@ class ProjectControlPanel:
         """Handle window close event with proper cleanup"""
         logger.info("Application shutdown initiated")
         try:
+            # Stop file monitoring
+            file_monitor.stop_all_monitoring()
             # Cancel any pending async operations with timeout
             shutdown_all(timeout=3.0)  # Shorter timeout for better UX
         except Exception as e:
@@ -250,6 +253,8 @@ class ProjectControlPanel:
 
     def _update_status(self, message: str, level: str):
         """Standard progress callback for async operations"""
+        from config.settings import COLORS
+
         color_map = {
             "info": COLORS["info"],
             "warning": COLORS["warning"],
@@ -308,6 +313,10 @@ class ProjectControlPanel:
         """Standard completion callback for archive operations"""
         if result.is_success:
             self._show_archive_success(result.data)
+            # Change archive button color to green on success
+            if "project" in result.data:
+                project = result.data["project"]
+                self.main_window.mark_project_archived(project)
         else:
             self._show_archive_error(result.error)
 
