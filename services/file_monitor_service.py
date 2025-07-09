@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Callable, Set, Optional
 from dataclasses import dataclass
 import logging
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -85,17 +86,12 @@ class FileMonitorService:
                 dirs[:] = [
                     d
                     for d in dirs
-                    if not d.startswith(".")
-                    and d not in {"__pycache__", "node_modules", ".git"}
+                    if not d.startswith(".") and d not in settings.IGNORE_DIRS
                 ]
 
                 for filename in filenames:
                     # Skip hidden files and common ignore patterns
-                    if (
-                        filename.startswith(".")
-                        or filename.endswith(".pyc")
-                        or filename.endswith(".pyo")
-                    ):
+                    if filename in settings.IGNORE_FILES:
                         continue
 
                     file_path = Path(root) / filename
