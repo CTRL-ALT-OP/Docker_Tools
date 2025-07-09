@@ -233,6 +233,7 @@ class GitCommitWindow:
         on_checkout_callback: Callable[[str], None],
         git_service=None,
         project_path=None,
+        current_commit_hash=None,
     ):
         self.parent_window = parent_window
         self.project_name = project_name
