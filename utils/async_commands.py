@@ -324,6 +324,7 @@ class GitViewCommand(AsyncCommand):
                     checkout_wrapper,
                     git_service=self.git_service,
                     project_path=self.project.path,
+                    current_commit_hash=None,  # Will be set later when we get repo info
                 )
                 # Show window immediately with loading animation
                 self.git_window.create_window_with_loading(True, "Initializing...")
@@ -361,6 +362,15 @@ class GitViewCommand(AsyncCommand):
 
             self._update_progress("Loading commit history...", "info")
 
+            # Get current repository information (including current commit)
+            repo_info_result = await self.git_service.get_repository_info(
+                self.project.path
+            )
+            current_commit_hash = None
+            if repo_info_result.is_success:
+                current_commit_hash = repo_info_result.data.current_commit
+                self._update_progress(f"Current commit: {current_commit_hash}", "info")
+
             # Get commits
             commits_result = await self.git_service.get_git_commits(self.project.path)
 
@@ -380,16 +390,18 @@ class GitViewCommand(AsyncCommand):
                         "message": "No commits found in repository",
                         "project_name": self.project.name,
                         "commits": [],
+                        "current_commit": current_commit_hash,
                         "git_window_created": self.git_window is not None,
                     }
                 )
 
-            # Update window with commits (streaming complete)
+            # Update window with commits and current commit hash
             if self.git_window:
-                self.git_window.update_with_commits(commits)
-                self.git_window.update_status(
-                    f"Loaded all {len(commits)} commits from repository"
-                )
+                self.git_window.update_with_commits(commits, current_commit_hash)
+                status_text = f"Loaded all {len(commits)} commits from repository"
+                if current_commit_hash:
+                    status_text += f" (current: {current_commit_hash})"
+                self.git_window.update_status(status_text)
 
             result_data = {
                 "message": f"Git information loaded for {self.project.name}",
@@ -398,6 +410,7 @@ class GitViewCommand(AsyncCommand):
                 "fetch_success": fetch_success,
                 "fetch_message": fetch_message,
                 "commits": commits,
+                "current_commit": current_commit_hash,
                 "git_window_created": self.git_window is not None,
             }
 

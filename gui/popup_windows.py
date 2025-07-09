@@ -241,6 +241,7 @@ class GitCommitWindow:
         self.on_checkout_callback = on_checkout_callback
         self.git_service = git_service
         self.project_path = project_path
+        self.current_commit_hash = current_commit_hash
 
         self.window = None
         self.commit_listbox = None
@@ -391,13 +392,53 @@ class GitCommitWindow:
     def populate_commits(self):
         """Populate the listbox with current commits"""
         self.commit_listbox.delete(0, tk.END)
-        for commit in self.commits:
+
+        for i, commit in enumerate(self.commits):
+            commit_hash = (
+                commit.hash if hasattr(commit, "hash") else commit.get("hash", "")
+            )
             display_text = (
                 commit.display
                 if hasattr(commit, "display")
                 else commit.get("display", str(commit))
             )
+
+            # Check if this is the current commit - try multiple matching strategies
+            is_current = False
+            if (
+                self.current_commit_hash
+                and commit_hash
+                and self.current_commit_hash not in [None, "unknown", ""]
+            ):
+
+                # Strategy 1: Use the shorter length for comparison (more robust)
+                min_length = min(
+                    len(self.current_commit_hash), len(commit_hash), 10
+                )  # Cap at 10 chars
+                if (
+                    min_length >= 4
+                ):  # Only match if we have at least 4 characters for reliability
+                    current_short = self.current_commit_hash[:min_length]
+                    commit_short = commit_hash[:min_length]
+                    is_current = current_short == commit_short
+
+                    # Strategy 2: Also try if one hash starts with the other (handles different abbreviation lengths)
+                    if not is_current:
+                        is_current = commit_hash.startswith(
+                            self.current_commit_hash
+                        ) or self.current_commit_hash.startswith(commit_hash)
+
+            if is_current:
+                # Add ">> CURRENT" prefix to highlight the current commit
+                display_text = f">> CURRENT: {display_text}"
+
             self.commit_listbox.insert(tk.END, display_text)
+
+            # Highlight the current commit with a different background color
+            if is_current:
+                self.commit_listbox.itemconfig(
+                    i, bg=COLORS["success"], fg=COLORS["white"]
+                )
 
     def create_window_with_loading(self, fetch_success: bool, fetch_message: str):
         """Create the git commit window with loading state"""
@@ -429,9 +470,18 @@ class GitCommitWindow:
     def update_with_commits(self, commits, current_commit_hash=None):
         """Update window with loaded commits"""
         self.commits = commits
+        if current_commit_hash is not None:
+            self.current_commit_hash = current_commit_hash
         self.commit_listbox.config(state="normal")
         self.populate_commits()
-        self.status_label.config(text=f"Showing all commits ({len(commits)} total)")
+
+        # Update status text to indicate current commit
+        current_text = (
+            " (current commit highlighted)" if self.current_commit_hash else ""
+        )
+        self.status_label.config(
+            text=f"Showing all commits ({len(commits)} total){current_text}"
+        )
         self.checkout_btn.config(state="normal")
 
     def update_with_error(self, error_message):
