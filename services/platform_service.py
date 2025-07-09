@@ -5,7 +5,7 @@ Platform-specific operations service
 import os
 import platform
 import subprocess
-from typing import List, Tuple, Optional, Union, Dict, Any
+from typing import List, Tuple, Optional, Union, Dict, Any, Callable
 
 from config.commands import (
     COMMANDS,
@@ -169,7 +169,7 @@ class PlatformService:
                 (
                     part.format(**kwargs)
                     if isinstance(part, str)
-                    and any(f"{{{key}}}" in part for key in kwargs.keys())
+                    and any(f"{{{key}}}" in part for key in kwargs)
                     else part
                 )
                 for part in cmd_template
@@ -369,7 +369,7 @@ class PlatformService:
     async def run_command_streaming_async(
         command_key: str,
         subkey: Optional[str] = None,
-        output_callback: Optional = None,
+        output_callback: Optional[Callable[[str], None]] = None,
         **kwargs,
     ) -> Tuple[int, str]:
         """
@@ -562,7 +562,7 @@ class PlatformService:
         Check if a file exists using platform-specific commands
         Returns (exists, error_message)
         """
-        result = PlatformService.run_command_with_result(
+        return PlatformService.run_command_with_result(
             "FILE_SYSTEM_COMMANDS",
             subkey="check_file_exists",
             file_path=file_path,
@@ -570,8 +570,6 @@ class PlatformService:
             text=True,
             **kwargs,
         )
-        # For check commands, success means the file exists
-        return result
 
     @staticmethod
     def check_dir_exists(dir_path: str, **kwargs) -> Tuple[bool, str]:
@@ -579,7 +577,7 @@ class PlatformService:
         Check if a directory exists using platform-specific commands
         Returns (exists, error_message)
         """
-        result = PlatformService.run_command_with_result(
+        return PlatformService.run_command_with_result(
             "FILE_SYSTEM_COMMANDS",
             subkey="check_dir_exists",
             dir_path=dir_path,
@@ -587,7 +585,6 @@ class PlatformService:
             text=True,
             **kwargs,
         )
-        return result
 
     @staticmethod
     def copy_file(
@@ -603,24 +600,7 @@ class PlatformService:
         """
         subkey = "copy_file_preserve" if preserve_attrs else "copy_file"
 
-        if preserve_attrs and PlatformService.is_windows():
-            # For Windows robocopy, we need to extract directory and filename
-            from pathlib import Path
-
-            source_path_obj = Path(source_path)
-            target_path_obj = Path(target_path)
-
-            return PlatformService.run_command_with_result(
-                "FILE_SYSTEM_COMMANDS",
-                subkey=subkey,
-                source_dir=str(source_path_obj.parent),
-                target_dir=str(target_path_obj.parent),
-                file_name=source_path_obj.name,
-                capture_output=True,
-                text=True,
-                **kwargs,
-            )
-        else:
+        if not preserve_attrs or not PlatformService.is_windows():
             return PlatformService.run_command_with_result(
                 "FILE_SYSTEM_COMMANDS",
                 subkey=subkey,
@@ -630,6 +610,22 @@ class PlatformService:
                 text=True,
                 **kwargs,
             )
+        # For Windows robocopy, we need to extract directory and filename
+        from pathlib import Path
+
+        source_path_obj = Path(source_path)
+        target_path_obj = Path(target_path)
+
+        return PlatformService.run_command_with_result(
+            "FILE_SYSTEM_COMMANDS",
+            subkey=subkey,
+            source_dir=str(source_path_obj.parent),
+            target_dir=str(target_path_obj.parent),
+            file_name=source_path_obj.name,
+            capture_output=True,
+            text=True,
+            **kwargs,
+        )
 
     @staticmethod
     def create_directory(dir_path: str, **kwargs) -> Tuple[bool, str]:
@@ -709,24 +705,7 @@ class PlatformService:
 
         subkey = "copy_file_preserve" if preserve_attrs else "copy_file"
 
-        if preserve_attrs and PlatformService.is_windows():
-            # For Windows robocopy, we need to extract directory and filename
-            from pathlib import Path
-
-            source_path_obj = Path(source_path)
-            target_path_obj = Path(target_path)
-
-            return await PlatformService.run_command_with_result_async(
-                "FILE_SYSTEM_COMMANDS",
-                subkey=subkey,
-                source_dir=str(source_path_obj.parent),
-                target_dir=str(target_path_obj.parent),
-                file_name=source_path_obj.name,
-                capture_output=True,
-                text=True,
-                **kwargs,
-            )
-        else:
+        if not preserve_attrs or not PlatformService.is_windows():
             return await PlatformService.run_command_with_result_async(
                 "FILE_SYSTEM_COMMANDS",
                 subkey=subkey,
@@ -736,6 +715,22 @@ class PlatformService:
                 text=True,
                 **kwargs,
             )
+        # For Windows robocopy, we need to extract directory and filename
+        from pathlib import Path
+
+        source_path_obj = Path(source_path)
+        target_path_obj = Path(target_path)
+
+        return await PlatformService.run_command_with_result_async(
+            "FILE_SYSTEM_COMMANDS",
+            subkey=subkey,
+            source_dir=str(source_path_obj.parent),
+            target_dir=str(target_path_obj.parent),
+            file_name=source_path_obj.name,
+            capture_output=True,
+            text=True,
+            **kwargs,
+        )
 
     @staticmethod
     async def create_directory_async(dir_path: str, **kwargs) -> Tuple[bool, str]:

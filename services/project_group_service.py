@@ -246,11 +246,9 @@ class ProjectGroupService:
     ) -> Dict[str, List[Project]]:
         """Get all groups with their versions sorted asynchronously"""
         if not ASYNC_AVAILABLE:
-            result = {}
-            for name, group in self._groups.items():
-                result[name] = group.get_all_versions()
-            return result
-
+            return {
+                name: group.get_all_versions() for name, group in self._groups.items()
+            }
         result = {}
 
         # Get all groups and their sorted versions concurrently

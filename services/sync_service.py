@@ -206,22 +206,10 @@ class SyncService(AsyncServiceInterface):
             if PlatformService.is_windows():
                 # Windows forfiles output format: size date time
                 # Size is in bytes, date/time needs parsing
-                if len(parts) >= 1:
-                    file_size = int(parts[0])
-                    # For Windows, we'll use a simple timestamp approach
-                    # This is a simplified implementation
-                    last_modified = 0.0  # Default fallback
-                    return file_size, last_modified
-                else:
-                    return 0, 0.0
+                return (int(parts[0]), 0.0) if parts else (0, 0.0)
             else:
                 # Unix stat output format: size timestamp permissions
-                if len(parts) >= 2:
-                    file_size = int(parts[0])
-                    last_modified = float(parts[1])
-                    return file_size, last_modified
-                else:
-                    return 0, 0.0
+                return (int(parts[0]), float(parts[1])) if len(parts) >= 2 else (0, 0.0)
         except (ValueError, IndexError):
             return 0, 0.0
 
@@ -238,38 +226,7 @@ class SyncService(AsyncServiceInterface):
                 platform_exists, _ = PlatformService.check_file_exists(str(file_path))
                 file_exists = platform_exists
 
-            if file_exists:
-                # Get file statistics - try platform service first, then fallback to pathlib
-                stat_success, stat_output = PlatformService.get_file_stat(
-                    str(file_path)
-                )
-
-                if stat_success:
-                    # Parse platform-specific stat output
-                    file_size, last_modified = self._parse_stat_output(stat_output)
-                    is_readable = os.access(
-                        file_path, os.R_OK
-                    )  # Keep this for now as it's Python-specific
-                else:
-                    # Fallback to pathlib if platform stat fails
-                    try:
-                        stat_info = file_path.stat()
-                        file_size = stat_info.st_size
-                        last_modified = stat_info.st_mtime
-                        is_readable = os.access(file_path, os.R_OK)
-                    except OSError:
-                        file_size = 0
-                        last_modified = 0.0
-                        is_readable = False
-
-                return FileSyncInfo(
-                    file_path=file_path,
-                    file_size=file_size,
-                    file_exists=True,
-                    is_readable=is_readable,
-                    last_modified=last_modified,
-                )
-            else:
+            if not file_exists:
                 return FileSyncInfo(
                     file_path=file_path,
                     file_size=0,
@@ -277,6 +234,34 @@ class SyncService(AsyncServiceInterface):
                     is_readable=False,
                     last_modified=0.0,
                 )
+            # Get file statistics - try platform service first, then fallback to pathlib
+            stat_success, stat_output = PlatformService.get_file_stat(str(file_path))
+
+            if stat_success:
+                # Parse platform-specific stat output
+                file_size, last_modified = self._parse_stat_output(stat_output)
+                is_readable = os.access(
+                    file_path, os.R_OK
+                )  # Keep this for now as it's Python-specific
+            else:
+                # Fallback to pathlib if platform stat fails
+                try:
+                    stat_info = file_path.stat()
+                    file_size = stat_info.st_size
+                    last_modified = stat_info.st_mtime
+                    is_readable = os.access(file_path, os.R_OK)
+                except OSError:
+                    file_size = 0
+                    last_modified = 0.0
+                    is_readable = False
+
+            return FileSyncInfo(
+                file_path=file_path,
+                file_size=file_size,
+                file_exists=True,
+                is_readable=is_readable,
+                last_modified=last_modified,
+            )
         except Exception:
             return FileSyncInfo(
                 file_path=file_path,
@@ -610,16 +595,15 @@ class SyncService(AsyncServiceInterface):
                         True,
                         message=f"Successfully copied {file_name} using platform service",
                     )
-                else:
-                    self.logger.warning(
-                        "Platform copy failed: %s, falling back to shutil", copy_error
-                    )
-                    # Fallback to shutil
-                    await run_in_executor(shutil.copy2, source_file, target_file)
-                    return ServiceResult.success(
-                        True,
-                        message=f"Successfully copied {file_name} using shutil fallback",
-                    )
+                self.logger.warning(
+                    "Platform copy failed: %s, falling back to shutil", copy_error
+                )
+                # Fallback to shutil
+                await run_in_executor(shutil.copy2, source_file, target_file)
+                return ServiceResult.success(
+                    True,
+                    message=f"Successfully copied {file_name} using shutil fallback",
+                )
 
             except Exception as e:
                 self.logger.exception("Unexpected error during file copy")
@@ -662,15 +646,12 @@ class SyncService(AsyncServiceInterface):
                 str(source_file), str(target_file), preserve_attrs=True
             )
 
-            if copy_success:
-                return True
-            else:
+            if not copy_success:
                 self.logger.warning(
                     "Platform copy failed: %s, falling back to shutil", copy_error
                 )
                 # Fallback to shutil
                 shutil.copy2(source_file, target_file)
-                return True
-
+            return True
         except Exception:
             return False

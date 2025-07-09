@@ -48,12 +48,11 @@ class DockerService(AsyncServiceInterface):
                             "platform": self.platform_service.get_platform(),
                         }
                     )
-                else:
-                    error = ProcessError(
-                        f"Docker is not available: {result_output}",
-                        error_code="DOCKER_NOT_AVAILABLE",
-                    )
-                    return ServiceResult.error(error)
+                error = ProcessError(
+                    f"Docker is not available: {result_output}",
+                    error_code="DOCKER_NOT_AVAILABLE",
+                )
+                return ServiceResult.error(error)
 
             except Exception as e:
                 error = ProcessError(f"Failed to check Docker availability: {str(e)}")
@@ -72,22 +71,22 @@ class DockerService(AsyncServiceInterface):
             if lines and lines[0].startswith("#!"):
                 # Already has shebang, validate it's appropriate
                 shebang = lines[0].strip()
-                if shebang in ["#!/bin/sh", "#!/bin/bash", "#!/usr/bin/env bash"]:
-                    return True
-                else:
+                if shebang not in [
+                    "#!/bin/sh",
+                    "#!/bin/bash",
+                    "#!/usr/bin/env bash",
+                ]:
                     # Fix shebang to use /bin/sh for maximum compatibility
                     lines[0] = "#!/bin/sh"
                     fixed_content = "\n".join(lines)
                     script_path.write_text(
                         fixed_content, encoding="utf-8", newline="\n"
                     )
-                    return True
             else:
                 # No shebang, add one
                 fixed_content = "#!/bin/sh\n" + content
                 script_path.write_text(fixed_content, encoding="utf-8", newline="\n")
-                return True
-
+            return True
         except Exception as e:
             self.logger.warning(
                 f"Failed to validate shebang in {script_path}: {str(e)}"
