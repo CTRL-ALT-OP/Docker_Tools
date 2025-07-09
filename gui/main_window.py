@@ -59,12 +59,29 @@ class MainWindow:
             messagebox.showerror("Error", f"Path does not exist: {path}")
             return
 
-        success, error_message = PlatformService.run_command_with_result(
-            "FILE_OPEN_COMMANDS", file_path=str(path)
-        )
+        try:
+            success, error_message = PlatformService.run_command_with_result(
+                "FILE_OPEN_COMMANDS", file_path=str(path)
+            )
 
-        if not success:
-            messagebox.showerror("Error", error_message)
+            if not success:
+                # Provide more helpful error message
+                detailed_message = (
+                    f"Failed to open file explorer for path:\n{path}\n\n"
+                    f"Error: {error_message}\n\n"
+                    f"You can try:\n"
+                    f"• Manually navigate to the path\n"
+                    f"• Check if the path exists and is accessible\n"
+                    f"• Restart the application if the issue persists"
+                )
+                messagebox.showerror("File Explorer Error", detailed_message)
+            # If successful, no popup is needed as the file explorer should open
+        except Exception as e:
+            # Handle any unexpected errors
+            messagebox.showerror(
+                "File Explorer Error",
+                f"Unexpected error opening file explorer:\n{str(e)}\n\nPath: {path}",
+            )
 
     def set_callbacks(self, callbacks: Dict[str, Callable]):
         """Set callback functions for GUI events"""

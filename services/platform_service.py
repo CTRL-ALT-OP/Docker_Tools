@@ -229,13 +229,136 @@ class PlatformService:
                 command_key, subkey, **kwargs
             )
 
-            result = subprocess.run(cmd, shell=use_shell, check=True)
-            return True, ""
+            # Special handling for FILE_OPEN_COMMANDS to improve reliability
+            if command_key == "FILE_OPEN_COMMANDS":
+                return PlatformService._handle_file_open_command(
+                    cmd, use_shell, **kwargs
+                )
 
+            result = subprocess.run(
+                cmd, shell=use_shell, capture_output=True, text=True, timeout=30
+            )
+
+            if result.returncode == 0:
+                return True, result.stdout.strip() if result.stdout else ""
+            else:
+                error_msg = (
+                    result.stderr.strip()
+                    if result.stderr
+                    else f"Command failed with exit code {result.returncode}"
+                )
+                return False, error_msg
+
+        except subprocess.TimeoutExpired as e:
+            return False, f"Command timed out after 30 seconds: {e}"
         except subprocess.CalledProcessError as e:
-            return False, f"Command failed: {e}"
+            error_msg = (
+                e.stderr.strip()
+                if e.stderr
+                else f"Command failed with exit code {e.returncode}"
+            )
+            return False, f"Command failed: {error_msg}"
         except Exception as e:
             return False, f"Error: {str(e)}"
+
+    @staticmethod
+    def _handle_file_open_command(
+        cmd: Union[List[str], str], use_shell: bool, **kwargs
+    ) -> Tuple[bool, str]:
+        """
+        Special handling for file open commands to improve reliability and error reporting
+        """
+        import os
+        from pathlib import Path
+
+        # Extract file path from kwargs
+        file_path = kwargs.get("file_path", "")
+        if not file_path:
+            return False, "No file path provided"
+
+        # Validate that the path exists
+        path_obj = Path(file_path)
+        if not path_obj.exists():
+            return False, f"Path does not exist: {file_path}"
+
+        current_platform = PlatformService.get_platform()
+
+        try:
+            if current_platform == "windows":
+                # For Windows, we need special handling of the start command
+                # Quote the path to handle spaces and special characters
+                quoted_path = f'"{file_path}"'
+
+                # Use explorer.exe directly as a more reliable alternative to start
+                # start command can be unreliable, especially with paths containing spaces
+                explorer_cmd = ["explorer.exe", file_path]
+
+                # Try explorer.exe first
+                try:
+                    result = subprocess.run(
+                        explorer_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        check=False,  # Don't raise on non-zero exit
+                    )
+
+                    # Explorer.exe usually returns 1 even on success, so we check differently
+                    # If it starts within timeout, consider it successful
+                    if result.returncode in [
+                        0,
+                        1,
+                    ]:  # Both 0 and 1 can indicate success for explorer.exe
+                        return True, "File explorer opened successfully"
+                    else:
+                        # Fall back to start command
+                        pass
+                except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+                    # Fall back to start command
+                    pass
+
+                # Fallback: Use cmd /c start with proper quoting
+                start_cmd = ["cmd", "/c", "start", "", quoted_path]
+                result = subprocess.run(
+                    start_cmd, capture_output=True, text=True, timeout=10, check=False
+                )
+
+                # For start command, return code 0 usually means success
+                if result.returncode == 0:
+                    return True, "File explorer opened successfully"
+                else:
+                    error_msg = (
+                        result.stderr.strip()
+                        if result.stderr
+                        else f"Start command failed with exit code {result.returncode}"
+                    )
+                    return False, f"Failed to open file explorer: {error_msg}"
+
+            else:
+                # For Unix-like systems (Linux, macOS)
+                result = subprocess.run(
+                    cmd,
+                    shell=use_shell,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+
+                if result.returncode == 0:
+                    return True, "File manager opened successfully"
+                else:
+                    error_msg = (
+                        result.stderr.strip()
+                        if result.stderr
+                        else f"Command failed with exit code {result.returncode}"
+                    )
+                    return False, f"Failed to open file manager: {error_msg}"
+
+        except subprocess.TimeoutExpired:
+            return False, "File manager command timed out"
+        except Exception as e:
+            return False, f"Error opening file manager: {str(e)}"
 
     # ========== ASYNC METHODS ==========
 
@@ -332,6 +455,12 @@ class PlatformService:
                 PlatformService._prepare_command, command_key, subkey, **kwargs
             )
 
+            # Special handling for FILE_OPEN_COMMANDS to improve reliability
+            if command_key == "FILE_OPEN_COMMANDS":
+                return await PlatformService._handle_file_open_command_async(
+                    cmd, use_shell, **kwargs
+                )
+
             # Extract subprocess-specific kwargs
             subprocess_kwargs = {
                 k: v
@@ -364,6 +493,105 @@ class PlatformService:
             return False, f"Command failed: {e}"
         except Exception as e:
             return False, f"Error: {str(e)}"
+
+    @staticmethod
+    async def _handle_file_open_command_async(
+        cmd: Union[List[str], str], use_shell: bool, **kwargs
+    ) -> Tuple[bool, str]:
+        """
+        Special handling for file open commands to improve reliability and error reporting
+        """
+        import os
+        from pathlib import Path
+
+        # Extract file path from kwargs
+        file_path = kwargs.get("file_path", "")
+        if not file_path:
+            return False, "No file path provided"
+
+        # Validate that the path exists
+        path_obj = Path(file_path)
+        if not path_obj.exists():
+            return False, f"Path does not exist: {file_path}"
+
+        current_platform = PlatformService.get_platform()
+
+        try:
+            if current_platform == "windows":
+                # For Windows, we need special handling of the start command
+                # Quote the path to handle spaces and special characters
+                quoted_path = f'"{file_path}"'
+
+                # Use explorer.exe directly as a more reliable alternative to start
+                # start command can be unreliable, especially with paths containing spaces
+                explorer_cmd = ["explorer.exe", file_path]
+
+                # Try explorer.exe first
+                try:
+                    result = await run_subprocess_async(
+                        explorer_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        check=False,  # Don't raise on non-zero exit
+                    )
+
+                    # Explorer.exe usually returns 1 even on success, so we check differently
+                    # If it starts within timeout, consider it successful
+                    if result.returncode in [
+                        0,
+                        1,
+                    ]:  # Both 0 and 1 can indicate success for explorer.exe
+                        return True, "File explorer opened successfully"
+                    else:
+                        # Fall back to start command
+                        pass
+                except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+                    # Fall back to start command
+                    pass
+
+                # Fallback: Use cmd /c start with proper quoting
+                start_cmd = ["cmd", "/c", "start", "", quoted_path]
+                result = await run_subprocess_async(
+                    start_cmd, capture_output=True, text=True, timeout=10, check=False
+                )
+
+                # For start command, return code 0 usually means success
+                if result.returncode == 0:
+                    return True, "File explorer opened successfully"
+                else:
+                    error_msg = (
+                        result.stderr.strip()
+                        if result.stderr
+                        else f"Start command failed with exit code {result.returncode}"
+                    )
+                    return False, f"Failed to open file explorer: {error_msg}"
+
+            else:
+                # For Unix-like systems (Linux, macOS)
+                result = await run_subprocess_async(
+                    cmd,
+                    shell=use_shell,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+
+                if result.returncode == 0:
+                    return True, "File manager opened successfully"
+                else:
+                    error_msg = (
+                        result.stderr.strip()
+                        if result.stderr
+                        else f"Command failed with exit code {result.returncode}"
+                    )
+                    return False, f"Failed to open file manager: {error_msg}"
+
+        except subprocess.TimeoutExpired:
+            return False, "File manager command timed out"
+        except Exception as e:
+            return False, f"Error opening file manager: {str(e)}"
 
     @staticmethod
     async def run_command_streaming_async(
