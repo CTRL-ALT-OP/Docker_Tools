@@ -7,7 +7,12 @@ import asyncio
 from pathlib import Path
 from typing import Tuple, List, Callable, Optional
 
-from config.settings import FOLDER_ALIASES, LANGUAGE_EXTENSIONS, LANGUAGE_REQUIRED_FILES
+from config.settings import (
+    FOLDER_ALIASES,
+    LANGUAGE_EXTENSIONS,
+    LANGUAGE_REQUIRED_FILES,
+    COLORS,
+)
 from services.project_group_service import ProjectGroup
 from services.platform_service import PlatformService
 from models.project import Project
@@ -30,7 +35,7 @@ class DockerFilesService:
         Returns (success, message)
         """
         try:
-            status_callback("Starting Docker file generation...", "#f39c12")
+            status_callback("Starting Docker file generation...", COLORS["warning"])
 
             # Find the pre-edit version
             pre_edit_project = self._find_pre_edit_version(project_group)
@@ -46,7 +51,7 @@ class DockerFilesService:
             )
 
             # Check for existing Docker files
-            status_callback("Checking for existing Docker files...", "#f39c12")
+            status_callback("Checking for existing Docker files...", COLORS["warning"])
             existing_files = await self._check_existing_docker_files(
                 pre_edit_project, output_callback
             )
@@ -59,14 +64,14 @@ class DockerFilesService:
                 )
 
             # Detect programming language
-            status_callback("Detecting programming language...", "#f39c12")
+            status_callback("Detecting programming language...", COLORS["warning"])
             detected_language = await self._detect_programming_language(
                 pre_edit_project, output_callback
             )
             output_callback(f"🔍 Detected language: {detected_language}\n")
 
             # Analyze codebase for language-specific dependencies
-            status_callback("Analyzing codebase for dependencies...", "#f39c12")
+            status_callback("Analyzing codebase for dependencies...", COLORS["warning"])
             if detected_language == "python":
                 has_tkinter, has_opencv = await self._analyze_python_codebase(
                     pre_edit_project, output_callback
@@ -78,7 +83,7 @@ class DockerFilesService:
                 )
 
             # Build Docker files
-            status_callback("Building Docker files...", "#f39c12")
+            status_callback("Building Docker files...", COLORS["warning"])
             success, message = await self._build_docker_files(
                 pre_edit_project,
                 detected_language,
@@ -91,7 +96,9 @@ class DockerFilesService:
                 return False, message
 
             # Copy files to all versions
-            status_callback("Copying files to all project versions...", "#f39c12")
+            status_callback(
+                "Copying files to all project versions...", COLORS["warning"]
+            )
             copy_success, copy_message = await self._copy_files_to_all_versions(
                 project_group, pre_edit_project, detected_language, output_callback
             )
@@ -100,7 +107,7 @@ class DockerFilesService:
                 return False, copy_message
 
             status_callback(
-                "Docker files generation completed successfully!", "#27ae60"
+                "Docker files generation completed successfully!", COLORS["success"]
             )
             output_callback("\n✅ Docker files generation completed successfully!\n")
             return True, "Docker files generated and distributed successfully"

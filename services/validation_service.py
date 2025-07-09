@@ -23,7 +23,7 @@ from services.project_service import ProjectService
 from services.project_group_service import ProjectGroup
 from models.project import Project
 from config.commands import COMMANDS
-from config.settings import FOLDER_ALIASES
+from config.settings import FOLDER_ALIASES, COLORS
 from utils.async_base import (
     AsyncServiceInterface,
     ServiceResult,
@@ -228,35 +228,32 @@ class ValidationService(AsyncServiceInterface):
             timeout=settings.timeout_minutes * 60.0,
         ) as ctx:
             try:
-                status_callback("Preparing validation...", "#f39c12")
+                status_callback("Preparing validation...", COLORS["warning"])
                 output_callback(
                     f"=== VALIDATION PROCESS FOR {project_group.name} ===\n\n"
                 )
 
-                # Validate validation tool
+                # Check if validation tool exists
                 if not settings.validation_tool_path.exists():
-                    error = ResourceError(
-                        "Validation tool directory not found",
-                        resource_path=str(settings.validation_tool_path),
+                    status_callback("Validation tool not found", COLORS["error"])
+                    return ServiceResult.error(
+                        ResourceError(
+                            f"Validation tool not found at: {settings.validation_tool_path}"
+                        )
                     )
-                    output_callback(
-                        f"❌ Validation tool not found: {settings.validation_tool_path}\n"
-                    )
-                    status_callback("Validation tool not found", "#e74c3c")
-                    return ServiceResult.error(error)
 
-                # Clear existing archives
-                await self._clear_existing_archives(
-                    settings.codebases_path, output_callback
+                # Get all versions for this project group
+                versions = self.project_service.get_all_versions(
+                    self.project_service.get_project_group(project_group.name)
                 )
 
-                # Get project versions
-                versions = project_group.get_all_versions()
                 if not versions:
-                    error = ResourceError("No versions found for this project")
-                    output_callback(f"❌ No versions found\n")
-                    status_callback("No versions found", "#e74c3c")
-                    return ServiceResult.error(error)
+                    status_callback("No versions found", COLORS["error"])
+                    return ServiceResult.error(
+                        ValidationError(
+                            f"No versions found for project group: {project_group.name}"
+                        )
+                    )
 
                 output_callback(f"🔍 Found {len(versions)} versions to archive:\n")
                 for version in versions:
@@ -267,12 +264,21 @@ class ValidationService(AsyncServiceInterface):
                     )
                 output_callback("\n")
 
+                # Clear existing archives
+                try:
+                    await self._clear_existing_archives(
+                        settings.codebases_path, output_callback
+                    )
+                except Exception as e:
+                    self.logger.error(f"Error clearing existing archives: {e}")
+
                 # Archive all versions
                 archive_result = await self._archive_all_versions(
                     versions, settings, output_callback, status_callback
                 )
 
                 if archive_result.is_error:
+                    status_callback("Archiving failed", COLORS["error"])
                     return ServiceResult.error(archive_result.error)
 
                 archived_projects = archive_result.data
@@ -280,7 +286,7 @@ class ValidationService(AsyncServiceInterface):
                 if not archived_projects:
                     error = ResourceError("No archives were successfully created")
                     output_callback(f"❌ No archives created\n")
-                    status_callback("Archiving failed", "#e74c3c")
+                    status_callback("Archiving failed", COLORS["error"])
                     return ServiceResult.error(error)
 
                 output_callback(
@@ -291,99 +297,90 @@ class ValidationService(AsyncServiceInterface):
                     output_callback(f"  • {archive.archive_name}\n")
                 output_callback("\n")
 
-                # Run validation
-                status_callback("Running validation...", "#3498db")
-                output_callback("=== RUNNING VALIDATION ===\n")
+                # Run validation script
+                output_callback("\n=== RUNNING VALIDATION ===\n")
+                status_callback("Running validation...", COLORS["info"])
 
                 validation_result = await self._run_validation_script(
                     settings.validation_tool_path, output_callback, archived_projects
                 )
 
-                processing_time = asyncio.get_event_loop().time() - start_time
+                if validation_result.is_error:
+                    return ServiceResult.error(validation_result.error)
 
-                if validation_result.is_success:
-                    validation_output, validation_errors, all_codebases_passed = (
-                        validation_result.data
+                raw_output, validation_errors = validation_result.data
+
+                # Parse validation result
+                success = "All validations passed" in raw_output
+                failed_archives = [
+                    archive.archive_name
+                    for archive in archived_projects
+                    if archive.archive_name in raw_output and "FAILED" in raw_output
+                ]
+
+                if success:
+                    status_callback("All validations passed", COLORS["success"])
+                    return ServiceResult.success(
+                        ValidationResult(
+                            success=True,
+                            archived_projects=archived_projects,
+                            validation_output=raw_output,
+                            failed_archives=failed_archives,
+                            validation_errors=validation_errors,
+                            total_projects=len(archived_projects),
+                            processing_time=time.time() - start_time,
+                        ),
+                        message="Validation completed successfully",
                     )
-
-                    result = ValidationResult(
-                        success=all_codebases_passed,  # Based on actual validation results
-                        archived_projects=archived_projects,
-                        validation_output=validation_output,
-                        failed_archives=[],
-                        validation_errors=validation_errors,
-                        total_projects=len(versions),
-                        processing_time=processing_time,
-                    )
-
-                    if all_codebases_passed:
-                        status_callback("All validations passed", "#27ae60")
-                        output_callback("\n✅ All codebases passed validation!\n")
-
-                        return ServiceResult.success(
-                            result,
-                            message="All codebases passed validation",
-                            metadata={
-                                "processing_time_minutes": round(
-                                    processing_time / 60, 2
-                                ),
-                                "archived_count": len(archived_projects),
-                                "total_projects": len(versions),
-                            },
-                        )
-                    else:
-                        status_callback(
-                            "Validation process completed with failures", "#f39c12"
-                        )
-                        output_callback(
-                            "\n⚠️ Validation process completed but some codebases failed validation!\n"
-                        )
-
-                        return ServiceResult.success(
-                            result,
-                            message="Validation process completed with failures",
-                            metadata={
-                                "processing_time_minutes": round(
-                                    processing_time / 60, 2
-                                ),
-                                "archived_count": len(archived_projects),
-                                "total_projects": len(versions),
-                                "failed_validations": len(validation_errors),
-                            },
-                        )
                 else:
-                    # Validation had issues but archives were created
-                    validation_output = (
-                        validation_result.error.message
-                        if validation_result.error
-                        else "Unknown validation error"
+                    status_callback(
+                        "Validation process completed with failures", COLORS["warning"]
                     )
-
-                    result = ValidationResult(
-                        success=False,
-                        archived_projects=archived_projects,
-                        validation_output=validation_output,
-                        failed_archives=[],
-                        validation_errors=[validation_output],
-                        total_projects=len(versions),
-                        processing_time=processing_time,
-                    )
-
-                    status_callback("Validation completed with issues", "#f39c12")
-
-                    # This is a partial success - archives created but validation failed
-                    return ServiceResult.partial(
-                        result,
-                        validation_result.error,
-                        message="Archives created but validation failed",
+                    return ServiceResult.partial_success(
+                        ValidationResult(
+                            success=False,
+                            archived_projects=archived_projects,
+                            validation_output=raw_output,
+                            failed_archives=failed_archives,
+                            validation_errors=validation_errors,
+                            total_projects=len(archived_projects),
+                            processing_time=time.time() - start_time,
+                        ),
+                        ProcessError(
+                            f"Validation completed with {len(failed_archives)} failures"
+                        ),
                     )
 
             except Exception as e:
-                self.logger.exception("Unexpected error during validation")
-                processing_time = asyncio.get_event_loop().time() - start_time
+                self.logger.exception(f"Archive and validation failed: {e}")
+                # Clean up validation process if it was started
+                await self._cleanup_validation_process()
 
-                error = ProcessError(f"Validation process failed: {str(e)}")
-                return ServiceResult.error(error)
+                # Extract details for better error reporting
+                error_details = str(e)
+                if "validation" in error_details.lower():
+                    error_code = "VALIDATION_ERROR"
+                elif "archive" in error_details.lower():
+                    error_code = "ARCHIVE_ERROR"
+                else:
+                    error_code = "UNKNOWN_ERROR"
+
+                status_callback("Validation completed with issues", COLORS["warning"])
+                return ServiceResult.partial_success(
+                    ValidationResult(
+                        success=False,
+                        archived_projects=[],
+                        validation_output=error_details,
+                        failed_archives=[],
+                        validation_errors=[error_details],
+                        total_projects=0,
+                        processing_time=time.time() - start_time,
+                    ),
+                    ProcessError(
+                        f"Validation process encountered issues: {error_details}",
+                        error_code=error_code,
+                    ),
+                )
 
     async def _clear_existing_archives(
         self, codebases_path: Path, output_callback: Callable[[str], None]
@@ -413,7 +410,8 @@ class ValidationService(AsyncServiceInterface):
         for i, project in enumerate(versions):
             try:
                 status_callback(
-                    f"Archiving {project.parent} ({i+1}/{len(versions)})", "#f39c12"
+                    f"Archiving {project.parent} ({i+1}/{len(versions)})",
+                    COLORS["warning"],
                 )
 
                 # Clean up project if needed

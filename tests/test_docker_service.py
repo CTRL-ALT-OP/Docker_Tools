@@ -17,6 +17,7 @@ if parent_dir not in sys.path:
 
 from services.docker_service import DockerService
 from services.platform_service import PlatformService
+from config.settings import COLORS
 
 
 class TestDockerService:
@@ -278,7 +279,7 @@ class TestDockerService:
                     "failed" in str(result.error).lower()
                     or "build" in str(result.error).lower()
                 )
-                status_callback.assert_called_with("Build Failed", "#e74c3c")
+                status_callback.assert_called_with("Build Failed", COLORS["error"])
 
     @pytest.mark.asyncio
     async def test_build_docker_image_exception(self):

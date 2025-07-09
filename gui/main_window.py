@@ -8,7 +8,7 @@ from tkinter import messagebox, ttk
 from typing import Optional, Callable, Dict, Any, List
 from pathlib import Path
 
-from config.settings import WINDOW_TITLE, MAIN_WINDOW_SIZE, COLORS, FONTS
+from config.settings import WINDOW_TITLE, MAIN_WINDOW_SIZE, COLORS, FONTS, BUTTON_STYLES
 from services.platform_service import PlatformService
 from gui.gui_utils import GuiUtils
 from gui.popup_windows import AddProjectWindow

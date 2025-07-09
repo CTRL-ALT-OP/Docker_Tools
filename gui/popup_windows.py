@@ -290,7 +290,7 @@ class GitCommitWindow:
             text="Double-click on a commit to checkout to that version",
             font_key="button",
             bg=COLORS["terminal_bg"],
-            fg="#bdc3c7",
+            fg=COLORS["muted"],
         )
         info_label.pack(pady=(0, 10))
 
@@ -542,7 +542,7 @@ class GitCheckoutAllWindow:
             text="⚠️  Select a commit and click 'Checkout All Versions' to checkout ALL project versions to that commit",
             font_key="button",
             bg=COLORS["terminal_bg"],
-            fg="#e67e22",  # Orange warning color
+            fg=COLORS["warning"],  # Orange warning color
         )
         info_label.pack(pady=(0, 10))
 

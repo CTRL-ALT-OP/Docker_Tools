@@ -11,6 +11,7 @@ from typing import Dict, Any, Callable
 from utils.async_base import AsyncCommand, AsyncResult, ProcessError, ValidationError
 from models.project import Project
 from services.project_group_service import ProjectGroup
+from config.settings import COLORS
 
 
 class CleanupProjectCommand(AsyncCommand):
@@ -189,7 +190,7 @@ class DockerBuildAndTestCommand(AsyncCommand):
                 )
                 self.terminal_window.create_window()
                 self.terminal_window.update_status(
-                    "Starting Docker build...", "#f39c12"
+                    "Starting Docker build...", COLORS["warning"]
                 )
 
             if self.window:
@@ -219,7 +220,7 @@ class DockerBuildAndTestCommand(AsyncCommand):
             if result.is_success:
                 if self.terminal_window:
                     self.terminal_window.update_status(
-                        "Build and test completed successfully!", "#27ae60"
+                        "Build and test completed successfully!", COLORS["success"]
                     )
                     self.terminal_window.append_output(
                         "\n✅ All operations completed successfully!\n"
@@ -227,7 +228,7 @@ class DockerBuildAndTestCommand(AsyncCommand):
             elif result.is_partial:
                 if self.terminal_window:
                     self.terminal_window.update_status(
-                        "Build successful, some tests failed", "#f39c12"
+                        "Build successful, some tests failed", COLORS["warning"]
                     )
                     self.terminal_window.append_output(
                         "\n⚠️ Build completed but some tests failed.\n"
@@ -235,7 +236,7 @@ class DockerBuildAndTestCommand(AsyncCommand):
             else:
                 if self.terminal_window:
                     self.terminal_window.update_status(
-                        "Build and test failed", "#e74c3c"
+                        "Build and test failed", COLORS["error"]
                     )
                     self.terminal_window.append_output("\n❌ Build and test failed.\n")
 
@@ -270,7 +271,7 @@ class DockerBuildAndTestCommand(AsyncCommand):
         except Exception as e:
             self.logger.exception(f"Docker command failed for {self.project.name}")
             if self.terminal_window:
-                self.terminal_window.update_status("Error occurred", "#e74c3c")
+                self.terminal_window.update_status("Error occurred", COLORS["error"])
                 self.terminal_window.append_output(f"\n❌ Error: {str(e)}\n")
 
             return AsyncResult.error_result(
@@ -606,7 +607,7 @@ class GitCheckoutAllCommand(AsyncCommand):
                 )
                 terminal_window.create_window()
                 terminal_window.update_status(
-                    "Starting checkout to all versions...", "#f39c12"
+                    "Starting checkout to all versions...", COLORS["warning"]
                 )
 
                 terminal_window.append_output(
@@ -624,7 +625,7 @@ class GitCheckoutAllCommand(AsyncCommand):
                 for i, project in enumerate(all_versions):
                     terminal_window.update_status(
                         f"Processing {project.parent}/{project.name} ({i+1}/{len(all_versions)})",
-                        "#f39c12",
+                        COLORS["warning"],
                     )
                     terminal_window.append_output(
                         f"📁 Processing {project.parent}/{project.name}...\n"
@@ -786,15 +787,16 @@ class GitCheckoutAllCommand(AsyncCommand):
                 # Update final status
                 if len(successful_checkouts) == len(all_versions):
                     terminal_window.update_status(
-                        "All checkouts completed successfully!", "#27ae60"
+                        "All checkouts completed successfully!", COLORS["success"]
                     )
                 elif successful_checkouts:
                     terminal_window.update_status(
-                        "Partially completed with some failures/skips", "#f39c12"
+                        "Partially completed with some failures/skips",
+                        COLORS["warning"],
                     )
                 else:
                     terminal_window.update_status(
-                        "All checkouts failed or were skipped", "#e74c3c"
+                        "All checkouts failed or were skipped", COLORS["error"]
                     )
 
                 # Add final buttons
@@ -815,7 +817,9 @@ class GitCheckoutAllCommand(AsyncCommand):
                     "Checkout all was cancelled for %s", self.project_group.name
                 )
                 if "terminal_window" in locals():
-                    terminal_window.update_status("Operation cancelled", "#e74c3c")
+                    terminal_window.update_status(
+                        "Operation cancelled", COLORS["error"]
+                    )
                 raise
             except Exception as e:
                 self.logger.exception(
@@ -823,7 +827,7 @@ class GitCheckoutAllCommand(AsyncCommand):
                 )
                 error_msg = f"Error during checkout all: {str(e)}"
                 if "terminal_window" in locals():
-                    terminal_window.update_status("Error occurred", "#e74c3c")
+                    terminal_window.update_status("Error occurred", COLORS["error"])
                     terminal_window.append_output(f"\nError: {error_msg}\n")
 
         # Import task manager and run the async operation
@@ -924,7 +928,7 @@ class ValidateProjectGroupCommand(AsyncCommand):
                     )
                     self.terminal_window.create_window()
                     self.terminal_window.update_status(
-                        "Starting validation...", "#f39c12"
+                        "Starting validation...", COLORS["warning"]
                     )
                     # Signal that window is ready
                     self.async_bridge.signal_from_gui(event_id)
@@ -964,8 +968,8 @@ class ValidateProjectGroupCommand(AsyncCommand):
                     self.terminal_window.update_status(status, color)
                 level = (
                     "success"
-                    if color == "#27ae60"
-                    else "warning" if color == "#f39c12" else "error"
+                    if color == COLORS["success"]
+                    else "warning" if color == COLORS["warning"] else "error"
                 )
                 # Always update progress for status changes since these are significant
                 self._update_progress(status, level)
@@ -981,7 +985,9 @@ class ValidateProjectGroupCommand(AsyncCommand):
 
             if validation_result.is_error:
                 if self.terminal_window:
-                    self.terminal_window.update_status("Validation failed", "#e74c3c")
+                    self.terminal_window.update_status(
+                        "Validation failed", COLORS["error"]
+                    )
                     self.terminal_window.append_output(
                         f"\n❌ Error: {validation_result.error.message}\n"
                     )
@@ -998,7 +1004,7 @@ class ValidateProjectGroupCommand(AsyncCommand):
             # Handle partial results (validation completed with issues)
             if validation_result.is_partial and self.terminal_window:
                 self.terminal_window.update_status(
-                    "Validation completed with issues", "#f39c12"
+                    "Validation completed with issues", COLORS["warning"]
                 )
                 self.terminal_window.append_output(
                     f"\n⚠️ Validation completed with some issues: {validation_result.error.message}\n"
@@ -1029,7 +1035,7 @@ class ValidateProjectGroupCommand(AsyncCommand):
             # Update terminal window with success
             if self.terminal_window:
                 self.terminal_window.update_status(
-                    "Validation completed successfully", "#27ae60"
+                    "Validation completed successfully", COLORS["success"]
                 )
                 self.terminal_window.append_output(
                     "\n✅ Validation completed successfully!\n"
@@ -1152,7 +1158,7 @@ class ValidateProjectGroupCommand(AsyncCommand):
                 f"Validation command failed for {self.project_group.name}"
             )
             if self.terminal_window:
-                self.terminal_window.update_status("Error occurred", "#e74c3c")
+                self.terminal_window.update_status("Error occurred", COLORS["error"])
                 self.terminal_window.append_output(f"\n❌ Error: {str(e)}\n")
 
             return AsyncResult.error_result(
@@ -1234,7 +1240,7 @@ class BuildDockerFilesCommand(AsyncCommand):
                 )
                 self.terminal_window.create_window()
                 self.terminal_window.update_status(
-                    "Removing existing files...", "#f39c12"
+                    "Removing existing files...", COLORS["warning"]
                 )
 
             if self.window:
@@ -1260,14 +1266,16 @@ class BuildDockerFilesCommand(AsyncCommand):
 
                 if not removal_success:
                     if self.terminal_window:
-                        self.terminal_window.update_status("Removal failed", "#e74c3c")
+                        self.terminal_window.update_status(
+                            "Removal failed", COLORS["error"]
+                        )
                         self.terminal_window.append_output(
                             "\n❌ Failed to remove existing files.\n"
                         )
                     return
 
                 # Now retry the build
-                status_callback("Starting fresh build...", "#f39c12")
+                status_callback("Starting fresh build...", COLORS["warning"])
                 build_result = await self.docker_files_service.build_docker_files_for_project_group(
                     self.project_group,
                     progress_callback,
@@ -1280,7 +1288,7 @@ class BuildDockerFilesCommand(AsyncCommand):
                     if success:
                         if self.terminal_window:
                             self.terminal_window.update_status(
-                                "Build completed successfully", "#27ae60"
+                                "Build completed successfully", COLORS["success"]
                             )
                             self.terminal_window.append_output(
                                 "\n✅ Docker files build completed successfully!\n"
@@ -1297,7 +1305,7 @@ class BuildDockerFilesCommand(AsyncCommand):
                     else:
                         if self.terminal_window:
                             self.terminal_window.update_status(
-                                "Build failed", "#e74c3c"
+                                "Build failed", COLORS["error"]
                             )
                             self.terminal_window.append_output(
                                 f"\n❌ Build failed: {message}\n"
@@ -1307,7 +1315,7 @@ class BuildDockerFilesCommand(AsyncCommand):
                     if hasattr(build_result, "is_success") and build_result.is_success:
                         if self.terminal_window:
                             self.terminal_window.update_status(
-                                "Build completed successfully", "#27ae60"
+                                "Build completed successfully", COLORS["success"]
                             )
                             self.terminal_window.append_output(
                                 "\n✅ Docker files build completed successfully!\n"
@@ -1324,7 +1332,7 @@ class BuildDockerFilesCommand(AsyncCommand):
                     else:
                         if self.terminal_window:
                             self.terminal_window.update_status(
-                                "Build failed", "#e74c3c"
+                                "Build failed", COLORS["error"]
                             )
                             self.terminal_window.append_output(
                                 f"\n❌ Build failed: {build_result.error.message if hasattr(build_result, 'error') else 'Unknown error'}\n"
@@ -1332,7 +1340,9 @@ class BuildDockerFilesCommand(AsyncCommand):
 
             except Exception as e:
                 if self.terminal_window:
-                    self.terminal_window.update_status("Error occurred", "#e74c3c")
+                    self.terminal_window.update_status(
+                        "Error occurred", COLORS["error"]
+                    )
                     self.terminal_window.append_output(
                         f"\n❌ Error during removal and rebuild: {str(e)}\n"
                     )
@@ -1369,7 +1379,7 @@ class BuildDockerFilesCommand(AsyncCommand):
                     )
                     self.terminal_window.create_window()
                     self.terminal_window.update_status(
-                        "Starting Docker files build...", "#f39c12"
+                        "Starting Docker files build...", COLORS["warning"]
                     )
                     # Signal that window is ready
                     self.async_bridge.signal_from_gui(event_id)
@@ -1390,8 +1400,8 @@ class BuildDockerFilesCommand(AsyncCommand):
                     self.terminal_window.update_status(status, color)
                 level = (
                     "success"
-                    if color == "#27ae60"
-                    else "warning" if color == "#f39c12" else "error"
+                    if color == COLORS["success"]
+                    else "warning" if color == COLORS["warning"] else "error"
                 )
                 self._update_progress(status, level)
 
@@ -1414,7 +1424,7 @@ class BuildDockerFilesCommand(AsyncCommand):
                         # Handle existing files by prompting user
                         if self.terminal_window:
                             self.terminal_window.update_status(
-                                "Existing files found", "#f39c12"
+                                "Existing files found", COLORS["warning"]
                             )
                             self.terminal_window.append_output(f"\n⚠️  {message}\n")
                             self.terminal_window.append_output("\nOptions:\n")
@@ -1434,7 +1444,7 @@ class BuildDockerFilesCommand(AsyncCommand):
                             def handle_cancel():
                                 if self.terminal_window:
                                     self.terminal_window.update_status(
-                                        "Operation cancelled", "#e74c3c"
+                                        "Operation cancelled", COLORS["error"]
                                     )
                                     self.terminal_window.append_output(
                                         "\n❌ Operation cancelled by user.\n"
@@ -1467,7 +1477,7 @@ class BuildDockerFilesCommand(AsyncCommand):
                         # Other type of error
                         if self.terminal_window:
                             self.terminal_window.update_status(
-                                "Build failed", "#e74c3c"
+                                "Build failed", COLORS["error"]
                             )
                             self.terminal_window.append_output(
                                 f"\n❌ Error: {message}\n"
@@ -1485,7 +1495,7 @@ class BuildDockerFilesCommand(AsyncCommand):
             elif hasattr(build_result, "is_error") and build_result.is_error:
                 # New format: AsyncResult
                 if self.terminal_window:
-                    self.terminal_window.update_status("Build failed", "#e74c3c")
+                    self.terminal_window.update_status("Build failed", COLORS["error"])
                     self.terminal_window.append_output(
                         f"\n❌ Error: {build_result.error.message}\n"
                     )
@@ -1494,7 +1504,7 @@ class BuildDockerFilesCommand(AsyncCommand):
             # Update terminal window with success
             if self.terminal_window:
                 self.terminal_window.update_status(
-                    "Docker files built successfully", "#27ae60"
+                    "Docker files built successfully", COLORS["success"]
                 )
                 self.terminal_window.append_output(
                     "\n✅ Docker files build completed successfully!\n"
@@ -1533,7 +1543,7 @@ class BuildDockerFilesCommand(AsyncCommand):
                 f"Build Docker files command failed for {self.project_group.name}"
             )
             if self.terminal_window:
-                self.terminal_window.update_status("Error occurred", "#e74c3c")
+                self.terminal_window.update_status("Error occurred", COLORS["error"])
                 self.terminal_window.append_output(f"\n❌ Error: {str(e)}\n")
 
             return AsyncResult.error_result(

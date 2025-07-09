@@ -16,6 +16,7 @@ from utils.async_base import (
 from utils.async_utils import (
     run_in_executor,
 )
+from config.settings import COLORS
 
 
 class DockerService(AsyncServiceInterface):
@@ -260,7 +261,7 @@ class DockerService(AsyncServiceInterface):
 
                 if return_code == 0:
                     if status_callback:
-                        status_callback("Build Successful", "#27ae60")
+                        status_callback("Build Successful", COLORS["success"])
 
                     return ServiceResult.success(
                         docker_tag,
@@ -273,7 +274,7 @@ class DockerService(AsyncServiceInterface):
                     )
                 else:
                     if status_callback:
-                        status_callback("Build Failed", "#e74c3c")
+                        status_callback("Build Failed", COLORS["error"])
 
                     error_msg = await run_in_executor(
                         self.platform_service.get_error_message, "bash_not_found"
@@ -310,7 +311,7 @@ class DockerService(AsyncServiceInterface):
         async with self.operation_context("run_docker_tests", timeout=300.0) as ctx:
             try:
                 if status_callback:
-                    status_callback("Running Tests...", "#3498db")
+                    status_callback("Running Tests...", COLORS["info"])
 
                 if progress_callback:
                     progress_callback(f"\n=== DOCKER TEST ===\n")
@@ -337,9 +338,9 @@ class DockerService(AsyncServiceInterface):
 
                 # Determine status color
                 final_color = (
-                    "#27ae60"
+                    COLORS["success"]
                     if "COMPLETED" in test_status and "Failed" not in test_status
-                    else "#e74c3c"
+                    else COLORS["error"]
                 )
 
                 if status_callback:

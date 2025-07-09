@@ -251,12 +251,12 @@ class ProjectControlPanel:
     def _update_status(self, message: str, level: str):
         """Standard progress callback for async operations"""
         color_map = {
-            "info": "#3498db",
-            "warning": "#f39c12",
-            "success": "#27ae60",
-            "error": "#e74c3c",
+            "info": COLORS["info"],
+            "warning": COLORS["warning"],
+            "success": COLORS["success"],
+            "error": COLORS["error"],
         }
-        color = color_map.get(level, "#3498db")
+        color = color_map.get(level, COLORS["info"])
 
         # Update GUI status safely from any thread
         self.window.after(0, lambda: self._safe_status_update(message, color))
@@ -437,7 +437,9 @@ class ProjectControlPanel:
             terminal_window.add_final_buttons(copy_text=combined_output)
 
             # Update final status
-            terminal_window.update_status("Docker operation completed", "#27ae60")
+            terminal_window.update_status(
+                "Docker operation completed", COLORS["success"]
+            )
 
         self.window.after(0, create_window)
 
