@@ -243,9 +243,7 @@ class ValidationService(AsyncServiceInterface):
                     )
 
                 # Get all versions for this project group
-                versions = self.project_service.get_all_versions(
-                    self.project_service.get_project_group(project_group.name)
-                )
+                versions = project_group.get_all_versions()
 
                 if not versions:
                     status_callback("No versions found", COLORS["error"])
@@ -308,10 +306,10 @@ class ValidationService(AsyncServiceInterface):
                 if validation_result.is_error:
                     return ServiceResult.error(validation_result.error)
 
-                raw_output, validation_errors = validation_result.data
+                raw_output, validation_errors, all_successful = validation_result.data
 
-                # Parse validation result
-                success = "All validations passed" in raw_output
+                # Use the validation result from the script
+                success = all_successful
                 failed_archives = [
                     archive.archive_name
                     for archive in archived_projects
@@ -336,7 +334,7 @@ class ValidationService(AsyncServiceInterface):
                     status_callback(
                         "Validation process completed with failures", COLORS["warning"]
                     )
-                    return ServiceResult.partial_success(
+                    return ServiceResult.partial(
                         ValidationResult(
                             success=False,
                             archived_projects=archived_projects,
@@ -366,7 +364,7 @@ class ValidationService(AsyncServiceInterface):
                     error_code = "UNKNOWN_ERROR"
 
                 status_callback("Validation completed with issues", COLORS["warning"])
-                return ServiceResult.partial_success(
+                return ServiceResult.partial(
                     ValidationResult(
                         success=False,
                         archived_projects=[],

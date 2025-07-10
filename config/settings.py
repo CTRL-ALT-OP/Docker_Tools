@@ -21,9 +21,7 @@ IGNORE_DIRS = [
     "htmlcov",
 ]
 
-IGNORE_FILES = [
-    ".coverage",
-]
+IGNORE_FILES = [".coverage"]
 
 # Global dictionary for folder aliases
 FOLDER_ALIASES = {
@@ -56,11 +54,11 @@ LANGUAGE_REQUIRED_FILES = {
     "javascript": ["package.json", "package-lock.json"],
     "typescript": ["package.json", "package-lock.json"],
     "java": ["pom.xml"],
-    "rust": [],  # No files need ensuring for Rust
+    "rust": [],
     "c": ["CMakeLists.txt"],
     "go": ["go.mod"],
     "cpp": ["CMakeLists.txt"],
-    "csharp": [],  # No files need ensuring for C#
+    "csharp": [],
 }
 
 # GUI Configuration

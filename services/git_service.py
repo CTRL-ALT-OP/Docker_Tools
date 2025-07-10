@@ -231,8 +231,8 @@ class GitService(AsyncServiceInterface):
                 )
                 current_commit = (
                     commit_result.stdout.strip()
-                    if commit_result.returncode == 0
-                    else "unknown"
+                    if commit_result.returncode == 0 and commit_result.stdout.strip()
+                    else None  # Use None instead of "unknown" for easier checking
                 )
 
                 # Check if working tree is clean
@@ -256,7 +256,9 @@ class GitService(AsyncServiceInterface):
                     has_remote=has_remote,
                     remote_urls=remote_urls,
                     current_branch=current_branch,
-                    current_commit=current_commit[:8],  # Short commit hash
+                    current_commit=(
+                        current_commit[:8] if current_commit else None
+                    ),  # Short commit hash only if valid
                     is_clean=is_clean,
                     uncommitted_changes=uncommitted_changes,
                 )

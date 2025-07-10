@@ -20,6 +20,7 @@ from services.docker_service import DockerService
 from services.sync_service import SyncService
 from services.validation_service import ValidationService
 from services.docker_files_service import DockerFilesService
+from services.file_monitor_service import file_monitor
 from gui import (
     MainWindow,
     TerminalOutputWindow,
@@ -169,6 +170,8 @@ class ProjectControlPanel:
         """Handle window close event with proper cleanup"""
         logger.info("Application shutdown initiated")
         try:
+            # Stop file monitoring
+            file_monitor.stop_all_monitoring()
             # Cancel any pending async operations with timeout
             shutdown_all(timeout=3.0)  # Shorter timeout for better UX
         except Exception as e:
@@ -250,6 +253,8 @@ class ProjectControlPanel:
 
     def _update_status(self, message: str, level: str):
         """Standard progress callback for async operations"""
+        from config.settings import COLORS
+
         color_map = {
             "info": COLORS["info"],
             "warning": COLORS["warning"],
@@ -304,69 +309,137 @@ class ProjectControlPanel:
             0, lambda: messagebox.showerror("Cleanup Error", error_message)
         )
 
-    def _handle_archive_completion(self, result):
-        """Standard completion callback for archive operations"""
-        if result.is_success:
-            self._show_archive_success(result.data)
-        else:
-            self._show_archive_error(result.error)
+    def archive_project(self, project: Project):
+        """Standardized async archive operation with cleanup prompt before archiving"""
 
-    def _show_archive_success(self, data):
-        """Show archive success message"""
-        message = data.get("message", "Archive created successfully")
-        archive_path = data.get("archive_path", "")
-        cleanup_needed = data.get("cleanup_needed", False)
-        cleanup_message = data.get("cleanup_message", "")
+        async def archive_with_cleanup_prompt():
+            try:
+                # First, scan for cleanup items before creating archive
+                self._update_status("Scanning for cleanup items...", "info")
+                scan_result = await self.file_service.scan_for_cleanup_items(
+                    project.path
+                )
 
-        if cleanup_needed:
-            response = messagebox.askyesnocancel(
-                "Cleanup Before Archive",
-                f"Found items to cleanup:\n\n{cleanup_message}\n\n"
-                f"Would you like to clean these up before creating the archive?\n\n"
-                f"• Yes: Clean up and then archive\n"
-                f"• No: Archive without cleanup\n"
-                f"• Cancel: Don't archive",
-            )
+                should_cleanup = False
+                if scan_result.is_success and scan_result.data.item_count > 0:
+                    # Build cleanup message
+                    cleanup_items = []
+                    if scan_result.data.directories:
+                        cleanup_items.append("Directories:")
+                        cleanup_items.extend(
+                            [f"  • {d.name}" for d in scan_result.data.directories[:5]]
+                        )
+                        if len(scan_result.data.directories) > 5:
+                            cleanup_items.append(
+                                f"  ... and {len(scan_result.data.directories) - 5} more"
+                            )
 
-            if response is None:  # Cancel
-                return
-            elif response:  # Yes - cleanup first
+                    if scan_result.data.files:
+                        if cleanup_items:
+                            cleanup_items.append("")
+                        cleanup_items.append("Files:")
+                        cleanup_items.extend(
+                            [f"  • {f.name}" for f in scan_result.data.files[:5]]
+                        )
+                        if len(scan_result.data.files) > 5:
+                            cleanup_items.append(
+                                f"  ... and {len(scan_result.data.files) - 5} more"
+                            )
+
+                    cleanup_message = "\n".join(cleanup_items)
+
+                    # Show dialog on main thread and wait for response using async bridge
+                    response = None
+                    event_id, response_event = self.async_bridge.create_sync_event()
+
+                    def show_cleanup_dialog():
+                        nonlocal response
+                        response = messagebox.askyesnocancel(
+                            "Cleanup Before Archive",
+                            f"Found items to cleanup:\n\n{cleanup_message}\n\n"
+                            f"Would you like to clean these up before creating the archive?\n\n"
+                            f"• Yes: Clean up and then archive\n"
+                            f"• No: Archive without cleanup\n"
+                            f"• Cancel: Don't archive",
+                        )
+                        # Signal the event using the async bridge (thread-safe)
+                        self.async_bridge.signal_from_gui(event_id)
+
+                    # Show dialog on main thread
+                    self.window.after(0, show_cleanup_dialog)
+                    # Wait for user response
+                    await response_event.wait()
+                    # Clean up the event
+                    self.async_bridge.cleanup_event(event_id)
+
+                    if response is None:  # Cancel
+                        self._update_status("Archive cancelled by user", "info")
+                        return
+                    elif response:  # Yes - cleanup first
+                        should_cleanup = True
+
+                # Perform cleanup if requested
+                if should_cleanup:
+                    self._update_status("Cleaning up before archive...", "warning")
+                    cleanup_result = await self.file_service.cleanup_project_items(
+                        project.path
+                    )
+                    if cleanup_result.is_success:
+                        deleted_count = len(
+                            cleanup_result.data.deleted_directories
+                        ) + len(cleanup_result.data.deleted_files)
+                        self._update_status(
+                            f"Cleaned up {deleted_count} items", "success"
+                        )
+                    else:
+                        self._update_status(
+                            "Cleanup failed, proceeding with archive", "warning"
+                        )
+
+                # Now create the archive
+                self._update_status("Creating archive...", "info")
+                archive_name = self.project_service.get_archive_name(
+                    project.parent, project.name
+                )
+                archive_result = await self.file_service.create_archive(
+                    project.path, archive_name
+                )
+
+                if archive_result.is_success:
+                    self._update_status("Archive created successfully", "success")
+                    # Show success message
+                    self.window.after(
+                        0,
+                        lambda: messagebox.showinfo(
+                            "Archive Complete",
+                            f"Archive created successfully for {project.name}\n\nLocation: {archive_result.data.archive_path}",
+                        ),
+                    )
+                    # Mark button as archived
+                    self.main_window.mark_project_archived(project)
+                else:
+                    self._update_status("Archive creation failed", "error")
+                    self.window.after(
+                        0,
+                        lambda: messagebox.showerror(
+                            "Archive Error",
+                            f"Failed to create archive: {archive_result.error.message}",
+                        ),
+                    )
+
+            except Exception as e:
+                logger.exception("Error during archive operation for %s", project.name)
+                self._update_status("Archive operation failed", "error")
                 self.window.after(
                     0,
-                    lambda: messagebox.showinfo(
-                        "Cleanup Complete",
-                        "Cleaned up items before archiving.",
+                    lambda: messagebox.showerror(
+                        "Archive Error", f"Archive operation failed: {str(e)}"
                     ),
                 )
 
-        self.window.after(
-            0,
-            lambda: messagebox.showinfo(
-                "Archive Complete",
-                f"{message}\n\nLocation: {archive_path}",
-            ),
-        )
-
-    def _show_archive_error(self, error):
-        """Show archive error message"""
-        error_message = f"Archive failed: {error.message}"
-        self.window.after(
-            0, lambda: messagebox.showerror("Archive Error", error_message)
-        )
-
-    def archive_project(self, project: Project):
-        """Standardized async archive operation using command pattern"""
-        command = ArchiveProjectCommand(
-            project=project,
-            file_service=self.file_service,
-            project_service=self.project_service,
-            progress_callback=self._update_status,
-            completion_callback=self._handle_archive_completion,
-        )
-
-        # Standard async execution
+        # Run the async operation
         task_manager.run_task(
-            command.run_with_progress(), task_name=f"archive-{project.name}"
+            archive_with_cleanup_prompt(), task_name=f"archive-{project.name}"
         )
 
     def docker_build_and_test(self, project: Project):

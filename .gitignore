@@ -9,3 +9,4 @@ validation-tool/output/*
 !*.md
 !*.gitkeep
 !*/templates/index.html
+config/user_settings.json

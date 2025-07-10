@@ -106,8 +106,14 @@ class DockerService(AsyncServiceInterface):
             # Convert Windows line endings (CRLF) to Unix line endings (LF)
             normalized_content = content.replace("\r\n", "\n").replace("\r", "\n")
 
-            # Write back with Unix line endings
-            script_path.write_text(normalized_content, encoding="utf-8", newline="\n")
+            # Only write back if content actually changed
+            if normalized_content != content:
+                script_path.write_text(
+                    normalized_content, encoding="utf-8", newline="\n"
+                )
+                self.logger.debug(f"Normalized line endings in {script_path}")
+            else:
+                self.logger.debug(f"Line endings already correct in {script_path}")
 
             return True
         except Exception as e:

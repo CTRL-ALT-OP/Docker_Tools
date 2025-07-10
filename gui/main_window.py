@@ -10,6 +10,7 @@ from pathlib import Path
 
 from config.settings import WINDOW_TITLE, MAIN_WINDOW_SIZE, COLORS, FONTS, BUTTON_STYLES
 from services.platform_service import PlatformService
+from services.file_monitor_service import file_monitor
 from gui.gui_utils import GuiUtils
 from gui.popup_windows import AddProjectWindow
 from services.project_group_service import ProjectGroup
@@ -35,6 +36,10 @@ class MainWindow:
         self.archive_buttons = {}  # Dictionary to track archive buttons
         self.archived_projects = {}  # Dictionary to track archived project states
 
+        # Archive button tracking for color management
+        self.archive_buttons: Dict[str, tk.Button] = {}  # project_key -> button
+        self.archived_projects: Dict[str, bool] = {}  # project_key -> archived_status
+
         # Callbacks for main window operations
         self.on_project_selected_callback = None
         self.refresh_projects_callback = None
@@ -56,12 +61,29 @@ class MainWindow:
             messagebox.showerror("Error", f"Path does not exist: {path}")
             return
 
-        success, error_message = PlatformService.run_command_with_result(
-            "FILE_OPEN_COMMANDS", file_path=str(path)
-        )
+        try:
+            success, error_message = PlatformService.run_command_with_result(
+                "FILE_OPEN_COMMANDS", file_path=str(path)
+            )
 
-        if not success:
-            messagebox.showerror("Error", error_message)
+            if not success:
+                # Provide more helpful error message
+                detailed_message = (
+                    f"Failed to open file explorer for path:\n{path}\n\n"
+                    f"Error: {error_message}\n\n"
+                    f"You can try:\n"
+                    f"• Manually navigate to the path\n"
+                    f"• Check if the path exists and is accessible\n"
+                    f"• Restart the application if the issue persists"
+                )
+                messagebox.showerror("File Explorer Error", detailed_message)
+            # If successful, no popup is needed as the file explorer should open
+        except Exception as e:
+            # Handle any unexpected errors
+            messagebox.showerror(
+                "File Explorer Error",
+                f"Unexpected error opening file explorer:\n{str(e)}\n\nPath: {path}",
+            )
 
     def set_callbacks(self, callbacks: Dict[str, Callable]):
         """Set callback functions for GUI events"""
@@ -84,7 +106,13 @@ class MainWindow:
 
     def setup_window_protocol(self, on_close_callback: Callable):
         """Set up window close protocol"""
-        self.window.protocol("WM_DELETE_WINDOW", on_close_callback)
+
+        def cleanup_and_close():
+            # Stop file monitoring before closing
+            file_monitor.stop_all_monitoring()
+            on_close_callback()
+
+        self.window.protocol("WM_DELETE_WINDOW", cleanup_and_close)
 
     def create_gui(self):
         """Create the main GUI layout"""
@@ -171,9 +199,72 @@ class MainWindow:
         """Get the currently selected project name"""
         return self.project_selector.get() if self.project_selector else None
 
+    def _get_project_key(self, project: Project) -> str:
+        """Generate a unique key for a project"""
+        return f"{project.parent}_{project.name}"
+
+    def mark_project_archived(self, project: Project):
+        """Mark a project as archived and change the button color to green"""
+        project_key = self._get_project_key(project)
+        self.archived_projects[project_key] = True
+
+        if project_key in self.archive_buttons:
+            button = self.archive_buttons[project_key]
+            try:
+                button.config(bg=COLORS["success"])
+            except tk.TclError:
+                # Button was destroyed, remove from tracking
+                del self.archive_buttons[project_key]
+                return
+
+        # Start monitoring for file changes
+        file_monitor.start_monitoring(project_key, project.path, self._on_file_change)
+
+    def reset_archive_button_color(self, project: Project):
+        """Reset the archive button color to original"""
+        project_key = self._get_project_key(project)
+        self.archived_projects[project_key] = False
+
+        if project_key in self.archive_buttons:
+            button = self.archive_buttons[project_key]
+            try:
+                original_color = BUTTON_STYLES["archive"]["bg"]
+                button.config(bg=original_color)
+            except tk.TclError:
+                # Button was destroyed, remove from tracking
+                del self.archive_buttons[project_key]
+
+        # Stop monitoring for this project
+        file_monitor.stop_monitoring(project_key)
+
+    def _on_file_change(self, project_key: str):
+        """Handle file change notification"""
+        # Reset button color when files change
+        if project_key in self.archive_buttons and self.archived_projects.get(
+            project_key, False
+        ):
+            button = self.archive_buttons[project_key]
+            try:
+                original_color = BUTTON_STYLES["archive"]["bg"]
+                # Schedule UI update in main thread
+                self.window.after(0, lambda: button.config(bg=original_color))
+                self.archived_projects[project_key] = False
+            except tk.TclError:
+                # Button was destroyed, remove from tracking
+                if project_key in self.archive_buttons:
+                    del self.archive_buttons[project_key]
+
+            # Stop monitoring since we've detected changes
+            file_monitor.stop_monitoring(project_key)
+
     def clear_content(self):
         """Clear the scrollable content area"""
         if self.scrollable_frame:
+            # Stop monitoring for all projects and clear tracking
+            file_monitor.stop_all_monitoring()
+            self.archive_buttons.clear()
+            self.archived_projects.clear()
+
             for widget in self.scrollable_frame.winfo_children():
                 widget.destroy()
 
@@ -379,6 +470,10 @@ class MainWindow:
             style="archive",
         )
         archive_btn.pack(side="left", padx=(0, 5))
+
+        # Store archive button reference for color management
+        project_key = self._get_project_key(project)
+        self.archive_buttons[project_key] = archive_btn
 
         # Docker button
         docker_btn = GuiUtils.create_styled_button(

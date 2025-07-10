@@ -625,9 +625,18 @@ require (
                         normalized_content = source_content.replace(
                             "\r\n", "\n"
                         ).replace("\r", "\n")
-                        target_file.write_text(
-                            normalized_content, encoding="utf-8", newline="\n"
-                        )
+
+                        # Only write if target doesn't exist or content is different
+                        write_file = True
+                        if target_file.exists():
+                            existing_content = target_file.read_text(encoding="utf-8")
+                            if existing_content == normalized_content:
+                                write_file = False
+
+                        if write_file:
+                            target_file.write_text(
+                                normalized_content, encoding="utf-8", newline="\n"
+                            )
                     else:
                         # For other files, use regular copy
                         shutil.copy2(source_file, target_file)
