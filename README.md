@@ -48,7 +48,7 @@ python general_tools.py
 
 1. Create a folder that will contain your dockerized projects.
 2. Add 4 subfolders, one for your pre-edit versions, one for your post-edit versions, one for your second post-edit versions, and one for your rewrite versions.
-3. Change the `config/settings.py.SOURCE_DIR` variable to be the path to this folder (created in step 1)
+3. Change the SOURCE_DIR setting using the settings menu to the new folder (created in step 1)
 4. Open the app (run `python general_tools.py`
 5. Click add project, and paste in your Github URL
 6. Use the dropdown menu to navigate to your new project if necessary
@@ -148,6 +148,54 @@ Click validate all to check the compliance of your codebases. Note that the new 
 - **Project Selection**: Use the dropdown to select which project to work on. Projects with the same name across different folders are automatically grouped together.
 - **Version Display**: All versions of the selected project are displayed in order (pre-edit → post-edit → post-edit2 → correct-edit).
 - **Refresh**: Use the refresh button to reload projects if you've added new ones or made changes to the folder structure.
+- **Settings**: Use the settings button (⚙️) to customize application appearance, behavior, and configuration.
+
+## Settings System
+
+The application features a comprehensive settings system that allows you to customize every aspect of the interface and behavior without modifying the original configuration files.
+
+### How It Works
+
+The settings system uses a two-tier approach:
+1. **Default Settings** (`config/settings.py`) - Original settings tracked by Git
+2. **User Overrides** (`config/user_settings.json`) - Personal customizations NOT tracked by Git
+
+When the application starts, it loads the default settings first, then applies any user customizations on top. This ensures your personal preferences are preserved while keeping the original configuration intact for Git operations.
+
+### Accessing Settings
+
+Click the **⚙️ Settings** button in the main toolbar to open the settings window. The settings are organized into four tabs:
+
+#### General Tab
+- **Source Directory**: Main directory where projects are located (with browse button)
+- **Window Settings**: Application title and window sizes
+
+#### Appearance Tab  
+- **Colors**: Complete color scheme with live preview
+- **Fonts**: Typography settings for all UI elements
+
+#### Directories Tab
+- **Ignore Directories**: Folders excluded from cleanup operations  
+- **Ignore Files**: Files excluded from cleanup operations
+- **Folder Aliases**: Custom names for project workflow stages
+
+#### Languages Tab
+- **Language Extensions**: File extensions for automatic language detection
+- **Required Files**: Dependency files required for each programming language
+
+### Settings Management
+
+- **Apply and Restart**: Saves your changes and restarts the application with new settings
+- **Reset to Defaults**: Removes all customizations and restores original settings  
+- **Cancel**: Closes the settings without saving changes
+
+### Technical Details
+
+- Only changed settings are saved (efficient storage)
+- User settings file is automatically excluded from Git
+- Settings are validated before applying
+- Safe restart mechanism preserves your work
+- Automatic backup of original configuration
 
 ## Troubleshooting
 
