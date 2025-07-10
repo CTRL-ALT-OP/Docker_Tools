@@ -8,6 +8,7 @@ from .popup_windows import (
     AddProjectWindow,
     GitCheckoutAllWindow,
     EditRunTestsWindow,
+    SettingsWindow,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "GitCheckoutAllWindow",
     "AddProjectWindow",
     "EditRunTestsWindow",
+    "SettingsWindow",
 ]
