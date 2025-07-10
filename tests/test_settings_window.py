@@ -13,6 +13,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock, call
 import pytest
 
+# Set up headless testing environment
+os.environ.setdefault("DISPLAY", ":0")
+
 # Add parent directory to path to import modules
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
@@ -690,6 +693,427 @@ class TestSettingsWindowIntegration:
 
             # Verify callback was called
             self.mock_save_callback.assert_called_once()
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
+
+
+class TestSettingsWindowCreateNewFunctionality:
+    """Test cases for the 'Create new' dockerized folder functionality"""
+
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.temp_dir = tempfile.mkdtemp()
+        self.mock_parent = Mock()
+        self.mock_save_callback = Mock()
+        self.mock_reset_callback = Mock()
+
+        # Mock FOLDER_ALIASES for testing
+        self.mock_folder_aliases = {
+            "preedit": ["pre-edit", "original"],
+            "postedit-beetle": ["post-edit", "beetle"],
+            "postedit-sonnet": ["post-edit2", "sonnet"],
+            "rewrite": ["correct-edit", "rewrite"],
+        }
+
+    def teardown_method(self):
+        """Clean up test fixtures"""
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
+    @patch("tkinter.Tk")
+    @patch("tkinter.Toplevel")
+    @patch("tkinter.ttk.Notebook")
+    @patch("gui.popup_windows.GuiUtils")
+    @patch("tkinter.filedialog.askdirectory")
+    @patch("tkinter.messagebox")
+    def test_create_new_button_sets_path_without_creating_folders(
+        self,
+        mock_messagebox,
+        mock_askdir,
+        mock_gui_utils,
+        mock_notebook,
+        mock_toplevel,
+        mock_tk,
+    ):
+        """Test that clicking 'Create new' sets the path but doesn't create folders immediately"""
+        with patch("config.settings.FOLDER_ALIASES", self.mock_folder_aliases):
+            # Mock folder selection
+            mock_askdir.return_value = self.temp_dir
+            mock_messagebox.showinfo.return_value = None
+
+            window = SettingsWindow(
+                self.mock_parent, self.mock_save_callback, self.mock_reset_callback
+            )
+
+            # Create a mock StringVar for the path
+            mock_path_var = Mock()
+            mock_path_var.get.return_value = "/old/path"
+
+            # Call the create new folder method
+            window._create_new_dockerized_folder(mock_path_var)
+
+            # Verify path was set to the dockerized folder
+            expected_path = str(Path(self.temp_dir) / "dockerized")
+            mock_path_var.set.assert_called_with(expected_path)
+
+            # Verify no folders were actually created yet
+            dockerized_path = Path(self.temp_dir) / "dockerized"
+            assert not dockerized_path.exists()
+
+            # Verify preview message was shown
+            mock_messagebox.showinfo.assert_called()
+            call_args = mock_messagebox.showinfo.call_args[0]
+            assert "will be created" in call_args[1]
+            assert "when you click 'Apply'" in call_args[1]
+
+    def test_create_new_with_existing_folder_shows_correct_options(self):
+        """Test that existing dockerized folder shows appropriate options"""
+        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
+            "tkinter.ttk.Notebook"
+        ), patch("gui.popup_windows.GuiUtils"), patch(
+            "tkinter.filedialog.askdirectory"
+        ) as mock_askdir, patch(
+            "tkinter.messagebox"
+        ) as mock_messagebox, patch(
+            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
+        ):
+
+            # Create existing dockerized folder
+            existing_dockerized = Path(self.temp_dir) / "dockerized"
+            existing_dockerized.mkdir(parents=True)
+
+            # Mock folder selection
+            mock_askdir.return_value = self.temp_dir
+            mock_messagebox.askyesnocancel.return_value = True  # Yes - use existing
+
+            window = SettingsWindow(
+                self.mock_parent, self.mock_save_callback, self.mock_reset_callback
+            )
+
+            # Create a mock StringVar for the path
+            mock_path_var = Mock()
+
+            # Call the create new folder method
+            window._create_new_dockerized_folder(mock_path_var)
+
+            # Verify appropriate dialog was shown
+            mock_messagebox.askyesnocancel.assert_called()
+            call_args = mock_messagebox.askyesnocancel.call_args[0]
+            assert "already exists" in call_args[1]
+            assert "Use the existing folder" in call_args[1]
+
+            # Verify path was set
+            expected_path = str(existing_dockerized)
+            mock_path_var.set.assert_called_with(expected_path)
+
+    def test_apply_settings_creates_folders_when_planned(self):
+        """Test that Apply creates folders when 'Create new' was used"""
+        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
+            "tkinter.ttk.Notebook"
+        ), patch("gui.popup_windows.GuiUtils"), patch(
+            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
+        ):
+
+            window = SettingsWindow(
+                self.mock_parent, self.mock_save_callback, self.mock_reset_callback
+            )
+
+            # Simulate pending folder creation (as if Create new was clicked)
+            dockerized_path = Path(self.temp_dir) / "dockerized"
+            window.pending_folder_creation = {
+                "dockerized_path": dockerized_path,
+                "use_existing": False,
+            }
+
+            # Mock settings variables to avoid errors
+            window.settings_vars = {
+                "SOURCE_DIR": Mock(),
+                "WINDOW_TITLE": Mock(),
+            }
+            window.settings_vars["SOURCE_DIR"].get.return_value = str(dockerized_path)
+            window.settings_vars["WINDOW_TITLE"].get.return_value = "Test"
+
+            # Call apply settings
+            window._apply_settings()
+
+            # Verify dockerized folder was created
+            assert dockerized_path.exists()
+            assert dockerized_path.is_dir()
+
+            # Verify project version folders were created
+            expected_folders = ["pre-edit", "post-edit", "post-edit2", "correct-edit"]
+            for folder_name in expected_folders:
+                folder_path = dockerized_path / folder_name
+                assert folder_path.exists()
+                assert folder_path.is_dir()
+
+            # Verify save callback was called
+            self.mock_save_callback.assert_called_once()
+
+    def test_apply_settings_with_existing_dockerized_folder(self):
+        """Test that Apply handles existing dockerized folder correctly"""
+        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
+            "tkinter.ttk.Notebook"
+        ), patch("gui.popup_windows.GuiUtils"), patch(
+            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
+        ), patch(
+            "gui.popup_windows.messagebox"
+        ) as mock_messagebox:
+
+            window = SettingsWindow(
+                self.mock_parent, self.mock_save_callback, self.mock_reset_callback
+            )
+
+            # Create existing dockerized folder with some project folders
+            dockerized_path = Path(self.temp_dir) / "dockerized"
+            dockerized_path.mkdir(parents=True)
+            (dockerized_path / "pre-edit").mkdir()  # Create one folder
+
+            # Simulate pending folder creation for existing folder
+            window.pending_folder_creation = {
+                "dockerized_path": dockerized_path,
+                "use_existing": True,
+            }
+
+            # Mock settings variables
+            window.settings_vars = {
+                "SOURCE_DIR": Mock(),
+                "WINDOW_TITLE": Mock(),
+            }
+            window.settings_vars["SOURCE_DIR"].get.return_value = str(dockerized_path)
+            window.settings_vars["WINDOW_TITLE"].get.return_value = "Test"
+
+            # Call apply settings
+            window._apply_settings()
+
+            # Verify all project version folders exist now
+            expected_folders = ["pre-edit", "post-edit", "post-edit2", "correct-edit"]
+            for folder_name in expected_folders:
+                folder_path = dockerized_path / folder_name
+                assert folder_path.exists()
+                assert folder_path.is_dir()
+
+            # Verify success message was shown
+            mock_messagebox.showinfo.assert_called()
+
+    def test_cancel_prevents_folder_creation(self):
+        """Test that Cancel prevents folder creation even when 'Create new' was used"""
+        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
+            "tkinter.ttk.Notebook"
+        ), patch("gui.popup_windows.GuiUtils"), patch(
+            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
+        ):
+
+            window = SettingsWindow(
+                self.mock_parent, self.mock_save_callback, self.mock_reset_callback
+            )
+
+            # Simulate pending folder creation (as if Create new was clicked)
+            dockerized_path = Path(self.temp_dir) / "dockerized"
+            window.pending_folder_creation = {
+                "dockerized_path": dockerized_path,
+                "use_existing": False,
+            }
+
+            # Call cancel
+            window._cancel()
+
+            # Verify no folders were created
+            assert not dockerized_path.exists()
+
+            # Verify save callback was not called
+            self.mock_save_callback.assert_not_called()
+
+    def test_window_destroy_prevents_folder_creation(self):
+        """Test that destroying the window prevents folder creation"""
+        with patch("tkinter.Tk"), patch("tkinter.Toplevel") as mock_toplevel, patch(
+            "tkinter.ttk.Notebook"
+        ), patch("gui.popup_windows.GuiUtils"), patch(
+            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
+        ):
+
+            mock_window = Mock()
+            mock_toplevel.return_value = mock_window
+
+            window = SettingsWindow(
+                self.mock_parent, self.mock_save_callback, self.mock_reset_callback
+            )
+
+            # Don't call create_window() to avoid StringVar creation issues
+            # Just simulate the window being set up with a mock window
+            window.window = mock_window
+
+            # Simulate pending folder creation
+            dockerized_path = Path(self.temp_dir) / "dockerized"
+            window.pending_folder_creation = {
+                "dockerized_path": dockerized_path,
+                "use_existing": False,
+            }
+
+            # Call destroy
+            window.destroy()
+
+            # Verify no folders were created
+            assert not dockerized_path.exists()
+
+            # Verify save callback was not called
+            self.mock_save_callback.assert_not_called()
+
+    def test_user_cancels_folder_selection(self):
+        """Test that canceling folder selection doesn't set path or create folders"""
+        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
+            "tkinter.ttk.Notebook"
+        ), patch("gui.popup_windows.GuiUtils"), patch(
+            "tkinter.filedialog.askdirectory"
+        ) as mock_askdir, patch(
+            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
+        ):
+
+            # Mock user canceling folder selection
+            mock_askdir.return_value = ""  # Empty string indicates cancel
+
+            window = SettingsWindow(
+                self.mock_parent, self.mock_save_callback, self.mock_reset_callback
+            )
+
+            # Create a mock StringVar for the path
+            mock_path_var = Mock()
+            original_path = "/original/path"
+            mock_path_var.get.return_value = original_path
+
+            # Call the create new folder method
+            window._create_new_dockerized_folder(mock_path_var)
+
+            # Verify path was not changed
+            mock_path_var.set.assert_not_called()
+
+            # Verify no folders were created
+            dockerized_path = Path(self.temp_dir) / "dockerized"
+            assert not dockerized_path.exists()
+
+    def test_error_handling_during_folder_creation(self):
+        """Test that folder creation errors are handled gracefully"""
+        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
+            "tkinter.ttk.Notebook"
+        ), patch("gui.popup_windows.GuiUtils"), patch(
+            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
+        ), patch(
+            "gui.popup_windows.messagebox"
+        ) as mock_messagebox:
+
+            window = SettingsWindow(
+                self.mock_parent, self.mock_save_callback, self.mock_reset_callback
+            )
+
+            # Create a path and mock it to raise an exception
+            test_path = Path(self.temp_dir) / "dockerized"
+            window.pending_folder_creation = {
+                "dockerized_path": test_path,
+                "use_existing": False,
+            }
+
+            # Mock settings variables
+            window.settings_vars = {
+                "SOURCE_DIR": Mock(),
+                "WINDOW_TITLE": Mock(),
+            }
+            window.settings_vars["SOURCE_DIR"].get.return_value = str(test_path)
+            window.settings_vars["WINDOW_TITLE"].get.return_value = "Test"
+
+            # Mock the mkdir method to raise an exception
+            with patch.object(
+                Path, "mkdir", side_effect=PermissionError("Permission denied")
+            ):
+                # Call apply settings
+                window._apply_settings()
+
+            # Verify error message was shown
+            mock_messagebox.showerror.assert_called()
+            error_call = mock_messagebox.showerror.call_args[0]
+            assert "Error" in error_call[0]
+            assert "Failed to create dockerized folder" in error_call[1]
+
+            # Verify save callback was not called due to error
+            self.mock_save_callback.assert_not_called()
+
+    def test_integration_with_existing_settings_workflow(self):
+        """Test that the new functionality integrates properly with existing settings"""
+        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
+            "tkinter.ttk.Notebook"
+        ), patch("gui.popup_windows.GuiUtils"), patch(
+            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
+        ):
+
+            window = SettingsWindow(
+                self.mock_parent, self.mock_save_callback, self.mock_reset_callback
+            )
+
+            # Simulate pending folder creation
+            dockerized_path = Path(self.temp_dir) / "dockerized"
+            window.pending_folder_creation = {
+                "dockerized_path": dockerized_path,
+                "use_existing": False,
+            }
+
+            # Set up normal settings
+            window.settings_vars = {
+                "SOURCE_DIR": Mock(),
+                "WINDOW_TITLE": Mock(),
+                "MAIN_WINDOW_SIZE": Mock(),
+            }
+            window.settings_vars["SOURCE_DIR"].get.return_value = str(dockerized_path)
+            window.settings_vars["WINDOW_TITLE"].get.return_value = "Test App"
+            window.settings_vars["MAIN_WINDOW_SIZE"].get.return_value = "800x600"
+
+            # Call apply settings
+            window._apply_settings()
+
+            # Verify folders were created
+            assert dockerized_path.exists()
+            expected_folders = ["pre-edit", "post-edit", "post-edit2", "correct-edit"]
+            for folder_name in expected_folders:
+                folder_path = dockerized_path / folder_name
+                assert folder_path.exists()
+
+            # Verify normal settings were processed
+            self.mock_save_callback.assert_called_once()
+            call_args = self.mock_save_callback.call_args[0][0]
+            assert "SOURCE_DIR" in call_args
+            assert "WINDOW_TITLE" in call_args
+            assert "MAIN_WINDOW_SIZE" in call_args
+            assert call_args["SOURCE_DIR"] == str(dockerized_path)
+            assert call_args["WINDOW_TITLE"] == "Test App"
+            assert call_args["MAIN_WINDOW_SIZE"] == "800x600"
+
+    def test_reset_to_defaults_clears_pending_folder_creation(self):
+        """Test that reset to defaults clears pending folder creation"""
+        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
+            "tkinter.ttk.Notebook"
+        ), patch("gui.popup_windows.GuiUtils"), patch(
+            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
+        ):
+
+            window = SettingsWindow(
+                self.mock_parent, self.mock_save_callback, self.mock_reset_callback
+            )
+
+            # Simulate pending folder creation
+            dockerized_path = Path(self.temp_dir) / "dockerized"
+            window.pending_folder_creation = {
+                "dockerized_path": dockerized_path,
+                "use_existing": False,
+            }
+
+            # Call reset to defaults
+            window._reset_to_defaults()
+
+            # Verify no folders were created
+            assert not dockerized_path.exists()
+
+            # Verify reset callback was called
+            self.mock_reset_callback.assert_called_once()
 
 
 if __name__ == "__main__":

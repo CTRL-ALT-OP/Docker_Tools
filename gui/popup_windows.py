@@ -1507,6 +1507,7 @@ class SettingsWindow:
         self.settings_vars = {}
         self.notebook = None
         self.tab_canvases = {}  # Store canvas references for each tab
+        self.pending_folder_creation = None  # Store pending folder creation info
 
         # Import settings to get current values
         from config import settings
@@ -1938,6 +1939,9 @@ class SettingsWindow:
         browse_btn.pack(side="right", padx=(5, 0))
 
         self.settings_vars[setting_key] = var
+
+    def _create_new_dockerized_folder(self, var):
+        pass
 
     def _create_color_setting(
         self, parent, label_text, setting_key, description, current_value
