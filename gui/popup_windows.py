@@ -1488,3 +1488,528 @@ class EditRunTestsWindow:
         if self.window:
             self.window.destroy()
             self.canvas = None
+
+
+class SettingsWindow:
+    """Window for editing settings"""
+
+    def __init__(self, parent, save_callback, reset_callback):
+        self.settings_vars = {}
+        self.parent_window = parent
+        self.on_save_callback = save_callback
+        self.on_reset_callback = reset_callback
+        self.window = None
+
+    def _create_general_tab(self):
+        """Create the general settings tab"""
+        tab_frame = GuiUtils.create_styled_frame(self.notebook)
+        self.notebook.add(tab_frame, text="General")
+
+        # Create scrollable frame for this tab
+        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
+        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = GuiUtils.create_styled_frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Store canvas reference for mouse wheel scrolling
+        self.tab_canvases["General"] = canvas
+
+        # Source Directory
+        self._create_path_setting(
+            scrollable_frame,
+            "Source Directory",
+            "SOURCE_DIR",
+            "Main directory where projects are located",
+            self.settings_module.SOURCE_DIR,
+        )
+
+        # Window Settings
+        self._create_section_header(scrollable_frame, "Window Settings")
+
+        self._create_text_setting(
+            scrollable_frame,
+            "Window Title",
+            "WINDOW_TITLE",
+            "Title displayed in the main window",
+            self.settings_module.WINDOW_TITLE,
+        )
+
+        self._create_text_setting(
+            scrollable_frame,
+            "Main Window Size",
+            "MAIN_WINDOW_SIZE",
+            "Size of the main window (format: WIDTHxHEIGHT)",
+            self.settings_module.MAIN_WINDOW_SIZE,
+        )
+
+        self._create_text_setting(
+            scrollable_frame,
+            "Output Window Size",
+            "OUTPUT_WINDOW_SIZE",
+            "Size of terminal output windows",
+            self.settings_module.OUTPUT_WINDOW_SIZE,
+        )
+
+        self._create_text_setting(
+            scrollable_frame,
+            "Git Window Size",
+            "GIT_WINDOW_SIZE",
+            "Size of git commit windows",
+            self.settings_module.GIT_WINDOW_SIZE,
+        )
+
+    def _create_appearance_tab(self):
+        """Create the appearance settings tab"""
+        tab_frame = GuiUtils.create_styled_frame(self.notebook)
+        self.notebook.add(tab_frame, text="Appearance")
+
+        # Create scrollable frame
+        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
+        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = GuiUtils.create_styled_frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Store canvas reference for mouse wheel scrolling
+        self.tab_canvases["Appearance"] = canvas
+
+        # Colors section
+        self._create_section_header(scrollable_frame, "Colors")
+
+        color_settings = [
+            ("Background Color", "background", "Main background color"),
+            ("Terminal Background", "terminal_bg", "Terminal window background"),
+            ("Terminal Text", "terminal_text", "Terminal text color"),
+            ("Success Color", "success", "Color for success messages"),
+            ("Error Color", "error", "Color for error messages"),
+            ("Warning Color", "warning", "Color for warning messages"),
+            ("Info Color", "info", "Color for info messages"),
+        ]
+
+        for name, key, description in color_settings:
+            self._create_color_setting(
+                scrollable_frame,
+                name,
+                f"COLORS.{key}",
+                description,
+                self.settings_module.COLORS[key],
+            )
+
+        # Fonts section
+        self._create_section_header(scrollable_frame, "Fonts")
+
+        font_settings = [
+            ("Title Font", "title", "Font for main titles"),
+            ("Header Font", "header", "Font for section headers"),
+            ("Button Font", "button", "Font for buttons"),
+            ("Console Font", "console", "Font for console output"),
+        ]
+
+        for name, key, description in font_settings:
+            font_value = self.settings_module.FONTS[key]
+            font_str = f"{font_value[0]}, {font_value[1]}"
+            if len(font_value) > 2:
+                font_str += f", {font_value[2]}"
+            self._create_text_setting(
+                scrollable_frame, name, f"FONTS.{key}", description, font_str
+            )
+
+    def _create_directories_tab(self):
+        """Create the directories settings tab"""
+        tab_frame = GuiUtils.create_styled_frame(self.notebook)
+        self.notebook.add(tab_frame, text="Directories")
+
+        # Create scrollable frame
+        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
+        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = GuiUtils.create_styled_frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Store canvas reference for mouse wheel scrolling
+        self.tab_canvases["Directories"] = canvas
+
+        # Ignore directories
+        self._create_section_header(scrollable_frame, "Ignore Directories")
+        self._create_list_setting(
+            scrollable_frame,
+            "Ignored Directories",
+            "IGNORE_DIRS",
+            "Directories to ignore during cleanup operations",
+            self.settings_module.IGNORE_DIRS,
+        )
+
+        # Ignore files
+        self._create_section_header(scrollable_frame, "Ignore Files")
+        self._create_list_setting(
+            scrollable_frame,
+            "Ignored Files",
+            "IGNORE_FILES",
+            "Files to ignore during cleanup operations",
+            self.settings_module.IGNORE_FILES,
+        )
+
+        # Folder aliases
+        self._create_section_header(scrollable_frame, "Folder Aliases")
+        self._create_dict_setting(
+            scrollable_frame,
+            "Folder Aliases",
+            "FOLDER_ALIASES",
+            "Aliases for project folder names",
+            self.settings_module.FOLDER_ALIASES,
+        )
+
+    def _create_languages_tab(self):
+        """Create the languages settings tab"""
+        tab_frame = GuiUtils.create_styled_frame(self.notebook)
+        self.notebook.add(tab_frame, text="Languages")
+
+        # Create scrollable frame
+        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
+        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = GuiUtils.create_styled_frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Store canvas reference for mouse wheel scrolling
+        self.tab_canvases["Languages"] = canvas
+
+        # Language extensions
+        self._create_section_header(scrollable_frame, "Language Extensions")
+        self._create_lang_dict_setting(
+            scrollable_frame,
+            "Language Extensions",
+            "LANGUAGE_EXTENSIONS",
+            "File extensions for each programming language",
+            self.settings_module.LANGUAGE_EXTENSIONS,
+        )
+
+        # Required files
+        self._create_section_header(scrollable_frame, "Required Files")
+        self._create_lang_dict_setting(
+            scrollable_frame,
+            "Required Files",
+            "LANGUAGE_REQUIRED_FILES",
+            "Required files for each programming language",
+            self.settings_module.LANGUAGE_REQUIRED_FILES,
+        )
+
+    def _create_section_header(self, parent, title):
+        """Create a section header"""
+        frame = GuiUtils.create_styled_frame(parent)
+        frame.pack(fill="x", pady=(20, 10))
+
+        label = GuiUtils.create_styled_label(
+            frame, text=title, font_key="header", fg=COLORS["project_header"]
+        )
+        label.pack(anchor="w")
+
+    def _create_text_setting(
+        self, parent, label_text, setting_key, description, current_value
+    ):
+        """Create a text input setting"""
+        frame = GuiUtils.create_styled_frame(parent)
+        frame.pack(fill="x", pady=(0, 10))
+
+        # Label
+        label = GuiUtils.create_styled_label(frame, text=label_text, font_key="info")
+        label.pack(anchor="w")
+
+        # Description
+        desc_label = GuiUtils.create_styled_label(
+            frame, text=description, font_key="info", fg=COLORS["muted"]
+        )
+        desc_label.pack(anchor="w", pady=(0, 5))
+
+        # Entry
+        var = tk.StringVar(value=str(current_value))
+        entry = tk.Entry(frame, textvariable=var, font=FONTS["info"], width=50)
+        entry.pack(anchor="w", pady=(0, 5))
+
+        self.settings_vars[setting_key] = var
+
+    def _create_path_setting(
+        self, parent, label_text, setting_key, description, current_value
+    ):
+        """Create a path input setting with browse button"""
+        frame = GuiUtils.create_styled_frame(parent)
+        frame.pack(fill="x", pady=(0, 10))
+
+        # Label
+        label = GuiUtils.create_styled_label(frame, text=label_text, font_key="info")
+        label.pack(anchor="w")
+
+        # Description
+        desc_label = GuiUtils.create_styled_label(
+            frame, text=description, font_key="info", fg=COLORS["muted"]
+        )
+        desc_label.pack(anchor="w", pady=(0, 5))
+
+        # Entry with browse button
+        path_frame = GuiUtils.create_styled_frame(frame)
+        path_frame.pack(fill="x", pady=(0, 5))
+
+        var = tk.StringVar(value=str(current_value))
+        entry = tk.Entry(path_frame, textvariable=var, font=FONTS["info"], width=40)
+        entry.pack(side="left", fill="x", expand=True)
+
+        browse_btn = GuiUtils.create_styled_button(
+            path_frame,
+            text="Browse",
+            command=lambda: self._browse_path(var),
+            style="secondary",
+            font=FONTS["button"],
+            padx=10,
+            pady=2,
+        )
+        browse_btn.pack(side="right", padx=(5, 0))
+
+        self.settings_vars[setting_key] = var
+
+    def _create_color_setting(
+        self, parent, label_text, setting_key, description, current_value
+    ):
+        """Create a color input setting"""
+        frame = GuiUtils.create_styled_frame(parent)
+        frame.pack(fill="x", pady=(0, 10))
+
+        # Label
+        label = GuiUtils.create_styled_label(frame, text=label_text, font_key="info")
+        label.pack(anchor="w")
+
+        # Description
+        desc_label = GuiUtils.create_styled_label(
+            frame, text=description, font_key="info", fg=COLORS["muted"]
+        )
+        desc_label.pack(anchor="w", pady=(0, 5))
+
+        # Color frame
+        color_frame = GuiUtils.create_styled_frame(frame)
+        color_frame.pack(fill="x", pady=(0, 5))
+
+        var = tk.StringVar(value=str(current_value))
+        entry = tk.Entry(color_frame, textvariable=var, font=FONTS["info"], width=20)
+        entry.pack(side="left")
+
+        # Color preview
+        color_preview = tk.Frame(color_frame, bg=current_value, width=30, height=25)
+        color_preview.pack(side="left", padx=(5, 0))
+
+        # Update color preview when value changes
+        def update_color_preview(*args):
+            try:
+                color_preview.config(bg=var.get())
+            except:
+                pass
+
+        var.trace("w", update_color_preview)
+
+        self.settings_vars[setting_key] = var
+
+    def _create_list_setting(
+        self, parent, label_text, setting_key, description, current_value
+    ):
+        """Create a list input setting"""
+        frame = GuiUtils.create_styled_frame(parent)
+        frame.pack(fill="x", pady=(0, 10))
+
+        # Label
+        label = GuiUtils.create_styled_label(frame, text=label_text, font_key="info")
+        label.pack(anchor="w")
+
+        # Description
+        desc_label = GuiUtils.create_styled_label(
+            frame, text=description, font_key="info", fg=COLORS["muted"]
+        )
+        desc_label.pack(anchor="w", pady=(0, 5))
+
+        # Text area for list items
+        text_frame = GuiUtils.create_styled_frame(frame)
+        text_frame.pack(fill="x", pady=(0, 5))
+
+        text_area = tk.Text(text_frame, height=5, font=FONTS["info"], width=50)
+        text_area.pack(side="left", fill="both", expand=True)
+
+        # Scrollbar for text area
+        scrollbar = ttk.Scrollbar(
+            text_frame, orient="vertical", command=text_area.yview
+        )
+        scrollbar.pack(side="right", fill="y")
+        text_area.config(yscrollcommand=scrollbar.set)
+
+        # Insert current values
+        text_area.insert("1.0", "\n".join(current_value))
+
+        # Bind mouse wheel events to prevent interference with main window scrolling
+        def on_text_scroll(event):
+            text_area.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            return "break"  # Stop event propagation
+
+        text_area.bind("<MouseWheel>", on_text_scroll)
+        text_area.bind(
+            "<Button-4>", lambda e: (text_area.yview_scroll(-1, "units"), "break")
+        )
+        text_area.bind(
+            "<Button-5>", lambda e: (text_area.yview_scroll(1, "units"), "break")
+        )
+
+        self.settings_vars[setting_key] = text_area
+
+    def _create_dict_setting(
+        self, parent, label_text, setting_key, description, current_value
+    ):
+        """Create a dictionary input setting"""
+        frame = GuiUtils.create_styled_frame(parent)
+        frame.pack(fill="x", pady=(0, 10))
+
+        # Label
+        label = GuiUtils.create_styled_label(frame, text=label_text, font_key="info")
+        label.pack(anchor="w")
+
+        # Description
+        desc_label = GuiUtils.create_styled_label(
+            frame, text=description, font_key="info", fg=COLORS["muted"]
+        )
+        desc_label.pack(anchor="w", pady=(0, 5))
+
+        # Text area for dictionary
+        text_frame = GuiUtils.create_styled_frame(frame)
+        text_frame.pack(fill="x", pady=(0, 5))
+
+        text_area = tk.Text(text_frame, height=8, font=FONTS["info"], width=50)
+        text_area.pack(side="left", fill="both", expand=True)
+
+        # Scrollbar for text area
+        scrollbar = ttk.Scrollbar(
+            text_frame, orient="vertical", command=text_area.yview
+        )
+        scrollbar.pack(side="right", fill="y")
+        text_area.config(yscrollcommand=scrollbar.set)
+
+        # Insert current values
+        import json
+
+        text_area.insert("1.0", json.dumps(current_value, indent=2))
+
+        # Bind mouse wheel events to prevent interference with main window scrolling
+        def on_text_scroll(event):
+            text_area.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            return "break"  # Stop event propagation
+
+        text_area.bind("<MouseWheel>", on_text_scroll)
+        text_area.bind(
+            "<Button-4>", lambda e: (text_area.yview_scroll(-1, "units"), "break")
+        )
+        text_area.bind(
+            "<Button-5>", lambda e: (text_area.yview_scroll(1, "units"), "break")
+        )
+
+        self.settings_vars[setting_key] = text_area
+
+    def _create_lang_dict_setting(
+        self, parent, label_text, setting_key, description, current_value
+    ):
+        """Create a language dictionary input setting"""
+        frame = GuiUtils.create_styled_frame(parent)
+        frame.pack(fill="x", pady=(0, 10))
+
+        # Label
+        label = GuiUtils.create_styled_label(frame, text=label_text, font_key="info")
+        label.pack(anchor="w")
+
+        # Description
+        desc_label = GuiUtils.create_styled_label(
+            frame, text=description, font_key="info", fg=COLORS["muted"]
+        )
+        desc_label.pack(anchor="w", pady=(0, 5))
+
+        # Text area for dictionary
+        text_frame = GuiUtils.create_styled_frame(frame)
+        text_frame.pack(fill="x", pady=(0, 5))
+
+        text_area = tk.Text(text_frame, height=10, font=FONTS["info"], width=50)
+        text_area.pack(side="left", fill="both", expand=True)
+
+        # Scrollbar for text area
+        scrollbar = ttk.Scrollbar(
+            text_frame, orient="vertical", command=text_area.yview
+        )
+        scrollbar.pack(side="right", fill="y")
+        text_area.config(yscrollcommand=scrollbar.set)
+
+        # Insert current values
+        import json
+
+        text_area.insert("1.0", json.dumps(current_value, indent=2))
+
+        # Bind mouse wheel events to prevent interference with main window scrolling
+        def on_text_scroll(event):
+            text_area.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            return "break"  # Stop event propagation
+
+        text_area.bind("<MouseWheel>", on_text_scroll)
+        text_area.bind(
+            "<Button-4>", lambda e: (text_area.yview_scroll(-1, "units"), "break")
+        )
+        text_area.bind(
+            "<Button-5>", lambda e: (text_area.yview_scroll(1, "units"), "break")
+        )
+
+        self.settings_vars[setting_key] = text_area
+
+    def _validate_settings(self, settings):
+        pass
+
+    def _bind_mouse_wheel_events(self, canvas):
+        pass
+
+    def _apply_settings(self):
+        pass
+
+    def _cancel(self):
+        pass
+
+    def _reset_to_defaults(self):
+        pass
+
+    def _cancel(self):
+        pass
+
+    def create_window(self):
+        pass
+
+    def destroy(self):
+        pass
