@@ -1938,10 +1938,99 @@ class SettingsWindow:
         )
         browse_btn.pack(side="right", padx=(5, 0))
 
+        # Add "Create new" button only for SOURCE_DIR setting
+        if setting_key == "SOURCE_DIR":
+            create_new_btn = GuiUtils.create_styled_button(
+                path_frame,
+                text="Create new",
+                command=lambda: self._create_new_dockerized_folder(var),
+                style="build_docker",
+                font=FONTS["button"],
+                padx=10,
+                pady=2,
+            )
+            create_new_btn.pack(side="right", padx=(5, 0))
+
         self.settings_vars[setting_key] = var
 
     def _create_new_dockerized_folder(self, var):
-        pass
+        """Set up to create a new dockerized folder structure (actual creation happens on Apply)"""
+        from tkinter import filedialog, messagebox
+        from pathlib import Path
+
+        # Select parent directory where dockerized folder will be created
+        parent_dir = filedialog.askdirectory(
+            title="Select location to create dockerized folder",
+            initialdir=var.get() or "/",
+        )
+
+        if not parent_dir:
+            return  # User cancelled
+
+        try:
+            parent_path = Path(parent_dir)
+            dockerized_path = parent_path / "dockerized"
+
+            # Check if dockerized folder already exists
+            if dockerized_path.exists():
+                result = messagebox.askyesnocancel(
+                    "Folder Exists",
+                    f"A 'dockerized' folder already exists at:\n{dockerized_path}\n\n"
+                    "Do you want to:\n"
+                    "• Yes: Use the existing folder (project folders will be created if missing)\n"
+                    "• No: Choose a different location\n"
+                    "• Cancel: Cancel the operation",
+                )
+
+                if result is True:  # Yes - use existing folder
+                    var.set(str(dockerized_path))
+                    # Store creation request for apply time
+                    self.pending_folder_creation = {
+                        "dockerized_path": dockerized_path,
+                        "use_existing": True,
+                    }
+                    messagebox.showinfo(
+                        "Folder Selected",
+                        f"Selected existing dockerized folder:\n{dockerized_path}\n\n"
+                        "Missing project version folders will be created when you click 'Apply'.",
+                    )
+                    return
+                elif result is False:  # No - choose different location
+                    return self._create_new_dockerized_folder(var)
+                else:  # Cancel
+                    return
+
+            # Set the path variable to the new dockerized folder
+            var.set(str(dockerized_path))
+
+            # Store creation request for apply time
+            self.pending_folder_creation = {
+                "dockerized_path": dockerized_path,
+                "use_existing": False,
+            }
+
+            # Get the first alias from each category in FOLDER_ALIASES to show preview
+            from config.settings import FOLDER_ALIASES
+
+            folders_to_create = []
+            for category, aliases in FOLDER_ALIASES.items():
+                if aliases:  # Check if aliases list is not empty
+                    folders_to_create.append(aliases[0])  # Use the first alias
+
+            # Show preview message
+            folder_list = "\n".join([f"  • {folder}" for folder in folders_to_create])
+            messagebox.showinfo(
+                "Folder Structure Planned",
+                f"Dockerized folder structure will be created at:\n{dockerized_path}\n\n"
+                f"Project version folders to be created:\n{folder_list}\n\n"
+                "⚠️  Note: Folders will only be created when you click 'Apply'.\n"
+                "If you click 'Cancel', no folders will be created.",
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Error", f"Failed to plan dockerized folder structure:\n{str(e)}"
+            )
 
     def _create_color_setting(
         self, parent, label_text, setting_key, description, current_value
@@ -2145,6 +2234,8 @@ class SettingsWindow:
 
     def _reset_to_defaults(self):
         """Reset all settings to their default values"""
+        # Clear any pending folder creation requests
+        self.pending_folder_creation = None
         if self.on_reset_callback:
             # Use the provided reset callback
             self.on_reset_callback()
@@ -2156,6 +2247,11 @@ class SettingsWindow:
     def _apply_settings(self):
         """Apply the settings and restart the application"""
         try:
+            # Create pending dockerized folder structure if requested
+            if self.pending_folder_creation:
+                if not self._create_dockerized_folder_structure():
+                    return  # Folder creation failed, don't proceed with settings
+
             # Collect all settings
             new_settings = {}
 
@@ -2203,6 +2299,60 @@ class SettingsWindow:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to apply settings: {str(e)}")
 
+    def _create_dockerized_folder_structure(self):
+        """Actually create the dockerized folder structure"""
+        try:
+            from pathlib import Path
+            from config.settings import FOLDER_ALIASES
+
+            dockerized_path = self.pending_folder_creation["dockerized_path"]
+            use_existing = self.pending_folder_creation["use_existing"]
+
+            # Create the dockerized folder if it doesn't exist
+            if not use_existing:
+                dockerized_path.mkdir(parents=True, exist_ok=True)
+
+            # Get the first alias from each category in FOLDER_ALIASES
+            folders_to_create = []
+            for category, aliases in FOLDER_ALIASES.items():
+                if aliases:  # Check if aliases list is not empty
+                    folders_to_create.append(aliases[0])  # Use the first alias
+
+            # Create the project version folders
+            created_folders = []
+            for folder_name in folders_to_create:
+                folder_path = dockerized_path / folder_name
+                if not folder_path.exists():
+                    folder_path.mkdir(parents=True, exist_ok=True)
+                    created_folders.append(folder_name)
+
+            # Show success message
+            if created_folders or not use_existing:
+                folder_list = "\n".join([f"  • {folder}" for folder in created_folders])
+                action_msg = "Created" if not use_existing else "Updated"
+                if created_folders:
+                    messagebox.showinfo(
+                        "Dockerized Folder Structure Created",
+                        f"{action_msg} dockerized folder structure at:\n{dockerized_path}\n\n"
+                        f"Created project version folders:\n{folder_list}",
+                    )
+                else:
+                    messagebox.showinfo(
+                        "Dockerized Folder Structure Ready",
+                        f"Using existing dockerized folder structure at:\n{dockerized_path}\n\n"
+                        "All project version folders already exist.",
+                    )
+
+            # Clear the pending creation request
+            self.pending_folder_creation = None
+            return True
+
+        except Exception as e:
+            messagebox.showerror(
+                "Error", f"Failed to create dockerized folder structure:\n{str(e)}"
+            )
+            return False
+
     def _validate_settings(self, settings):
         """Validate the settings before applying"""
         try:
@@ -2238,10 +2388,14 @@ class SettingsWindow:
 
     def _cancel(self):
         """Cancel the settings dialog"""
+        # Clear any pending folder creation requests
+        self.pending_folder_creation = None
         self.destroy()
 
     def destroy(self):
         """Destroy the settings window"""
+        # Clear any pending folder creation requests when window is destroyed
+        self.pending_folder_creation = None
         if self.window:
             self.window.destroy()
             self.window = None
