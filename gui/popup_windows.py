@@ -420,13 +420,10 @@ class GitCommitWindow:
                 ):  # Only match if we have at least 4 characters for reliability
                     current_short = self.current_commit_hash[:min_length]
                     commit_short = commit_hash[:min_length]
-                    is_current = current_short == commit_short
-
-                    # Strategy 2: Also try if one hash starts with the other (handles different abbreviation lengths)
-                    if not is_current:
-                        is_current = commit_hash.startswith(
-                            self.current_commit_hash
-                        ) or self.current_commit_hash.startswith(commit_hash)
+                    is_current = current_short == commit_short or (
+                        commit_hash.startswith(self.current_commit_hash)
+                        or self.current_commit_hash.startswith(commit_hash)
+                    )
 
             if is_current:
                 # Add ">> CURRENT" prefix to highlight the current commit
@@ -667,8 +664,7 @@ class GitCheckoutAllWindow:
 
     def checkout_all_selected(self):
         """Handle checkout all for selected commit"""
-        selection = self.commit_listbox.curselection()
-        if selection:
+        if selection := self.commit_listbox.curselection():
             index = selection[0]
             selected_commit = self.commits[index]
             commit_hash = (
@@ -1189,7 +1185,7 @@ class EditRunTestsWindow:
                 # Look for test paths
                 for part in parts[1:]:  # Skip "pytest" itself
                     normalized_part = part.replace("\\", "/")
-                    if normalized_part == "tests/" or normalized_part == "tests":
+                    if normalized_part in ["tests/", "tests"]:
                         # If it's just "tests/" then all tests are selected
                         currently_selected.update(self.all_test_files)
                         break
@@ -1213,23 +1209,27 @@ class EditRunTestsWindow:
             if "npm test" in stripped_line and not stripped_line.startswith("#"):
                 # Split the line to look for test file arguments
                 parts = stripped_line.split()
-                npm_test_index = -1
-                for i, part in enumerate(parts):
-                    if part == "test" and i > 0 and parts[i - 1] == "npm":
-                        npm_test_index = i
-                        break
-
+                npm_test_index = next(
+                    (
+                        i
+                        for i, part in enumerate(parts)
+                        if part == "test" and i > 0 and parts[i - 1] == "npm"
+                    ),
+                    -1,
+                )
                 if npm_test_index >= 0:
                     # Look for test file paths after "npm test"
                     for part in parts[npm_test_index + 1 :]:
                         normalized_part = part.replace("\\", "/")
                         # Check if it's a test file
-                        if any(
-                            normalized_part.endswith(ext)
-                            for ext in [".js", ".ts", ".jsx", ".tsx"]
+                        if (
+                            any(
+                                normalized_part.endswith(ext)
+                                for ext in [".js", ".ts", ".jsx", ".tsx"]
+                            )
+                            and normalized_part in self.all_test_files
                         ):
-                            if normalized_part in self.all_test_files:
-                                currently_selected.add(normalized_part)
+                            currently_selected.add(normalized_part)
 
         # If no specific tests found, assume all tests are selected
         if not currently_selected:
@@ -1276,16 +1276,16 @@ class EditRunTestsWindow:
             if "cargo test" in stripped_line and not stripped_line.startswith("#"):
                 # Cargo test can specify specific test names or modules
                 parts = stripped_line.split()
-                cargo_test_index = -1
-                for i, part in enumerate(parts):
-                    if part == "test" and i > 0 and parts[i - 1] == "cargo":
-                        cargo_test_index = i
-                        break
-
+                cargo_test_index = next(
+                    (
+                        i
+                        for i, part in enumerate(parts)
+                        if part == "test" and i > 0 and parts[i - 1] == "cargo"
+                    ),
+                    -1,
+                )
                 if cargo_test_index >= 0:
-                    # Look for specific test names after "cargo test"
-                    test_args = parts[cargo_test_index + 1 :]
-                    if test_args:
+                    if test_args := parts[cargo_test_index + 1 :]:
                         # If specific test names are mentioned, try to match them
                         for test_file in self.all_test_files:
                             for arg in test_args:
@@ -1339,21 +1339,23 @@ class EditRunTestsWindow:
             if "dotnet test" in stripped_line and not stripped_line.startswith("#"):
                 # Dotnet test can specify specific test files or filters
                 parts = stripped_line.split()
-                dotnet_test_index = -1
-                for i, part in enumerate(parts):
-                    if part == "test" and i > 0 and parts[i - 1] == "dotnet":
-                        dotnet_test_index = i
-                        break
-
+                dotnet_test_index = next(
+                    (
+                        i
+                        for i, part in enumerate(parts)
+                        if part == "test" and i > 0 and parts[i - 1] == "dotnet"
+                    ),
+                    -1,
+                )
                 if dotnet_test_index >= 0:
                     # Look for test file paths after "dotnet test"
                     for part in parts[dotnet_test_index + 1 :]:
                         normalized_part = part.replace("\\", "/")
-                        if normalized_part.endswith(".cs") or normalized_part.endswith(
-                            ".csproj"
-                        ):
-                            if normalized_part in self.all_test_files:
-                                currently_selected.add(normalized_part)
+                        if (
+                            normalized_part.endswith(".cs")
+                            or normalized_part.endswith(".csproj")
+                        ) and normalized_part in self.all_test_files:
+                            currently_selected.add(normalized_part)
 
                 # If no specific tests found, assume all tests are selected
                 if not currently_selected:
@@ -1374,16 +1376,16 @@ class EditRunTestsWindow:
             if "go test" in stripped_line and not stripped_line.startswith("#"):
                 # Go test can specify specific packages or test files
                 parts = stripped_line.split()
-                go_test_index = -1
-                for i, part in enumerate(parts):
-                    if part == "test" and i > 0 and parts[i - 1] == "go":
-                        go_test_index = i
-                        break
-
+                go_test_index = next(
+                    (
+                        i
+                        for i, part in enumerate(parts)
+                        if part == "test" and i > 0 and parts[i - 1] == "go"
+                    ),
+                    -1,
+                )
                 if go_test_index >= 0:
-                    # Look for package paths or test files after "go test"
-                    test_args = parts[go_test_index + 1 :]
-                    if test_args:
+                    if test_args := parts[go_test_index + 1 :]:
                         for arg in test_args:
                             if arg.startswith("./"):
                                 # Package path - select all tests in that path
@@ -1461,10 +1463,9 @@ class EditRunTestsWindow:
     def _save_changes(self):
         """Save the selected test files and update run_tests.sh"""
         selected_tests = []
-        for test_file, var in self.test_vars.items():
-            if var.get():
-                selected_tests.append(test_file)
-
+        selected_tests.extend(
+            test_file for test_file, var in self.test_vars.items() if var.get()
+        )
         if not selected_tests:
             messagebox.showwarning(
                 "No Tests Selected", "Please select at least one test file."
@@ -2133,10 +2134,9 @@ class SettingsWindow:
         """Browse for a directory path"""
         from tkinter import filedialog
 
-        path = filedialog.askdirectory(
-            title="Select Directory", initialdir=var.get() if var.get() else "/"
-        )
-        if path:
+        if path := filedialog.askdirectory(
+            title="Select Directory", initialdir=var.get() or "/"
+        ):
             var.set(path)
 
     def _reset_to_defaults(self):
@@ -2206,11 +2206,10 @@ class SettingsWindow:
             if "SOURCE_DIR" in settings:
                 source_dir = Path(settings["SOURCE_DIR"])
                 if not source_dir.exists():
-                    result = messagebox.askyesno(
+                    if result := messagebox.askyesno(
                         "Directory Not Found",
                         f"The source directory '{source_dir}' does not exist.\n\nDo you want to create it?",
-                    )
-                    if result:
+                    ):
                         source_dir.mkdir(parents=True, exist_ok=True)
                     else:
                         return False
