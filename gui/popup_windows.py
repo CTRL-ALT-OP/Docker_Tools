@@ -2013,10 +2013,9 @@ class SettingsWindow:
             from config.settings import FOLDER_ALIASES
 
             folders_to_create = []
-            for category, aliases in FOLDER_ALIASES.items():
-                if aliases:  # Check if aliases list is not empty
-                    folders_to_create.append(aliases[0])  # Use the first alias
-
+            folders_to_create.extend(
+                aliases[0] for category, aliases in FOLDER_ALIASES.items() if aliases
+            )
             # Show preview message
             folder_list = "\n".join([f"  • {folder}" for folder in folders_to_create])
             messagebox.showinfo(
@@ -2065,7 +2064,7 @@ class SettingsWindow:
         def update_color_preview(*args):
             try:
                 color_preview.config(bg=var.get())
-            except:
+            except Exception:
                 pass
 
         var.trace("w", update_color_preview)
@@ -2248,9 +2247,11 @@ class SettingsWindow:
         """Apply the settings and restart the application"""
         try:
             # Create pending dockerized folder structure if requested
-            if self.pending_folder_creation:
-                if not self._create_dockerized_folder_structure():
-                    return  # Folder creation failed, don't proceed with settings
+            if (
+                self.pending_folder_creation
+                and not self._create_dockerized_folder_structure()
+            ):
+                return  # Folder creation failed, don't proceed with settings
 
             # Collect all settings
             new_settings = {}
@@ -2314,10 +2315,9 @@ class SettingsWindow:
 
             # Get the first alias from each category in FOLDER_ALIASES
             folders_to_create = []
-            for category, aliases in FOLDER_ALIASES.items():
-                if aliases:  # Check if aliases list is not empty
-                    folders_to_create.append(aliases[0])  # Use the first alias
-
+            folders_to_create.extend(
+                aliases[0] for category, aliases in FOLDER_ALIASES.items() if aliases
+            )
             # Create the project version folders
             created_folders = []
             for folder_name in folders_to_create:
@@ -2329,7 +2329,7 @@ class SettingsWindow:
             # Show success message
             if created_folders or not use_existing:
                 folder_list = "\n".join([f"  • {folder}" for folder in created_folders])
-                action_msg = "Created" if not use_existing else "Updated"
+                action_msg = "Updated" if use_existing else "Created"
                 if created_folders:
                     messagebox.showinfo(
                         "Dockerized Folder Structure Created",
