@@ -137,7 +137,7 @@ class TestSettingsWindow:
 
             # Verify window setup
             mock_window.title.assert_called_with("Application Settings")
-            mock_window.geometry.assert_called_with("700x600")
+            mock_window.geometry.assert_called_with("500x600")
             mock_window.transient.assert_called_with(self.mock_parent)
             mock_window.grab_set.assert_called_once()
 

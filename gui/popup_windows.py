@@ -1521,13 +1521,13 @@ class SettingsWindow:
 
         self.window = tk.Toplevel(self.parent_window)
         self.window.title("Application Settings")
-        self.window.geometry("700x600")
+        self.window.geometry("500x600")
         self.window.configure(bg=COLORS["background"])
 
         # Make window modal and center it
         self.window.transient(self.parent_window)
         self.window.grab_set()
-        GuiUtils.center_window(self.window, 700, 600)
+        GuiUtils.center_window(self.window, 550, 600)
 
         # Create main frame
         main_frame = GuiUtils.create_styled_frame(self.window)
@@ -2067,7 +2067,7 @@ class SettingsWindow:
             except Exception:
                 pass
 
-        var.trace("w", update_color_preview)
+        var.trace_add("write", update_color_preview)
 
         self.settings_vars[setting_key] = var
 
