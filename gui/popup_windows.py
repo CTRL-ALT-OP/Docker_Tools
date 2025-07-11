@@ -3,7 +3,7 @@ Popup window modules for displaying terminal output and other information
 """
 
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import ttk, scrolledtext, messagebox, colorchooser
 from typing import Optional, Callable, Dict, Any, List
 from pathlib import Path
 
@@ -2034,7 +2034,7 @@ class SettingsWindow:
     def _create_color_setting(
         self, parent, label_text, setting_key, description, current_value
     ):
-        """Create a color input setting"""
+        """Create a color input setting with color picker"""
         frame = GuiUtils.create_styled_frame(parent)
         frame.pack(fill="x", pady=(0, 10))
 
@@ -2056,15 +2056,34 @@ class SettingsWindow:
         entry = tk.Entry(color_frame, textvariable=var, font=FONTS["info"], width=20)
         entry.pack(side="left")
 
-        # Color preview
-        color_preview = tk.Frame(color_frame, bg=current_value, width=30, height=25)
-        color_preview.pack(side="left", padx=(5, 0))
+        # Color picker button (serves as preview)
+        def open_color_picker():
+            """Open color picker dialog and update color"""
+            color = colorchooser.askcolor(
+                initialcolor=var.get(), title=f"Choose {label_text}"
+            )
+            if color[1]:  # If user didn't cancel (color[1] is the hex value)
+                var.set(color[1])
+                color_picker_btn.config(bg=color[1])
 
-        # Update color preview when value changes
+        color_picker_btn = tk.Button(
+            color_frame,
+            bg=current_value,
+            width=4,
+            height=1,
+            bd=2,
+            command=open_color_picker,
+            cursor="hand2",
+        )
+        color_picker_btn.pack(side="left", padx=(5, 0))
+
+        # Update color preview when entry value changes
         def update_color_preview(*args):
             try:
-                color_preview.config(bg=var.get())
-            except Exception:
+                new_color = var.get()
+                color_picker_btn.config(bg=new_color)
+            except tk.TclError:
+                # Invalid color, reset to previous valid color
                 pass
 
         var.trace_add("write", update_color_preview)
