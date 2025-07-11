@@ -1287,7 +1287,9 @@ class ProjectControlPanel:
         """Save user settings to user_settings.json (overrides only)"""
         import json
         from pathlib import Path
-        from config import settings as default_settings
+        import importlib.util
+        import sys
+        import os
 
         # Path to user settings file
         user_settings_file = Path("config/user_settings.json")
@@ -1308,6 +1310,9 @@ class ProjectControlPanel:
         user_settings["_instructions"] = (
             "This file contains only the settings you have customized. Default settings come from settings.py"
         )
+
+        # Get original default values by loading settings.py without user overrides
+        default_settings = self._load_original_default_settings()
 
         # Only save settings that differ from defaults
         for key, value in settings.items():
@@ -1344,6 +1349,47 @@ class ProjectControlPanel:
         # Save the user settings
         with open(user_settings_file, "w", encoding="utf-8") as f:
             json.dump(user_settings, f, indent=4, ensure_ascii=False)
+
+    def _load_original_default_settings(self):
+        """Load original default settings without user overrides applied"""
+        import importlib.util
+        import sys
+        import os
+        from pathlib import Path
+
+        # Get the path to settings.py
+        settings_path = Path("config/settings.py").resolve()
+
+        # Create a temporary module to load settings without user overrides
+        spec = importlib.util.spec_from_file_location(
+            "original_settings", settings_path
+        )
+        original_settings = importlib.util.module_from_spec(spec)
+
+        # Execute the settings module but stop before the user overrides are applied
+        # We need to read the file and execute only the part before _apply_user_settings()
+        with open(settings_path, "r", encoding="utf-8") as f:
+            settings_content = f.read()
+
+        # Find where _apply_user_settings() is called and exclude that part
+        lines = settings_content.split("\n")
+        filtered_lines = []
+
+        for line in lines:
+            # Stop before the _apply_user_settings() call and related code
+            if line.strip().startswith("def _apply_user_settings("):
+                break
+            if line.strip() == "_apply_user_settings()":
+                break
+            filtered_lines.append(line)
+
+        # Execute the filtered content
+        filtered_content = "\n".join(filtered_lines)
+
+        # Create a new module with only default settings
+        exec(filtered_content, original_settings.__dict__)
+
+        return original_settings
 
     def _restart_application(self):
         """Restart the application"""
