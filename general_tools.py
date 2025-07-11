@@ -1312,7 +1312,7 @@ class ProjectControlPanel:
         )
 
         # Get original default values by loading settings.py without user overrides
-        default_settings = self._load_original_default_settings()
+        default_settings = self._load_original_defaults()
 
         # Only save settings that differ from defaults
         for key, value in settings.items():
@@ -1350,7 +1350,7 @@ class ProjectControlPanel:
         with open(user_settings_file, "w", encoding="utf-8") as f:
             json.dump(user_settings, f, indent=4, ensure_ascii=False)
 
-    def _load_original_default_settings(self):
+    def _load_original_defaults(self):
         """Load original default settings without user overrides applied"""
         import importlib.util
         import sys
