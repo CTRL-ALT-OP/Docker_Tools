@@ -7,9 +7,10 @@ import time
 import asyncio
 import tkinter as tk
 import logging
+import re
 from tkinter import messagebox, ttk
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any
 
 from config.settings import WINDOW_TITLE, MAIN_WINDOW_SIZE, COLORS, FONTS, SOURCE_DIR
 from services.project_service import ProjectService
@@ -114,6 +115,7 @@ class ProjectControlPanel:
             "on_project_selected": self.on_project_selected,
             "refresh_projects": self.refresh_projects,
             "open_add_project_window": self.open_add_project_window,
+            "open_settings_window": self.open_settings_window,
             "cleanup_project": self.cleanup_project,
             "archive_project": self.archive_project,
             "docker_build_and_test": self.docker_build_and_test,
@@ -1219,6 +1221,188 @@ class ProjectControlPanel:
         """Open the add project window"""
         add_project_window = AddProjectWindow(self.window, self.add_project)
         add_project_window.create_window()
+
+    def open_settings_window(self):
+        """Open the settings window"""
+        from gui.popup_windows import SettingsWindow
+
+        settings_window = SettingsWindow(
+            self.window, self.apply_settings, self.reset_settings
+        )
+        settings_window.create_window()
+
+    def reset_settings(self):
+        """Reset settings to defaults by removing user customizations"""
+        try:
+            from pathlib import Path
+
+            user_settings_file = Path("config/user_settings.json")
+
+            if user_settings_file.exists():
+                user_settings_file.unlink()  # Delete the file
+
+            # Show restart message
+            result = messagebox.askquestion(
+                "Settings Reset",
+                "All settings have been reset to defaults.\n\nThe application needs to restart to apply the changes.\n\nRestart now?",
+                icon="question",
+            )
+
+            if result == "yes":
+                # Restart the application
+                self._restart_application()
+            else:
+                messagebox.showinfo(
+                    "Settings Reset",
+                    "Settings have been reset to defaults. Please restart the application to see the changes.",
+                )
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to reset settings: {str(e)}")
+
+    def apply_settings(self, new_settings: Dict[str, Any]):
+        """Apply new settings and restart the application"""
+        try:
+            # Save settings to the config file
+            self._save_settings_to_file(new_settings)
+
+            # Show restart message
+            result = messagebox.askquestion(
+                "Settings Applied",
+                "Settings have been saved successfully.\n\nThe application needs to restart to apply the new settings.\n\nRestart now?",
+                icon="question",
+            )
+
+            if result == "yes":
+                # Restart the application
+                self._restart_application()
+            else:
+                messagebox.showinfo(
+                    "Settings Saved",
+                    "Settings have been saved. Please restart the application manually to apply the changes.",
+                )
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to apply settings: {str(e)}")
+
+    def _save_settings_to_file(self, settings: Dict[str, Any]):
+        """Save user settings to user_settings.json (overrides only)"""
+        import json
+        from pathlib import Path
+        from config import settings as default_settings
+
+        # Path to user settings file
+        user_settings_file = Path("config/user_settings.json")
+
+        # Load existing user settings or create empty dict
+        user_settings = {}
+        if user_settings_file.exists():
+            try:
+                with open(user_settings_file, "r", encoding="utf-8") as f:
+                    user_settings = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                user_settings = {}
+
+        # Add metadata
+        user_settings["_comment"] = (
+            "User customizations for Docker Tools - this file is not tracked by git"
+        )
+        user_settings["_instructions"] = (
+            "This file contains only the settings you have customized. Default settings come from settings.py"
+        )
+
+        # Only save settings that differ from defaults
+        for key, value in settings.items():
+            default_value = None
+
+            # Get the default value for comparison
+            if key.startswith("COLORS."):
+                color_key = key.split(".", 1)[1]
+                default_value = getattr(default_settings, "COLORS", {}).get(color_key)
+            elif key.startswith("FONTS."):
+                font_key = key.split(".", 1)[1]
+                default_value = getattr(default_settings, "FONTS", {}).get(font_key)
+            elif key.startswith("BUTTON_STYLES."):
+                style_key = key.split(".", 1)[1]
+                default_value = getattr(default_settings, "BUTTON_STYLES", {}).get(
+                    style_key
+                )
+            else:
+                default_value = getattr(default_settings, key, None)
+
+            # Convert tuples to lists for JSON serialization
+            if isinstance(value, tuple):
+                value = list(value)
+            if isinstance(default_value, tuple):
+                default_value = list(default_value)
+
+            # Only save if different from default
+            if value != default_value:
+                user_settings[key] = value
+            elif key in user_settings:
+                # Remove setting if it matches default (user reset it)
+                del user_settings[key]
+
+        # Save the user settings
+        with open(user_settings_file, "w", encoding="utf-8") as f:
+            json.dump(user_settings, f, indent=4, ensure_ascii=False)
+
+    def _restart_application(self):
+        """Restart the application"""
+        import sys
+        import subprocess
+        import os
+        from pathlib import Path
+
+        try:
+            # Get the command to restart the application
+            python_executable = sys.executable
+            script_path = Path(sys.argv[0]).resolve()  # Make path absolute
+            current_dir = Path.cwd()
+
+            # Close current window and stop monitoring
+            file_monitor.stop_all_monitoring()
+            self.window.destroy()
+
+            # Small delay to ensure cleanup
+            import time
+
+            time.sleep(0.5)
+
+            # Restart using subprocess with proper configuration
+            if os.name == "nt":  # Windows
+                # Use DETACHED_PROCESS to fully detach from parent process (IDE-friendly)
+                # Combined with CREATE_NO_WINDOW to avoid console window
+                subprocess.Popen(
+                    [python_executable, str(script_path)],
+                    cwd=str(current_dir),
+                    creationflags=subprocess.DETACHED_PROCESS
+                    | subprocess.CREATE_NO_WINDOW,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                )
+            else:  # Unix-like systems
+                # Use start_new_session to detach from parent process
+                subprocess.Popen(
+                    [python_executable, str(script_path)],
+                    cwd=str(current_dir),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+
+            # Exit current process
+            sys.exit(0)
+
+        except Exception as e:
+            # If restart fails, show an error and just exit
+            messagebox.showerror(
+                "Restart Failed",
+                f"Could not restart the application automatically.\n\n"
+                f"Error: {str(e)}\n\n"
+                f"Please restart manually by running:\n{python_executable} {script_path}",
+            )
+            sys.exit(1)
 
     def add_project(self, repo_url: str, project_name: str):
         """Add a new project by cloning it into all subdirectories"""

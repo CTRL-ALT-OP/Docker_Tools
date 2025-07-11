@@ -116,3 +116,62 @@ BUTTON_STYLES = {
     "cancel": {"bg": "#e74c3c", "fg": "white"},
     "secondary": {"bg": "#95a5a6", "fg": "white"},
 }
+
+
+# Dynamic Settings Override System
+# Load user customizations from user_settings.json if it exists
+import json
+import os
+from pathlib import Path
+
+
+def _apply_user_settings():
+    """Apply user settings overrides from user_settings.json"""
+    user_settings_file = Path(__file__).parent / "user_settings.json"
+
+    if not user_settings_file.exists():
+        return
+
+    try:
+        with open(user_settings_file, "r", encoding="utf-8") as f:
+            user_settings = json.load(f)
+
+        # Get the current module's globals to modify settings
+        current_globals = globals()
+
+        for key, value in user_settings.items():
+            if key.startswith("COLORS."):
+                # Handle color overrides
+                color_key = key.split(".", 1)[1]
+                if (
+                    "COLORS" in current_globals
+                    and color_key in current_globals["COLORS"]
+                ):
+                    current_globals["COLORS"][color_key] = value
+            elif key.startswith("FONTS."):
+                # Handle font overrides
+                font_key = key.split(".", 1)[1]
+                if "FONTS" in current_globals and font_key in current_globals["FONTS"]:
+                    # Convert back to tuple if needed
+                    if isinstance(value, list):
+                        value = tuple(value)
+                    current_globals["FONTS"][font_key] = value
+            elif key.startswith("BUTTON_STYLES."):
+                # Handle button style overrides
+                style_key = key.split(".", 1)[1]
+                if (
+                    "BUTTON_STYLES" in current_globals
+                    and style_key in current_globals["BUTTON_STYLES"]
+                ):
+                    current_globals["BUTTON_STYLES"][style_key] = value
+            elif key in current_globals:
+                # Handle direct setting overrides
+                current_globals[key] = value
+
+    except (json.JSONDecodeError, FileNotFoundError, KeyError) as e:
+        # Silently ignore errors - use defaults if user settings are corrupted
+        pass
+
+
+# Apply user settings overrides
+_apply_user_settings()

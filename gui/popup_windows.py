@@ -420,13 +420,10 @@ class GitCommitWindow:
                 ):  # Only match if we have at least 4 characters for reliability
                     current_short = self.current_commit_hash[:min_length]
                     commit_short = commit_hash[:min_length]
-                    is_current = current_short == commit_short
-
-                    # Strategy 2: Also try if one hash starts with the other (handles different abbreviation lengths)
-                    if not is_current:
-                        is_current = commit_hash.startswith(
-                            self.current_commit_hash
-                        ) or self.current_commit_hash.startswith(commit_hash)
+                    is_current = current_short == commit_short or (
+                        commit_hash.startswith(self.current_commit_hash)
+                        or self.current_commit_hash.startswith(commit_hash)
+                    )
 
             if is_current:
                 # Add ">> CURRENT" prefix to highlight the current commit
@@ -667,8 +664,7 @@ class GitCheckoutAllWindow:
 
     def checkout_all_selected(self):
         """Handle checkout all for selected commit"""
-        selection = self.commit_listbox.curselection()
-        if selection:
+        if selection := self.commit_listbox.curselection():
             index = selection[0]
             selected_commit = self.commits[index]
             commit_hash = (
@@ -1189,7 +1185,7 @@ class EditRunTestsWindow:
                 # Look for test paths
                 for part in parts[1:]:  # Skip "pytest" itself
                     normalized_part = part.replace("\\", "/")
-                    if normalized_part == "tests/" or normalized_part == "tests":
+                    if normalized_part in ["tests/", "tests"]:
                         # If it's just "tests/" then all tests are selected
                         currently_selected.update(self.all_test_files)
                         break
@@ -1213,23 +1209,27 @@ class EditRunTestsWindow:
             if "npm test" in stripped_line and not stripped_line.startswith("#"):
                 # Split the line to look for test file arguments
                 parts = stripped_line.split()
-                npm_test_index = -1
-                for i, part in enumerate(parts):
-                    if part == "test" and i > 0 and parts[i - 1] == "npm":
-                        npm_test_index = i
-                        break
-
+                npm_test_index = next(
+                    (
+                        i
+                        for i, part in enumerate(parts)
+                        if part == "test" and i > 0 and parts[i - 1] == "npm"
+                    ),
+                    -1,
+                )
                 if npm_test_index >= 0:
                     # Look for test file paths after "npm test"
                     for part in parts[npm_test_index + 1 :]:
                         normalized_part = part.replace("\\", "/")
                         # Check if it's a test file
-                        if any(
-                            normalized_part.endswith(ext)
-                            for ext in [".js", ".ts", ".jsx", ".tsx"]
+                        if (
+                            any(
+                                normalized_part.endswith(ext)
+                                for ext in [".js", ".ts", ".jsx", ".tsx"]
+                            )
+                            and normalized_part in self.all_test_files
                         ):
-                            if normalized_part in self.all_test_files:
-                                currently_selected.add(normalized_part)
+                            currently_selected.add(normalized_part)
 
         # If no specific tests found, assume all tests are selected
         if not currently_selected:
@@ -1276,16 +1276,16 @@ class EditRunTestsWindow:
             if "cargo test" in stripped_line and not stripped_line.startswith("#"):
                 # Cargo test can specify specific test names or modules
                 parts = stripped_line.split()
-                cargo_test_index = -1
-                for i, part in enumerate(parts):
-                    if part == "test" and i > 0 and parts[i - 1] == "cargo":
-                        cargo_test_index = i
-                        break
-
+                cargo_test_index = next(
+                    (
+                        i
+                        for i, part in enumerate(parts)
+                        if part == "test" and i > 0 and parts[i - 1] == "cargo"
+                    ),
+                    -1,
+                )
                 if cargo_test_index >= 0:
-                    # Look for specific test names after "cargo test"
-                    test_args = parts[cargo_test_index + 1 :]
-                    if test_args:
+                    if test_args := parts[cargo_test_index + 1 :]:
                         # If specific test names are mentioned, try to match them
                         for test_file in self.all_test_files:
                             for arg in test_args:
@@ -1339,21 +1339,23 @@ class EditRunTestsWindow:
             if "dotnet test" in stripped_line and not stripped_line.startswith("#"):
                 # Dotnet test can specify specific test files or filters
                 parts = stripped_line.split()
-                dotnet_test_index = -1
-                for i, part in enumerate(parts):
-                    if part == "test" and i > 0 and parts[i - 1] == "dotnet":
-                        dotnet_test_index = i
-                        break
-
+                dotnet_test_index = next(
+                    (
+                        i
+                        for i, part in enumerate(parts)
+                        if part == "test" and i > 0 and parts[i - 1] == "dotnet"
+                    ),
+                    -1,
+                )
                 if dotnet_test_index >= 0:
                     # Look for test file paths after "dotnet test"
                     for part in parts[dotnet_test_index + 1 :]:
                         normalized_part = part.replace("\\", "/")
-                        if normalized_part.endswith(".cs") or normalized_part.endswith(
-                            ".csproj"
-                        ):
-                            if normalized_part in self.all_test_files:
-                                currently_selected.add(normalized_part)
+                        if (
+                            normalized_part.endswith(".cs")
+                            or normalized_part.endswith(".csproj")
+                        ) and normalized_part in self.all_test_files:
+                            currently_selected.add(normalized_part)
 
                 # If no specific tests found, assume all tests are selected
                 if not currently_selected:
@@ -1374,16 +1376,16 @@ class EditRunTestsWindow:
             if "go test" in stripped_line and not stripped_line.startswith("#"):
                 # Go test can specify specific packages or test files
                 parts = stripped_line.split()
-                go_test_index = -1
-                for i, part in enumerate(parts):
-                    if part == "test" and i > 0 and parts[i - 1] == "go":
-                        go_test_index = i
-                        break
-
+                go_test_index = next(
+                    (
+                        i
+                        for i, part in enumerate(parts)
+                        if part == "test" and i > 0 and parts[i - 1] == "go"
+                    ),
+                    -1,
+                )
                 if go_test_index >= 0:
-                    # Look for package paths or test files after "go test"
-                    test_args = parts[go_test_index + 1 :]
-                    if test_args:
+                    if test_args := parts[go_test_index + 1 :]:
                         for arg in test_args:
                             if arg.startswith("./"):
                                 # Package path - select all tests in that path
@@ -1461,10 +1463,9 @@ class EditRunTestsWindow:
     def _save_changes(self):
         """Save the selected test files and update run_tests.sh"""
         selected_tests = []
-        for test_file, var in self.test_vars.items():
-            if var.get():
-                selected_tests.append(test_file)
-
+        selected_tests.extend(
+            test_file for test_file, var in self.test_vars.items() if var.get()
+        )
         if not selected_tests:
             messagebox.showwarning(
                 "No Tests Selected", "Please select at least one test file."
@@ -1491,14 +1492,154 @@ class EditRunTestsWindow:
 
 
 class SettingsWindow:
-    """Window for editing settings"""
+    """A popup window for editing application settings"""
 
-    def __init__(self, parent, save_callback, reset_callback):
-        self.settings_vars = {}
-        self.parent_window = parent
-        self.on_save_callback = save_callback
-        self.on_reset_callback = reset_callback
+    def __init__(
+        self,
+        parent_window: tk.Tk,
+        on_save_callback: Callable[[Dict[str, Any]], None],
+        on_reset_callback: Callable[[], None] = None,
+    ):
+        self.parent_window = parent_window
+        self.on_save_callback = on_save_callback
+        self.on_reset_callback = on_reset_callback
         self.window = None
+        self.settings_vars = {}
+        self.notebook = None
+        self.tab_canvases = {}  # Store canvas references for each tab
+        self.pending_folder_creation = None  # Store pending folder creation info
+
+        # Import settings to get current values
+        from config import settings
+
+        self.settings_module = settings
+
+    def create_window(self):
+        """Create the settings window with tabbed interface"""
+        if self.window:
+            return
+
+        self.window = tk.Toplevel(self.parent_window)
+        self.window.title("Application Settings")
+        self.window.geometry("700x600")
+        self.window.configure(bg=COLORS["background"])
+
+        # Make window modal and center it
+        self.window.transient(self.parent_window)
+        self.window.grab_set()
+        GuiUtils.center_window(self.window, 700, 600)
+
+        # Create main frame
+        main_frame = GuiUtils.create_styled_frame(self.window)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+
+        # Title
+        title_label = GuiUtils.create_styled_label(
+            main_frame,
+            text="Application Settings",
+            font_key="header",
+            fg=COLORS["project_header"],
+        )
+        title_label.pack(pady=(0, 20))
+
+        # Create notebook for tabs
+        self.notebook = ttk.Notebook(main_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 20))
+
+        # Create tabs
+        self._create_general_tab()
+        self._create_appearance_tab()
+        self._create_directories_tab()
+        self._create_languages_tab()
+
+        # Buttons frame
+        buttons_frame = GuiUtils.create_styled_frame(main_frame)
+        buttons_frame.pack(fill="x")
+
+        # Reset to defaults button
+        reset_btn = GuiUtils.create_styled_button(
+            buttons_frame,
+            text="Reset to Defaults",
+            command=self._reset_to_defaults,
+            style="warning",
+            font=FONTS["button_large"],
+            padx=20,
+            pady=5,
+        )
+        reset_btn.pack(side="left")
+
+        # Cancel button
+        cancel_btn = GuiUtils.create_styled_button(
+            buttons_frame,
+            text="Cancel",
+            command=self._cancel,
+            style="close",
+            font=FONTS["button_large"],
+            padx=20,
+            pady=5,
+        )
+        cancel_btn.pack(side="right", padx=(10, 0))
+
+        # Apply and Restart button
+        apply_btn = GuiUtils.create_styled_button(
+            buttons_frame,
+            text="Apply and Restart",
+            command=self._apply_settings,
+            style="git",
+            font=FONTS["button_large"],
+            padx=20,
+            pady=5,
+        )
+        apply_btn.pack(side="right")
+
+        # Bind Escape key to cancel
+        self.window.bind("<Escape>", lambda e: self._cancel())
+
+        # Bind mouse wheel events for scrolling
+        self._bind_mouse_wheel_events()
+
+    def _bind_mouse_wheel_events(self):
+        """Bind mouse wheel events to enable scrolling in the current tab"""
+
+        def on_mouse_wheel(event):
+            # Only prevent main window scrolling if we're directly over a Text widget
+            # that has its own scrolling behavior
+            widget = event.widget
+
+            # Check if the event is coming directly from a Text widget
+            if hasattr(widget, "winfo_class") and widget.winfo_class() == "Text":
+                # Let the Text widget handle its own scrolling
+                return
+
+            # Get the currently selected tab name
+            current_tab_id = self.notebook.select()
+            if current_tab_id:
+                current_tab_name = self.notebook.tab(current_tab_id, "text")
+
+                # Get the canvas for the current tab
+                canvas = self.tab_canvases.get(current_tab_name)
+
+                if canvas:
+                    # Scroll the canvas
+                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        # Bind mouse wheel events to the window and all its child widgets
+        self.window.bind("<MouseWheel>", on_mouse_wheel)  # Windows
+        self.window.bind(
+            "<Button-4>", lambda e: on_mouse_wheel(type("Event", (), {"delta": 120}))
+        )  # Linux scroll up
+        self.window.bind(
+            "<Button-5>", lambda e: on_mouse_wheel(type("Event", (), {"delta": -120}))
+        )  # Linux scroll down
+
+        # Also bind to the notebook to catch events when hovering over tabs
+        self.notebook.bind("<MouseWheel>", on_mouse_wheel)
+        self.notebook.bind(
+            "<Button-4>", lambda e: on_mouse_wheel(type("Event", (), {"delta": 120}))
+        )
+        self.notebook.bind(
+            "<Button-5>", lambda e: on_mouse_wheel(type("Event", (), {"delta": -120}))
+        )
 
     def _create_general_tab(self):
         """Create the general settings tab"""
@@ -1797,7 +1938,98 @@ class SettingsWindow:
         )
         browse_btn.pack(side="right", padx=(5, 0))
 
+        # Add "Create new" button only for SOURCE_DIR setting
+        if setting_key == "SOURCE_DIR":
+            create_new_btn = GuiUtils.create_styled_button(
+                path_frame,
+                text="Create new",
+                command=lambda: self._create_new_dockerized_folder(var),
+                style="build_docker",
+                font=FONTS["button"],
+                padx=10,
+                pady=2,
+            )
+            create_new_btn.pack(side="right", padx=(5, 0))
+
         self.settings_vars[setting_key] = var
+
+    def _create_new_dockerized_folder(self, var):
+        """Set up to create a new dockerized folder structure (actual creation happens on Apply)"""
+        from tkinter import filedialog, messagebox
+        from pathlib import Path
+
+        # Select parent directory where dockerized folder will be created
+        parent_dir = filedialog.askdirectory(
+            title="Select location to create dockerized folder",
+            initialdir=var.get() or "/",
+        )
+
+        if not parent_dir:
+            return  # User cancelled
+
+        try:
+            parent_path = Path(parent_dir)
+            dockerized_path = parent_path / "dockerized"
+
+            # Check if dockerized folder already exists
+            if dockerized_path.exists():
+                result = messagebox.askyesnocancel(
+                    "Folder Exists",
+                    f"A 'dockerized' folder already exists at:\n{dockerized_path}\n\n"
+                    "Do you want to:\n"
+                    "• Yes: Use the existing folder (project folders will be created if missing)\n"
+                    "• No: Choose a different location\n"
+                    "• Cancel: Cancel the operation",
+                )
+
+                if result is True:  # Yes - use existing folder
+                    var.set(str(dockerized_path))
+                    # Store creation request for apply time
+                    self.pending_folder_creation = {
+                        "dockerized_path": dockerized_path,
+                        "use_existing": True,
+                    }
+                    messagebox.showinfo(
+                        "Folder Selected",
+                        f"Selected existing dockerized folder:\n{dockerized_path}\n\n"
+                        "Missing project version folders will be created when you click 'Apply'.",
+                    )
+                    return
+                elif result is False:  # No - choose different location
+                    return self._create_new_dockerized_folder(var)
+                else:  # Cancel
+                    return
+
+            # Set the path variable to the new dockerized folder
+            var.set(str(dockerized_path))
+
+            # Store creation request for apply time
+            self.pending_folder_creation = {
+                "dockerized_path": dockerized_path,
+                "use_existing": False,
+            }
+
+            # Get the first alias from each category in FOLDER_ALIASES to show preview
+            from config.settings import FOLDER_ALIASES
+
+            folders_to_create = []
+            folders_to_create.extend(
+                aliases[0] for category, aliases in FOLDER_ALIASES.items() if aliases
+            )
+            # Show preview message
+            folder_list = "\n".join([f"  • {folder}" for folder in folders_to_create])
+            messagebox.showinfo(
+                "Folder Structure Planned",
+                f"Dockerized folder structure will be created at:\n{dockerized_path}\n\n"
+                f"Project version folders to be created:\n{folder_list}\n\n"
+                "⚠️  Note: Folders will only be created when you click 'Apply'.\n"
+                "If you click 'Cancel', no folders will be created.",
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Error", f"Failed to plan dockerized folder structure:\n{str(e)}"
+            )
 
     def _create_color_setting(
         self, parent, label_text, setting_key, description, current_value
@@ -1832,7 +2064,7 @@ class SettingsWindow:
         def update_color_preview(*args):
             try:
                 color_preview.config(bg=var.get())
-            except:
+            except Exception:
                 pass
 
         var.trace("w", update_color_preview)
@@ -1990,26 +2222,180 @@ class SettingsWindow:
 
         self.settings_vars[setting_key] = text_area
 
-    def _validate_settings(self, settings):
-        pass
+    def _browse_path(self, var):
+        """Browse for a directory path"""
+        from tkinter import filedialog
 
-    def _bind_mouse_wheel_events(self, canvas):
-        pass
-
-    def _apply_settings(self):
-        pass
-
-    def _cancel(self):
-        pass
+        if path := filedialog.askdirectory(
+            title="Select Directory", initialdir=var.get() or "/"
+        ):
+            var.set(path)
 
     def _reset_to_defaults(self):
-        pass
+        """Reset all settings to their default values"""
+        # Clear any pending folder creation requests
+        self.pending_folder_creation = None
+        if self.on_reset_callback:
+            # Use the provided reset callback
+            self.on_reset_callback()
+            self.destroy()
+        else:
+            # Fallback message if no callback provided
+            messagebox.showinfo("Reset", "Reset functionality not available.")
+
+    def _apply_settings(self):
+        """Apply the settings and restart the application"""
+        try:
+            # Create pending dockerized folder structure if requested
+            if (
+                self.pending_folder_creation
+                and not self._create_dockerized_folder_structure()
+            ):
+                return  # Folder creation failed, don't proceed with settings
+
+            # Collect all settings
+            new_settings = {}
+
+            for key, var in self.settings_vars.items():
+                if isinstance(var, tk.Text):
+                    # Handle text areas (for lists and dictionaries)
+                    content = var.get("1.0", "end-1c")
+                    if key.startswith("LANGUAGE_") or key == "FOLDER_ALIASES":
+                        # Dictionary settings
+                        import json
+
+                        new_settings[key] = json.loads(content)
+                    else:
+                        # List settings
+                        new_settings[key] = [
+                            line.strip() for line in content.split("\n") if line.strip()
+                        ]
+                else:
+                    # Handle string variables
+                    value = var.get()
+                    if key.startswith("FONTS."):
+                        # Parse font settings
+                        font_parts = [part.strip() for part in value.split(",")]
+                        if len(font_parts) >= 2:
+                            try:
+                                new_settings[key] = (
+                                    font_parts[0],
+                                    int(font_parts[1]),
+                                ) + tuple(font_parts[2:])
+                            except ValueError:
+                                new_settings[key] = (font_parts[0], 12) + tuple(
+                                    font_parts[2:]
+                                )
+                    else:
+                        new_settings[key] = value
+
+            # Validate settings
+            if not self._validate_settings(new_settings):
+                return
+
+            # Call the callback to save settings
+            self.on_save_callback(new_settings)
+            self.destroy()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to apply settings: {str(e)}")
+
+    def _create_dockerized_folder_structure(self):
+        """Actually create the dockerized folder structure"""
+        try:
+            from pathlib import Path
+            from config.settings import FOLDER_ALIASES
+
+            dockerized_path = self.pending_folder_creation["dockerized_path"]
+            use_existing = self.pending_folder_creation["use_existing"]
+
+            # Create the dockerized folder if it doesn't exist
+            if not use_existing:
+                dockerized_path.mkdir(parents=True, exist_ok=True)
+
+            # Get the first alias from each category in FOLDER_ALIASES
+            folders_to_create = []
+            folders_to_create.extend(
+                aliases[0] for category, aliases in FOLDER_ALIASES.items() if aliases
+            )
+            # Create the project version folders
+            created_folders = []
+            for folder_name in folders_to_create:
+                folder_path = dockerized_path / folder_name
+                if not folder_path.exists():
+                    folder_path.mkdir(parents=True, exist_ok=True)
+                    created_folders.append(folder_name)
+
+            # Show success message
+            if created_folders or not use_existing:
+                folder_list = "\n".join([f"  • {folder}" for folder in created_folders])
+                action_msg = "Updated" if use_existing else "Created"
+                if created_folders:
+                    messagebox.showinfo(
+                        "Dockerized Folder Structure Created",
+                        f"{action_msg} dockerized folder structure at:\n{dockerized_path}\n\n"
+                        f"Created project version folders:\n{folder_list}",
+                    )
+                else:
+                    messagebox.showinfo(
+                        "Dockerized Folder Structure Ready",
+                        f"Using existing dockerized folder structure at:\n{dockerized_path}\n\n"
+                        "All project version folders already exist.",
+                    )
+
+            # Clear the pending creation request
+            self.pending_folder_creation = None
+            return True
+
+        except Exception as e:
+            messagebox.showerror(
+                "Error", f"Failed to create dockerized folder structure:\n{str(e)}"
+            )
+            return False
+
+    def _validate_settings(self, settings):
+        """Validate the settings before applying"""
+        try:
+            # Check source directory exists
+            if "SOURCE_DIR" in settings:
+                source_dir = Path(settings["SOURCE_DIR"])
+                if not source_dir.exists():
+                    if result := messagebox.askyesno(
+                        "Directory Not Found",
+                        f"The source directory '{source_dir}' does not exist.\n\nDo you want to create it?",
+                    ):
+                        source_dir.mkdir(parents=True, exist_ok=True)
+                    else:
+                        return False
+
+            # Validate window size formats
+            for key in ["MAIN_WINDOW_SIZE", "OUTPUT_WINDOW_SIZE", "GIT_WINDOW_SIZE"]:
+                if key in settings:
+                    size = settings[key]
+                    if not (isinstance(size, str) and "x" in size):
+                        messagebox.showerror(
+                            "Invalid Size",
+                            f"Invalid size format for {key}. Use format: WIDTHxHEIGHT",
+                        )
+                        return False
+
+            return True
+        except Exception as e:
+            messagebox.showerror(
+                "Validation Error", f"Settings validation failed: {str(e)}"
+            )
+            return False
 
     def _cancel(self):
-        pass
-
-    def create_window(self):
-        pass
+        """Cancel the settings dialog"""
+        # Clear any pending folder creation requests
+        self.pending_folder_creation = None
+        self.destroy()
 
     def destroy(self):
-        pass
+        """Destroy the settings window"""
+        # Clear any pending folder creation requests when window is destroyed
+        self.pending_folder_creation = None
+        if self.window:
+            self.window.destroy()
+            self.window = None

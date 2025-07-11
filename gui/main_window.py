@@ -44,6 +44,7 @@ class MainWindow:
         self.on_project_selected_callback = None
         self.refresh_projects_callback = None
         self.open_add_project_window_callback = None
+        self.open_settings_window_callback = None
         self.cleanup_project_callback = None
         self.archive_project_callback = None
         self.docker_build_callback = None
@@ -90,6 +91,7 @@ class MainWindow:
         self.on_project_selected_callback = callbacks.get("on_project_selected")
         self.refresh_projects_callback = callbacks.get("refresh_projects")
         self.open_add_project_window_callback = callbacks.get("open_add_project_window")
+        self.open_settings_window_callback = callbacks.get("open_settings_window")
 
         self.cleanup_project_callback = callbacks.get("cleanup_project")
         self.archive_project_callback = callbacks.get("archive_project")
@@ -150,6 +152,14 @@ class MainWindow:
         self.project_selector.pack(side="left", padx=(0, 10))
         self.project_selector.bind("<<ComboboxSelected>>", self._on_project_selected)
 
+        # Settings button
+        settings_btn = GuiUtils.create_styled_button(
+            selection_frame,
+            text="⚙️",
+            command=self._open_settings_window,
+            style="secondary",
+        )
+        settings_btn.pack(side="right", padx=(10, 0))
         # Refresh button
         refresh_btn = GuiUtils.create_styled_button(
             selection_frame,
@@ -182,6 +192,11 @@ class MainWindow:
         """Handle add project button click"""
         if self.open_add_project_window_callback:
             self.open_add_project_window_callback()
+
+    def _open_settings_window(self):
+        """Handle settings button click"""
+        if self.open_settings_window_callback:
+            self.open_settings_window_callback()
 
     def update_project_selector(
         self, group_names: List[str], current_group_name: Optional[str] = None
