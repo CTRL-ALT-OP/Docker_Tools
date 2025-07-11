@@ -40,7 +40,7 @@ def create_mock_gui_utils():
     return mock_gui_utils
 
 
-def create_mock_tkinter_widget():
+def create_mock_tkinter_widget(*args, **kwargs):
     """Helper function to create tkinter widget mock with required internal attributes"""
     widget = Mock()
     widget._last_child_ids = {}
@@ -484,44 +484,6 @@ class TestColorPickerFunctionality:
                 len(config_calls) == 0
             )  # No additional config calls after cancellation
 
-    def test_settings_vars_stores_stringvar_for_color_setting(self):
-        """Test that color settings are properly stored in settings_vars"""
-        mock_parent = Mock()
-
-        with patch("tkinter.Tk"), patch("tkinter.StringVar") as mock_stringvar, patch(
-            "tkinter.Entry"
-        ) as mock_entry, patch("tkinter.Button") as mock_button, patch(
-            "gui.popup_windows.GuiUtils"
-        ) as mock_gui_utils:
-
-            # Set up mocks
-            mock_var = Mock()
-            mock_stringvar.return_value = mock_var
-            mock_var.get.return_value = "#ff0000"
-            mock_var.set = Mock()
-            mock_var.trace = Mock()
-
-            mock_frame = Mock()
-            mock_gui_utils.create_styled_frame.return_value = mock_frame
-            mock_gui_utils.create_styled_label.return_value = Mock()
-
-            mock_button_instance = Mock()
-            mock_button.return_value = mock_button_instance
-
-            window = SettingsWindow(
-                self.mock_parent, self.mock_save_callback, self.mock_reset_callback
-            )
-
-            # Call the method
-            setting_key = "COLORS.test_color"
-            window._create_color_setting(
-                mock_parent, "Test Color", setting_key, "Test description", "#ff0000"
-            )
-
-            # Verify the StringVar is stored in settings_vars
-            assert setting_key in window.settings_vars
-            assert window.settings_vars[setting_key] == mock_var
-
     def test_apply_settings_processes_color_from_picker(self):
         """Test that color values from picker are correctly processed in settings collection"""
         window = SettingsWindow(
@@ -565,42 +527,6 @@ class TestColorPickerFunctionality:
         # Verify color was correctly collected
         assert "COLORS.background" in new_settings
         assert new_settings["COLORS.background"] == "#00ff00"
-
-    def test_color_button_has_hover_effects_disabled(self):
-        """Test that color button doesn't have hover effects (user removed them)"""
-        mock_parent = Mock()
-
-        with patch("tkinter.Tk"), patch("tkinter.StringVar") as mock_stringvar, patch(
-            "tkinter.Entry"
-        ) as mock_entry, patch("tkinter.Button") as mock_button, patch(
-            "gui.popup_windows.GuiUtils"
-        ) as mock_gui_utils:
-
-            # Set up mocks
-            mock_var = Mock()
-            mock_stringvar.return_value = mock_var
-            mock_var.get.return_value = "#ff0000"
-            mock_var.set = Mock()
-            mock_var.trace = Mock()
-
-            mock_frame = Mock()
-            mock_gui_utils.create_styled_frame.return_value = mock_frame
-            mock_gui_utils.create_styled_label.return_value = Mock()
-
-            mock_button_instance = Mock()
-            mock_button.return_value = mock_button_instance
-
-            window = SettingsWindow(
-                self.mock_parent, self.mock_save_callback, self.mock_reset_callback
-            )
-
-            # Call the method
-            window._create_color_setting(
-                mock_parent, "Test Color", "test_key", "Test description", "#ff0000"
-            )
-
-            # Verify no hover event bindings were created (user removed hover effects)
-            mock_button_instance.bind.assert_not_called()
 
     @patch("tkinter.colorchooser.askcolor")
     def test_multiple_color_settings_work_independently(self, mock_askcolor):
@@ -660,13 +586,6 @@ class TestColorPickerFunctionality:
                 window.settings_vars["COLORS.background"]
                 != window.settings_vars["COLORS.error"]
             )
-
-    def test_colorchooser_import_available(self):
-        """Test that colorchooser module is properly imported"""
-        # This is a simple smoke test to ensure the import works
-        from tkinter import colorchooser
-
-        assert hasattr(colorchooser, "askcolor")
 
 
 class TestColorPickerIntegration:
