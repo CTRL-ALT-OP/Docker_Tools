@@ -14,9 +14,17 @@ RUN apk --no-cache add g++ ${ADDITIONAL_PACKAGE}
 
 # your Python deps
 COPY requirements.txt .
+COPY tests/requirements.tx[t] tests/
+COPY requirements-test.tx[t] .
+COPY tests/requirements-test.tx[t] .
 
 RUN grep -vE '^(#|$|.*opencv-python.*)' requirements.txt \
   | xargs -r -n 1 python3.12 -m pip install --break-system-packages # Install all requirements except OpenCV (already covered)
+RUN grep -vE '^(#|$|.*opencv-python.*)' tests/requirements.txt \
+  | xargs -r -n 1 python3.12 -m pip install --break-system-packages  || \
+    grep -vE '^(#|$|.*opencv-python.*)' requirements-test.txt  \
+  | xargs -r -n 1 python3.12 -m pip install --break-system-packages || echo "No test requirements found"
+
 RUN pip install pytest
 
 RUN apk info -L py3-opencv | grep cv2

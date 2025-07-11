@@ -3,7 +3,14 @@ WORKDIR /app
 
 # your Python deps
 COPY requirements.txt .
+COPY tests/requirements.tx[t] tests/
+COPY requirements-test.tx[t] .
+COPY tests/requirements-test.tx[t] .
+
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r tests/requirements.txt || \
+    pip install --no-cache-dir -r requirements-test.txt || echo "No test requirements found"
+
 RUN pip install pytest
 
 # copy in code + tests
