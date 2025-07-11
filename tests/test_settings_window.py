@@ -1432,11 +1432,11 @@ _apply_user_settings()
                 # With the bug: IGNORE_DIRS gets saved because it's compared against contaminated defaults
                 # Without the bug: IGNORE_DIRS should not be saved because it matches original defaults
 
-                # For now, we'll test for the current (buggy) behavior
-                # When bug is fixed, change this to assert "IGNORE_DIRS" not in saved_settings
+                # Post-bugfix behavior: settings matching original defaults are not saved
+                # IGNORE_DIRS matches the original default so it should NOT be saved
                 assert (
-                    "IGNORE_DIRS" in saved_settings
-                )  # This shows the bug - should not be saved
+                    "IGNORE_DIRS" not in saved_settings
+                )  # Fixed: this should not be saved
 
         finally:
             os.chdir(original_cwd)
@@ -1886,7 +1886,7 @@ _apply_user_settings()
                 # This is the bug scenario: user has existing customizations,
                 # opens settings window, changes one setting, applies
                 new_settings = {
-                    "COLORS.error": "#ff0000",  # User changes just this one setting
+                    "COLORS.warning": "#ffaa00",  # User changes just this one setting (different from default #f39c12)
                     # Note: existing customizations are not included in this call
                     # The bug is that these should be preserved but they're not
                 }
@@ -1914,8 +1914,8 @@ _apply_user_settings()
                     print("BUG CONFIRMED: WINDOW_TITLE was lost!")
 
                 # For now, let's just verify the new setting was saved
-                assert "COLORS.error" in saved_settings
-                assert saved_settings["COLORS.error"] == "#ff0000"
+                assert "COLORS.warning" in saved_settings
+                assert saved_settings["COLORS.warning"] == "#ffaa00"
 
                 # The real test of the bug is whether existing settings are preserved
                 # But we'll make this a warning for now since the bug behavior depends on
@@ -1980,7 +1980,7 @@ _apply_user_settings()
                     "COLORS.error": "#ff0000",  # New setting (should be saved)
                     "IGNORE_FILES": current_ignore_files,  # User customization that matches contaminated default
                     "SOURCE_DIR": current_source_dir,  # User customization that matches contaminated default
-                    "WINDOW_TITLE": "Project Control Panel",  # Actual default (should not be saved)
+                    "WINDOW_TITLE": "Custom Control Panel",  # Custom title (should be saved)
                 }
 
                 panel._save_settings_to_file(new_settings)
@@ -2006,8 +2006,9 @@ _apply_user_settings()
                     "SOURCE_DIR" in saved_settings
                 ), "Bug detected: SOURCE_DIR user customization was lost"
 
-                # Actual default should not be saved
-                assert "WINDOW_TITLE" not in saved_settings
+                # Custom title should be saved
+                assert "WINDOW_TITLE" in saved_settings
+                assert saved_settings["WINDOW_TITLE"] == "Custom Control Panel"
 
         finally:
             os.chdir(original_cwd)
