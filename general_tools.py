@@ -1283,6 +1283,9 @@ class ProjectControlPanel:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to apply settings: {str(e)}")
 
+    def _load_original_defaults(self):
+        pass
+
     def _save_settings_to_file(self, settings: Dict[str, Any]):
         """Save user settings to user_settings.json (overrides only)"""
         import json
