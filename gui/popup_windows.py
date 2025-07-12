@@ -1719,7 +1719,7 @@ class SettingsWindow:
             scrollable_frame,
             "Ignored Directories",
             "IGNORE_DIRS",
-            "Directories to ignore during cleanup operations",
+            "Directories to remove during cleanup operations",
             self.settings_module.IGNORE_DIRS,
         )
 
@@ -1729,7 +1729,7 @@ class SettingsWindow:
             scrollable_frame,
             "Ignored Files",
             "IGNORE_FILES",
-            "Files to ignore during cleanup operations",
+            "Files to remove during cleanup operations",
             self.settings_module.IGNORE_FILES,
         )
 
