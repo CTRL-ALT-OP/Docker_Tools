@@ -5,6 +5,7 @@ Implements the AsyncCommand pattern for all GUI-triggered async operations
 
 import uuid
 import asyncio
+import contextlib
 from pathlib import Path
 from typing import Dict, Any, Callable
 
@@ -1611,10 +1612,8 @@ class AsyncTaskManager:
         if task_id in self._tasks:
             task = self._tasks[task_id]
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
             return True
         return False
 

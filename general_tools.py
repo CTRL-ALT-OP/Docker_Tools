@@ -1202,7 +1202,7 @@ class ProjectControlPanel:
         # Look for the validation ID in the format "UNIQUE VALIDATION ID: xxxxxxxxx"
         pattern = r"UNIQUE VALIDATION ID:\s*([a-f0-9]+)"
         if match := re.search(pattern, raw_output, re.IGNORECASE):
-            return match.group(1)
+            return match[1]
 
         # Fallback: look for the ID in the box format (standalone hex string)
         # Look for lines that contain only hexadecimal characters (the ID in the box)

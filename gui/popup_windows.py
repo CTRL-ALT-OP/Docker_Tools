@@ -2,6 +2,7 @@
 Popup window modules for displaying terminal output and other information
 """
 
+import contextlib
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, colorchooser
 from typing import Optional, Callable, Dict, Any, List
@@ -104,12 +105,9 @@ class TerminalOutputWindow:
                 # Log unexpected errors but don't crash
                 print(f"Unexpected error updating text area: {e}")
 
-        try:
+        with contextlib.suppress(tk.TclError):
             if self.window:
                 self.window.after(0, update_text)
-        except tk.TclError:
-            # Window was destroyed - ignore silently
-            pass
 
     def update_status(self, status_text: str, color: str = None):
         """Update status label with race condition protection"""
@@ -139,12 +137,9 @@ class TerminalOutputWindow:
                 # Log unexpected errors but don't crash
                 print(f"Unexpected error updating status label: {e}")
 
-        try:
+        with contextlib.suppress(tk.TclError):
             if self.window:
                 self.window.after(0, update_label)
-        except tk.TclError:
-            # Window was destroyed - ignore silently
-            pass
 
     def add_final_buttons(
         self,
@@ -455,14 +450,11 @@ class GitCommitWindow:
     def update_status(self, status_text: str, color: str = None):
         """Update the status label with real-time progress"""
         if self.status_label and self.window:
-            try:
+            with contextlib.suppress(tk.TclError):
                 if self.window.winfo_exists():
                     self.status_label.config(text=status_text)
                     if color:
                         self.status_label.config(fg=color)
-            except tk.TclError:
-                # Window was destroyed - ignore silently
-                pass
 
     def update_with_commits(self, commits, current_commit_hash=None):
         """Update window with loaded commits"""
@@ -707,61 +699,47 @@ class GitCheckoutAllWindow:
     def update_status(self, status_text: str, color: str = None):
         """Update the status label with real-time progress"""
         if self.status_label and self.window:
-            try:
+            with contextlib.suppress(tk.TclError):
                 if self.window.winfo_exists():
                     self.status_label.config(text=status_text)
                     if color:
                         self.status_label.config(fg=color)
                     self.window.update_idletasks()
-            except tk.TclError:
-                # Window was destroyed
-                pass
 
     def update_with_commits(self, commits):
         """Update the window with loaded commits"""
         self.commits = commits
         if self.commit_listbox and self.window:
-            try:
+            with contextlib.suppress(tk.TclError):
                 if self.window.winfo_exists():
                     self.commit_listbox.config(state="normal")
                     self.populate_commits()
                     self.checkout_all_btn.config(state="normal")
                     self.window.update_idletasks()
-            except tk.TclError:
-                # Window was destroyed
-                pass
 
     def update_with_error(self, error_message):
         """Update the window with an error message"""
         if self.commit_listbox and self.window:
-            try:
+            with contextlib.suppress(tk.TclError):
                 if self.window.winfo_exists():
                     self.commit_listbox.delete(0, tk.END)
                     self.commit_listbox.insert(tk.END, f"Error: {error_message}")
-                    self.checkout_all_btn.config(state="disabled")
-                    self.status_label.config(
-                        text="Failed to load commits", fg=COLORS["error"]
-                    )
-                    self.window.update_idletasks()
-            except tk.TclError:
-                # Window was destroyed
-                pass
+                    self._update_all("Failed to load commits", COLORS["error"])
 
     def update_with_no_commits(self):
         """Update the window when no commits are found"""
         if self.commit_listbox and self.window:
-            try:
+            with contextlib.suppress(tk.TclError):
                 if self.window.winfo_exists():
                     self.commit_listbox.delete(0, tk.END)
                     self.commit_listbox.insert(tk.END, "No commits found in repository")
-                    self.checkout_all_btn.config(state="disabled")
-                    self.status_label.config(
-                        text="No commits available", fg=COLORS["muted"]
-                    )
-                    self.window.update_idletasks()
-            except tk.TclError:
-                # Window was destroyed
-                pass
+                    self._update_all("No commits available", COLORS["muted"])
+
+    def _update_all(self, text, color):
+        """Update the window with a message and color"""
+        self.checkout_all_btn.config(state="disabled")
+        self.status_label.config(text=text, fg=color)
+        self.window.update_idletasks()
 
     def destroy(self):
         """Destroy the git checkout all window"""
@@ -1643,27 +1621,7 @@ class SettingsWindow:
 
     def _create_general_tab(self):
         """Create the general settings tab"""
-        tab_frame = GuiUtils.create_styled_frame(self.notebook)
-        self.notebook.add(tab_frame, text="General")
-
-        # Create scrollable frame for this tab
-        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
-        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = GuiUtils.create_styled_frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        # Store canvas reference for mouse wheel scrolling
-        self.tab_canvases["General"] = canvas
-
+        scrollable_frame = self._create_tab_scrollable("General")
         # Source Directory
         self._create_path_setting(
             scrollable_frame,
@@ -1710,27 +1668,7 @@ class SettingsWindow:
 
     def _create_appearance_tab(self):
         """Create the appearance settings tab"""
-        tab_frame = GuiUtils.create_styled_frame(self.notebook)
-        self.notebook.add(tab_frame, text="Appearance")
-
-        # Create scrollable frame
-        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
-        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = GuiUtils.create_styled_frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        # Store canvas reference for mouse wheel scrolling
-        self.tab_canvases["Appearance"] = canvas
-
+        scrollable_frame = self._create_tab_scrollable("Appearance")
         # Colors section
         self._create_section_header(scrollable_frame, "Colors")
 
@@ -1774,27 +1712,7 @@ class SettingsWindow:
 
     def _create_directories_tab(self):
         """Create the directories settings tab"""
-        tab_frame = GuiUtils.create_styled_frame(self.notebook)
-        self.notebook.add(tab_frame, text="Directories")
-
-        # Create scrollable frame
-        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
-        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = GuiUtils.create_styled_frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        # Store canvas reference for mouse wheel scrolling
-        self.tab_canvases["Directories"] = canvas
-
+        scrollable_frame = self._create_tab_scrollable("Directories")
         # Ignore directories
         self._create_section_header(scrollable_frame, "Ignore Directories")
         self._create_list_setting(
@@ -1827,27 +1745,7 @@ class SettingsWindow:
 
     def _create_languages_tab(self):
         """Create the languages settings tab"""
-        tab_frame = GuiUtils.create_styled_frame(self.notebook)
-        self.notebook.add(tab_frame, text="Languages")
-
-        # Create scrollable frame
-        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
-        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = GuiUtils.create_styled_frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        # Store canvas reference for mouse wheel scrolling
-        self.tab_canvases["Languages"] = canvas
-
+        scrollable_frame = self._create_tab_scrollable("Languages")
         # Language extensions
         self._create_section_header(scrollable_frame, "Language Extensions")
         self._create_lang_dict_setting(
@@ -1867,6 +1765,23 @@ class SettingsWindow:
             "Required files for each programming language",
             self.settings_module.LANGUAGE_REQUIRED_FILES,
         )
+
+    def _create_tab_scrollable(self, text):
+        tab_frame = GuiUtils.create_styled_frame(self.notebook)
+        self.notebook.add(tab_frame, text=text)
+        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
+        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
+        result = GuiUtils.create_styled_frame(canvas)
+        result.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas.create_window((0, 0), window=result, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        self.tab_canvases[text] = canvas
+        return result
 
     def _create_section_header(self, parent, title):
         """Create a section header"""
@@ -2079,12 +1994,9 @@ class SettingsWindow:
 
         # Update color preview when entry value changes
         def update_color_preview(*args):
-            try:
+            with contextlib.suppress(tk.TclError):
                 new_color = var.get()
                 color_picker_btn.config(bg=new_color)
-            except tk.TclError:
-                # Invalid color, reset to previous valid color
-                pass
 
         var.trace_add("write", update_color_preview)
 

@@ -3,6 +3,7 @@ Async utilities for the Project Control Panel - Improved Version
 """
 
 import asyncio
+import contextlib
 import subprocess
 import threading
 import time
@@ -246,23 +247,23 @@ class TkinterAsyncBridge:
                 return event_id, event
             except Exception as e:
                 logger.error("Failed to create sync event: %s", e)
-                # Return a dummy event that's already set
-                dummy_event = asyncio.Event()
-                dummy_event.set()
-                return event_id, dummy_event
+                return self._create_dummy_event(event_id)
         else:
             logger.warning("Cannot create sync event - no active async loop")
-            # Return a dummy event that's already set
-            dummy_event = asyncio.Event()
-            dummy_event.set()
-            return event_id, dummy_event
+            return self._create_dummy_event(event_id)
+
+    def _create_dummy_event(self, event_id):
+        """Return a dummy event that's already set"""
+        dummy_event = asyncio.Event()
+        dummy_event.set()
+        return event_id, dummy_event
 
     def signal_from_gui(self, event_id: str):
         """Signal an event from the GUI thread (thread-safe)"""
         if event_id in self._sync_events:
-            event = self._sync_events[event_id]
             # Use the task manager's loop reference instead of trying to get running loop
             if self.task_manager and self.task_manager._loop:
+                event = self._sync_events[event_id]
                 try:
                     self.task_manager._loop.call_soon_threadsafe(event.set)
                 except RuntimeError as e:
@@ -537,11 +538,8 @@ class ImprovedAsyncTaskManager:
             except Exception as e:
                 logger.error("Error scheduling graceful shutdown: %s", e)
                 # Fallback to immediate stop
-                try:
+                with contextlib.suppress(Exception):
                     self._loop.call_soon_threadsafe(self._loop.stop)
-                except Exception:
-                    pass
-
         # Wait for thread to finish with timeout
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
