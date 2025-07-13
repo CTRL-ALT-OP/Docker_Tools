@@ -8,5 +8,8 @@ validation-tool/output/*
 !defaults/**
 !*.md
 !*.gitkeep
-!*/templates/index.html
+!*templates/index.html
+!*templates/terminal.html
+!*.js
+!*.css
 config/user_settings.json
