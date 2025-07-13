@@ -476,8 +476,7 @@ class ProjectControlPanel:
 
             # Create terminal window with correct constructor arguments
             terminal_window = TerminalOutputWindow(
-                self.window,
-                f"Docker Build & Test - {project_name}",
+                self.window, f"Docker Build & Test - {project_name}", control_panel=self
             )
             terminal_window.create_window()
 
@@ -831,7 +830,9 @@ class ProjectControlPanel:
             try:
                 # Create output window for showing progress
                 output_window = TerminalOutputWindow(
-                    self.window, f"Editing run_tests.sh - {project_group.name}"
+                    self.window,
+                    f"Editing run_tests.sh - {project_group.name}",
+                    control_panel=self,
                 )
                 output_window.create_window()
                 output_window.update_status(
@@ -1458,7 +1459,7 @@ class ProjectControlPanel:
             try:
                 # Create output window for showing progress
                 output_window = TerminalOutputWindow(
-                    self.window, f"Adding Project: {project_name}"
+                    self.window, f"Adding Project: {project_name}", control_panel=self
                 )
                 output_window.create_window()
                 output_window.update_status("Initializing...", COLORS["warning"])

@@ -3,7 +3,7 @@ Service for grouping projects by name and managing project navigation
 """
 
 import asyncio
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Callable
 from models.project import Project
 from services.project_service import ProjectService
 
@@ -43,29 +43,31 @@ class ProjectGroup:
         """Check if this group has a specific version"""
         return parent_folder in self.versions
 
-    # ========== ASYNC METHODS ==========
+    def get_version_count(self) -> int:
+        """Get the number of versions in this group"""
+        return len(self.versions)
 
-    async def get_all_versions_async(self) -> List[Project]:
-        """Async version of get_all_versions with async sorting"""
-        if not ASYNC_AVAILABLE:
-            return await run_in_executor(self.get_all_versions)
+    def get_folder_names(self) -> List[str]:
+        """Get all folder names for this group"""
+        return list(self.versions.keys())
 
-        versions = list(self.versions.values())
-        if not versions:
-            return []
-
-        # Get sort orders for all versions asynchronously
-        sort_order_tasks = [
-            self.project_service.get_folder_sort_order_async(version.parent)
-            for version in versions
-        ]
-        sort_orders = await asyncio.gather(*sort_order_tasks)
-
-        # Create version-order pairs and sort
-        version_order_pairs = list(zip(versions, sort_orders))
-        version_order_pairs.sort(key=lambda x: x[1])
-
-        return [version for version, _ in version_order_pairs]
+    def get_project_info(self) -> Dict:
+        """Get structured information about this project group"""
+        return {
+            "name": self.name,
+            "version_count": self.get_version_count(),
+            "folder_names": self.get_folder_names(),
+            "projects": [
+                {
+                    "name": project.name,
+                    "parent": project.parent,
+                    "alias": self.project_service.get_folder_alias(project.parent),
+                    "path": str(project.path),
+                    "relative_path": project.relative_path,
+                }
+                for project in self.get_all_versions()
+            ],
+        }
 
 
 class ProjectGroupService:
@@ -76,6 +78,26 @@ class ProjectGroupService:
         self._groups: Dict[str, ProjectGroup] = {}
         self._current_group_index = 0
         self._group_names: List[str] = []
+        self._selection_callbacks: List[Callable[[str], None]] = []
+
+    def add_selection_callback(self, callback: Callable[[str], None]):
+        """Add a callback to be called when project selection changes"""
+        if callback not in self._selection_callbacks:
+            self._selection_callbacks.append(callback)
+
+    def remove_selection_callback(self, callback: Callable[[str], None]):
+        """Remove a selection callback"""
+        if callback in self._selection_callbacks:
+            self._selection_callbacks.remove(callback)
+
+    def _notify_selection_changed(self, group_name: str):
+        """Notify all callbacks about selection change"""
+        for callback in self._selection_callbacks:
+            try:
+                callback(group_name)
+            except Exception as e:
+                # Log error but don't let callback failures break the system
+                print(f"Error in selection callback: {e}")
 
     def load_project_groups(self):
         """Load and group all projects by name"""
@@ -121,54 +143,68 @@ class ProjectGroupService:
         """Get the current group index"""
         return self._current_group_index
 
+    def set_current_group_by_name(self, group_name: str) -> bool:
+        """Set the current group by name and notify callbacks"""
+        if group_name in self._group_names:
+            self._current_group_index = self._group_names.index(group_name)
+            self._notify_selection_changed(group_name)
+            return True
+        return False
+
     def set_current_group_by_index(self, index: int) -> bool:
-        """Set the current group by index. Returns True if successful."""
+        """Set the current group by index and notify callbacks"""
         if 0 <= index < len(self._group_names):
             self._current_group_index = index
+            group_name = self._group_names[index]
+            self._notify_selection_changed(group_name)
             return True
         return False
 
-    def set_current_group_by_name(self, name: str) -> bool:
-        """Set the current group by name. Returns True if successful."""
-        if name in self._group_names:
-            self._current_group_index = self._group_names.index(name)
-            return True
-        return False
+    def get_next_group(self) -> Optional[ProjectGroup]:
+        """Get the next project group"""
+        if self._group_names:
+            next_index = (self._current_group_index + 1) % len(self._group_names)
+            if self.set_current_group_by_index(next_index):
+                return self.get_current_group()
+        return None
 
-    def has_next_group(self) -> bool:
-        """Check if there's a next group"""
-        return self._current_group_index < len(self._group_names) - 1
+    def get_previous_group(self) -> Optional[ProjectGroup]:
+        """Get the previous project group"""
+        if self._group_names:
+            prev_index = (self._current_group_index - 1) % len(self._group_names)
+            if self.set_current_group_by_index(prev_index):
+                return self.get_current_group()
+        return None
 
-    def has_previous_group(self) -> bool:
-        """Check if there's a previous group"""
-        return self._current_group_index > 0
+    def get_group_by_name(self, group_name: str) -> Optional[ProjectGroup]:
+        """Get a project group by name without changing current selection"""
+        return self._groups.get(group_name)
 
-    def next_group(self) -> bool:
-        """Move to the next group. Returns True if successful."""
-        if self.has_next_group():
-            self._current_group_index += 1
-            return True
-        return False
-
-    def previous_group(self) -> bool:
-        """Move to the previous group. Returns True if successful."""
-        if self.has_previous_group():
-            self._current_group_index -= 1
-            return True
-        return False
+    def get_all_groups(self) -> List[ProjectGroup]:
+        """Get all project groups"""
+        return list(self._groups.values())
 
     def get_group_count(self) -> int:
         """Get the total number of project groups"""
-        return len(self._group_names)
+        return len(self._groups)
 
-    def get_group_by_name(self, name: str) -> Optional[ProjectGroup]:
-        """Get a specific project group by name"""
-        return self._groups.get(name)
+    def has_group(self, group_name: str) -> bool:
+        """Check if a group exists"""
+        return group_name in self._groups
+
+    def get_system_status(self) -> Dict:
+        """Get system status information"""
+        return {
+            "total_groups": self.get_group_count(),
+            "current_group": self.get_current_group_name(),
+            "current_index": self.get_current_group_index(),
+            "group_names": self.get_group_names(),
+        }
 
     # ========== ASYNC METHODS ==========
 
     async def load_project_groups_async(self):
-        """Async version of load_project_groups using async project finding"""
+        """Async version of load_project_groups"""
         if not ASYNC_AVAILABLE:
             return await run_in_executor(self.load_project_groups)
 
@@ -193,74 +229,6 @@ class ProjectGroupService:
         # Reset current group index
         self._current_group_index = 0 if self._group_names else -1
 
-    async def get_group_names_async(self) -> List[str]:
-        """Async version of get_group_names"""
-        return await run_in_executor(self.get_group_names)
-
-    async def get_current_group_async(self) -> Optional[ProjectGroup]:
-        """Async version of get_current_group"""
-        return await run_in_executor(self.get_current_group)
-
-    async def get_current_group_name_async(self) -> Optional[str]:
-        """Async version of get_current_group_name"""
-        return await run_in_executor(self.get_current_group_name)
-
-    async def get_current_group_index_async(self) -> int:
-        """Async version of get_current_group_index"""
-        return await run_in_executor(self.get_current_group_index)
-
-    async def set_current_group_by_index_async(self, index: int) -> bool:
-        """Async version of set_current_group_by_index"""
-        return await run_in_executor(self.set_current_group_by_index, index)
-
-    async def set_current_group_by_name_async(self, name: str) -> bool:
-        """Async version of set_current_group_by_name"""
-        return await run_in_executor(self.set_current_group_by_name, name)
-
-    async def has_next_group_async(self) -> bool:
-        """Async version of has_next_group"""
-        return await run_in_executor(self.has_next_group)
-
-    async def has_previous_group_async(self) -> bool:
-        """Async version of has_previous_group"""
-        return await run_in_executor(self.has_previous_group)
-
-    async def next_group_async(self) -> bool:
-        """Async version of next_group"""
-        return await run_in_executor(self.next_group)
-
-    async def previous_group_async(self) -> bool:
-        """Async version of previous_group"""
-        return await run_in_executor(self.previous_group)
-
-    async def get_group_count_async(self) -> int:
-        """Async version of get_group_count"""
-        return await run_in_executor(self.get_group_count)
-
-    async def get_group_by_name_async(self, name: str) -> Optional[ProjectGroup]:
-        """Async version of get_group_by_name"""
-        return await run_in_executor(self.get_group_by_name, name)
-
-    async def get_all_groups_with_sorted_versions_async(
-        self,
-    ) -> Dict[str, List[Project]]:
-        """Get all groups with their versions sorted asynchronously"""
-        if not ASYNC_AVAILABLE:
-            return {
-                name: group.get_all_versions() for name, group in self._groups.items()
-            }
-        result = {}
-
-        # Get all groups and their sorted versions concurrently
-        sort_tasks = []
-        group_names = []
-
-        for name, group in self._groups.items():
-            sort_tasks.append(group.get_all_versions_async())
-            group_names.append(name)
-
-        if sort_tasks:
-            sorted_versions_list = await asyncio.gather(*sort_tasks)
-            result = dict(zip(group_names, sorted_versions_list))
-
-        return result
+    async def get_folder_alias_async(self, folder_name: str) -> Optional[str]:
+        """Async version of get_folder_alias"""
+        return await self.project_service.get_folder_alias_async(folder_name)

@@ -116,6 +116,7 @@ BUTTON_STYLES = {
     "save": {"bg": "#27ae60", "fg": "white"},
     "cancel": {"bg": "#e74c3c", "fg": "white"},
     "secondary": {"bg": "#95a5a6", "fg": "white"},
+    "info": {"bg": "#3498db", "fg": "white"},
 }
 
 

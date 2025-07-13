@@ -17,9 +17,14 @@ class TerminalOutputWindow:
     """A reusable terminal output window with real-time updates"""
 
     def __init__(
-        self, parent_window: tk.Tk, title: str, size: str = OUTPUT_WINDOW_SIZE
+        self,
+        parent_window: tk.Tk,
+        title: str,
+        size: str = OUTPUT_WINDOW_SIZE,
+        control_panel=None,
     ):
         self.parent_window = parent_window
+        self.control_panel = control_panel
         self.window = None
         self.text_area = None
         self.status_label = None
@@ -108,6 +113,14 @@ class TerminalOutputWindow:
         with contextlib.suppress(tk.TclError):
             if self.window:
                 self.window.after(0, update_text)
+
+        # Always update the global web terminal buffer
+        try:
+            from models.web_terminal_buffer import web_terminal_buffer
+
+            web_terminal_buffer.append(text)
+        except Exception as e:
+            pass
 
     def update_status(self, status_text: str, color: str = None):
         """Update status label with race condition protection"""
