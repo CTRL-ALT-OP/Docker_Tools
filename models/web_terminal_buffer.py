@@ -2,4 +2,5 @@ import threading
 
 
 class WebTerminalBuffer:
-   pass
+# Singleton instance
+web_terminal_buffer = WebTerminalBuffer()
