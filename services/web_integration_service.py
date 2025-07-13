@@ -810,15 +810,53 @@ class WebIntegration:
 
         @self.app.route("/terminal")
         def terminal_view():
-           pass
+            """Terminal view page"""
+            project_groups = self.control_panel.project_group_service.get_group_names()
+            current_group = self.control_panel.project_group_service.get_current_group()
+            selected_group_name = request.args.get(
+                "group", project_groups[0] if project_groups else None
+            )
+
+            if selected_group_name and selected_group_name in project_groups:
+                self.control_panel.project_group_service.set_current_group_by_name(
+                    selected_group_name
+                )
+                current_group = (
+                    self.control_panel.project_group_service.get_current_group()
+                )
+
+            return render_template(
+                "terminal.html",
+                project_groups=project_groups,
+                current_group=current_group,
+                selected_group_name=selected_group_name,
+            )
 
         @self.app.route("/api/terminal/output")
         def api_terminal_output():
-           pass
+            """API endpoint to get current terminal output"""
+            try:
+                from models.web_terminal_buffer import web_terminal_buffer
+
+                output = web_terminal_buffer.get()
+                return jsonify(
+                    {"success": True, "output": output, "timestamp": time.time()}
+                )
+            except Exception as e:
+                logger.error(f"Error getting terminal output: {e}")
+                return jsonify({"success": False, "message": str(e)})
 
         @self.app.route("/api/terminal/clear", methods=["POST"])
         def api_clear_terminal():
-           pass
+            """API endpoint to clear terminal output"""
+            try:
+                from models.web_terminal_buffer import web_terminal_buffer
+
+                web_terminal_buffer.clear()
+                return jsonify({"success": True, "message": "Terminal cleared"})
+            except Exception as e:
+                logger.error(f"Error clearing terminal: {e}")
+                return jsonify({"success": False, "message": str(e)})
 
     def start_web_server(self, host="0.0.0.0", port=5000, debug=False):
         """Start the web server in a separate thread"""

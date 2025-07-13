@@ -88,6 +88,10 @@ class ProjectControlPanel:
         # Initialize web interface integration
         self.web_integration = WebIntegration(self)
 
+        # Initialize terminal output tracking
+        self._current_terminal_output = ""
+        self._terminal_output_lock = threading.Lock()
+
         # Set global reference for terminal output access
         import sys
 
@@ -1665,6 +1669,28 @@ class ProjectControlPanel:
 
         # Repopulate
         self.load_projects()
+
+    def update_terminal_output(self, output: str, append: bool = True):
+        """Update terminal output for web interface"""
+        with self._terminal_output_lock:
+            if append:
+                self._current_terminal_output += output
+            else:
+                self._current_terminal_output = output
+
+            # Limit output size to prevent memory issues (keep last 50KB)
+            if len(self._current_terminal_output) > 50000:
+                self._current_terminal_output = self._current_terminal_output[-50000:]
+
+    def get_terminal_output(self) -> str:
+        """Get current terminal output"""
+        with self._terminal_output_lock:
+            return self._current_terminal_output
+
+    def clear_terminal_output(self):
+        """Clear terminal output"""
+        with self._terminal_output_lock:
+            self._current_terminal_output = ""
 
     def run(self):
         """Start the GUI"""
