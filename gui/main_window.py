@@ -176,6 +176,15 @@ class MainWindow:
         )
         add_project_btn.pack(side="right", padx=(0, 10))
 
+        # Web Interface button
+        web_btn = GuiUtils.create_styled_button(
+            selection_frame,
+            text="🌐 Web Interface",
+            command=self._open_web_interface,
+            style="info",
+        )
+        web_btn.pack(side="right", padx=(0, 10))
+
     def _on_project_selected(self, event=None):
         """Handle project selection from dropdown"""
         if self.on_project_selected_callback:
@@ -195,6 +204,20 @@ class MainWindow:
         """Handle settings button click"""
         if self.open_settings_window_callback:
             self.open_settings_window_callback()
+
+    def _open_web_interface(self):
+        """Handle web interface button click"""
+        import webbrowser
+        import tkinter.messagebox as msgbox
+
+        try:
+            webbrowser.open("http://localhost:5000")
+            msgbox.showinfo(
+                "Web Interface",
+                "Web interface opened in your default browser.\nURL: http://localhost:5000",
+            )
+        except Exception as e:
+            msgbox.showerror("Error", f"Failed to open web interface: {str(e)}")
 
     def update_project_selector(
         self, group_names: List[str], current_group_name: Optional[str] = None

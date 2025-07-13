@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docker Tools - Web Interface</title>
+    <link rel="stylesheet" href="{{ url_for('dynamic_css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Navigation Header -->
+        <header class="navigation-header">
+            <div class="project-selection">
+                <label for="project-selector" class="project-label">Project:</label>
+                <select id="project-selector" class="project-dropdown">
+                    {% for group in project_groups %}
+                        <option value="{{ group }}" {% if group == selected_group_name %}selected{% endif %}>
+                            {{ group }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="navigation-buttons">
+                <button id="terminal-btn" class="btn btn-terminal" onclick="openTerminal()">
+                    <i class="fas fa-terminal"></i> Terminal
+                </button>
+                <button id="add-project-btn" class="btn btn-git">
+                    <i class="fas fa-plus"></i> Add Project
+                </button>
+                <button id="refresh-btn" class="btn btn-refresh">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+                <button id="settings-btn" class="btn btn-secondary">
+                    <i class="fas fa-cog"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            {% if current_group %}
+                <!-- Project Header -->
+                <div class="project-header">
+                    <h1><i class="fas fa-folder"></i> Project: {{ current_group.name }}</h1>
+                    <div class="project-summary">
+                        <span class="version-count">{{ enhanced_projects|length }} versions available</span>
+                        <div class="version-list">
+                            {% for project in enhanced_projects %}
+                                <span class="version-tag">
+                                    {{ project.parent }}
+                                    {% if project.alias %}<span class="tag-alias">({{ project.alias }})</span>{% endif %}
+                                </span>
+                                {% if not loop.last %} • {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Project Group Actions -->
+                <div class="project-actions">
+                    <button class="btn btn-sync" onclick="syncRunTests('{{ current_group.name }}')">
+                        <i class="fas fa-sync-alt"></i> Sync run_tests.sh
+                    </button>
+                    <button class="btn btn-edit" onclick="editRunTests('{{ current_group.name }}')">
+                        <i class="fas fa-edit"></i> Edit run_tests.sh
+                    </button>
+                    <button class="btn btn-validate" onclick="validateProjectGroup('{{ current_group.name }}')">
+                        <i class="fas fa-search"></i> Validate All
+                    </button>
+                    <button class="btn btn-build-docker" onclick="buildDockerFiles('{{ current_group.name }}')">
+                        <i class="fab fa-docker"></i> Build Docker files
+                    </button>
+                    <button class="btn btn-git" onclick="gitCheckoutAll('{{ current_group.name }}')">
+                        <i class="fas fa-code-branch"></i> Git Checkout All
+                    </button>
+                </div>
+
+                <!-- Projects List -->
+                <div class="projects-container">
+                    {% for project in enhanced_projects %}
+                        <div class="project-card">
+                            <div class="project-info">
+                                <h3 class="project-name">{{ project.name }}</h3>
+                                <div class="project-version">
+                                    <span class="version-folder">{{ project.parent }}</span>
+                                    {% if project.alias %}
+                                        <span class="version-alias">({{ project.alias }})</span>
+                                    {% endif %}
+                                </div>
+                                <p class="project-path">Path: {{ project.relative_path }}</p>
+                            </div>
+                            <div class="project-buttons">
+                                <button class="btn btn-cleanup" onclick="cleanupProject('{{ project.name }}', '{{ project.parent }}')">
+                                    <i class="fas fa-broom"></i> Cleanup
+                                </button>
+                                <button class="btn btn-archive" onclick="archiveProject('{{ project.name }}', '{{ project.parent }}')">
+                                    <i class="fas fa-archive"></i> Archive
+                                </button>
+                                <button class="btn btn-docker" onclick="dockerBuildTest('{{ project.name }}', '{{ project.parent }}')">
+                                    <i class="fab fa-docker"></i> Docker
+                                </button>
+                                <button class="btn btn-git" onclick="gitView('{{ project.name }}', '{{ project.parent }}')">
+                                    <i class="fas fa-code-branch"></i> Git View
+                                </button>
+                                <button class="btn btn-file-manager" onclick="openFileManager('{{ project.path }}')">
+                                    <i class="fas fa-folder-open"></i>
+                                </button>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="no-projects">
+                    <p>No projects found. Please add a project or check your source directory configuration.</p>
+                </div>
+            {% endif %}
+        </main>
+
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <span id="status-message">Ready</span>
+            <div id="loading-indicator" class="loading-indicator" style="display: none;">
+                <i class="fas fa-spinner fa-spin"></i> Processing...
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for displaying results -->
+    <div id="result-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">Action Result</h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div id="modal-message"></div>
+                <div id="modal-details"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Project Modal -->
+    <div id="add-project-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add New Project</h2>
+                <span class="close" onclick="closeAddProjectModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <form id="add-project-form">
+                    <div class="form-group">
+                        <label for="repo-url">GitHub Repository URL:</label>
+                        <input type="text" id="repo-url" name="repo_url" 
+                               placeholder="https://github.com/user/repository.git" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="project-name">Project Name:</label>
+                        <input type="text" id="project-name" name="project_name" required>
+                    </div>
+                    <p class="form-help">This will clone the repository into all project subdirectories 
+                       (pre-edit, post-edit, post-edit2, correct-edit)</p>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeAddProjectModal()">Cancel</button>
+                <button class="btn btn-git" onclick="addProject()">Add Project</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html> 

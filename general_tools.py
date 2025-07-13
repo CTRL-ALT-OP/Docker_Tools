@@ -8,6 +8,7 @@ import asyncio
 import tkinter as tk
 import logging
 import re
+import threading
 from tkinter import messagebox, ttk
 from pathlib import Path
 from typing import List, Dict, Any
@@ -49,6 +50,7 @@ from utils.async_commands import (
     AsyncTaskManager,
 )
 from models.project import Project
+from services.web_integration_service import WebIntegration
 
 # Set up logging
 logging.basicConfig(
@@ -83,11 +85,22 @@ class ProjectControlPanel:
         # Initialize standardized async executor
         self.async_executor = AsyncTaskManager()
 
+        # Initialize web interface integration
+        self.web_integration = WebIntegration(self)
+
+        # Set global reference for terminal output access
+        import sys
+
+        sys.modules[__name__].current_control_panel = self
+
         # Set up proper event loop for async operations
         self._setup_async_integration()
 
         # Set up GUI callbacks
         self._setup_gui_callbacks()
+
+        # Set up synchronization callbacks
+        self._setup_synchronization_callbacks()
 
         # Set up proper cleanup on window close
         self.main_window.setup_window_protocol(self._on_window_close)
@@ -98,6 +111,46 @@ class ProjectControlPanel:
 
         # Setup improved async event processing
         self._setup_async_processing()
+
+        # Start web interface
+        self._start_web_interface()
+
+    def _setup_synchronization_callbacks(self):
+        """Set up callbacks for synchronization between web and desktop interfaces"""
+
+        def on_project_selection_change(group_name: str):
+            """Handle project selection changes from any source"""
+            # Update the desktop GUI dropdown to reflect changes
+            self.window.after(0, lambda: self._update_desktop_dropdown(group_name))
+
+        # Register callback with the project group service
+        self.project_group_service.add_selection_callback(on_project_selection_change)
+
+    def _update_desktop_dropdown(self, group_name: str):
+        """Update the desktop GUI dropdown to reflect current selection"""
+        try:
+            # Get current group names
+            group_names = self.project_group_service.get_group_names()
+            current_group_name = self.project_group_service.get_current_group_name()
+
+            # Update the dropdown
+            self.main_window.update_project_selector(group_names, current_group_name)
+
+            # Update the displayed content
+            self.populate_current_project()
+
+            logger.info(f"Desktop GUI updated to show project: {group_name}")
+
+        except Exception as e:
+            logger.error(f"Error updating desktop GUI dropdown: {e}")
+
+    def _start_web_interface(self):
+        """Start the web interface"""
+        try:
+            self.web_integration.start_web_server(port=5000, debug=False)
+            logger.info("Web interface started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start web interface: {e}")
 
     def _setup_async_integration(self):
         """Set up async integration with tkinter"""
@@ -172,6 +225,9 @@ class ProjectControlPanel:
         """Handle window close event with proper cleanup"""
         logger.info("Application shutdown initiated")
         try:
+            # Stop web server
+            if hasattr(self, "web_integration"):
+                self.web_integration.stop_web_server()
             # Stop file monitoring
             file_monitor.stop_all_monitoring()
             # Cancel any pending async operations with timeout
