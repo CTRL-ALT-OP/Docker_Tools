@@ -150,9 +150,9 @@ class FileService(AsyncServiceInterface):
                 return ServiceResult.error(error)
 
     def _scan_for_cleanup_items_sync(self, project_path: Path) -> CleanupScanResult:
-        """Synchronous implementation of directory and file scanning"""
+        """Synchronous implementation of directory scanning (files are skipped for cleanup)"""
         cleanup_dirs = []
-        cleanup_files = []
+        cleanup_files = []  # Keep empty list for backward compatibility
         total_size = 0
 
         try:
@@ -174,15 +174,7 @@ class FileService(AsyncServiceInterface):
                                 if f.is_file()
                             )
                             total_size += dir_size
-                # Scan for files to cleanup
-                for file_name in files:
-                    if any(
-                        pattern in file_name.lower() for pattern in self.cleanup_files
-                    ):
-                        file_path = root_path / file_name
-                        cleanup_files.append(file_path)
-                        with contextlib.suppress(OSError):
-                            total_size += file_path.stat().st_size
+                # Note: Files are no longer scanned for cleanup - they will be skipped during archival instead
         except PermissionError as e:
             logger.error("Permission denied scanning directory %s: %s", project_path, e)
             # Re-raise so the async method can handle it properly
@@ -193,9 +185,9 @@ class FileService(AsyncServiceInterface):
 
         return CleanupScanResult(
             directories=cleanup_dirs,
-            files=cleanup_files,
+            files=cleanup_files,  # Empty list - files are no longer cleaned up
             total_size=total_size,
-            item_count=len(cleanup_dirs) + len(cleanup_files),
+            item_count=len(cleanup_dirs),  # Only count directories
         )
 
     async def cleanup_project_items(
@@ -282,44 +274,20 @@ class FileService(AsyncServiceInterface):
                 return ServiceResult.error(error)
 
     def _cleanup_project_items_sync(self, project_path: Path) -> CleanupResult:
-        """Synchronous implementation of directory and file cleanup"""
+        """Synchronous implementation of directory cleanup (files are skipped)"""
         deleted_dirs = []
-        deleted_files = []
+        deleted_files = []  # Keep empty list for backward compatibility
         failed_deletions = []
         total_deleted_size = 0
 
         def remove_items_recursive(path):
-            """Recursively remove directories and files matching cleanup patterns"""
+            """Recursively remove directories matching cleanup patterns (files are skipped)"""
             try:
                 for root, dirs, files in os.walk(path, topdown=False):
                     root_path = Path(root)
 
-                    # Remove files that match cleanup patterns
-                    for file_name in files:
-                        if any(
-                            pattern in file_name.lower()
-                            for pattern in self.cleanup_files
-                        ):
-                            file_path = root_path / file_name
-                            try:
-                                file_size = file_path.stat().st_size
-                                file_path.unlink()
-                                deleted_files.append(file_path)
-                                nonlocal total_deleted_size
-                                total_deleted_size += file_size
-                                logger.debug("Deleted file: %s", file_path)
-                            except PermissionError as e:
-                                failed_deletions.append(
-                                    (file_path, f"Permission denied: {e}")
-                                )
-                                logger.warning(
-                                    "Permission denied deleting %s: %s", file_path, e
-                                )
-                            except FileNotFoundError:
-                                logger.debug("File already deleted: %s", file_path)
-                            except OSError as e:
-                                failed_deletions.append((file_path, f"OS error: {e}"))
-                                logger.error("OS error deleting %s: %s", file_path, e)
+                    # Note: Files are no longer deleted during cleanup - they will be skipped during archival instead
+                    # This preserves ignore files like .coverage for the project but excludes them from archives
 
                     # Remove directories that match cleanup patterns
                     for dir_name in dirs:
@@ -336,6 +304,7 @@ class FileService(AsyncServiceInterface):
                                 )
                                 shutil.rmtree(dir_path)
                                 deleted_dirs.append(dir_path)
+                                nonlocal total_deleted_size
                                 total_deleted_size += dir_size
                                 logger.debug("Deleted directory: %s", dir_path)
                             except PermissionError as e:
@@ -357,7 +326,7 @@ class FileService(AsyncServiceInterface):
 
         return CleanupResult(
             deleted_directories=deleted_dirs,
-            deleted_files=deleted_files,
+            deleted_files=deleted_files,  # Empty list - files are no longer deleted
             total_deleted_size=total_deleted_size,
             failed_deletions=failed_deletions,
         )
@@ -451,26 +420,54 @@ class FileService(AsyncServiceInterface):
                     file_count += 1
         return file_count
 
+    def _generate_exclusion_patterns(self) -> str:
+        """Generate exclusion patterns for ignore files and directories"""
+        exclusions = []
+
+        # Add ignore directories with wildcard patterns
+        for ignore_dir in self.cleanup_dirs:
+            # Add exact match pattern
+            exclusions.append(f"*{ignore_dir}*")
+            # Add pattern for subdirectories
+            exclusions.append(f"*/{ignore_dir}/*")
+
+        # Add ignore files with wildcard patterns
+        for ignore_file in self.cleanup_files:
+            # Add exact match pattern
+            exclusions.append(f"*{ignore_file}*")
+            # Add pattern for files in subdirectories
+            exclusions.append(f"*/{ignore_file}")
+
+        # Join all exclusions with spaces for zip command
+        return " ".join(exclusions) if exclusions else ""
+
     async def _create_archive_async(
         self, project_path: Path, archive_name: str
     ) -> Dict[str, Any]:
-        """Async implementation of archive creation using new command structure"""
+        """Async implementation of archive creation using new command structure with exclusions"""
         original_cwd = None
         try:
             # Change to project directory
             original_cwd = os.getcwd()
             os.chdir(project_path)
 
-            # Use the new async command structure
-            success, output = await self.platform_service.run_command_with_result_async(
-                "ARCHIVE_COMMANDS",
-                subkey="create",
-                archive_name=archive_name,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
+            # Generate exclusion patterns for ignore files and directories
+            exclusions = self._generate_exclusion_patterns()
+
+            # Get current platform to handle platform-specific exclusions
+            current_platform = self.platform_service.get_platform()
+
+            if current_platform == "windows":
+                # Windows PowerShell doesn't support exclusion patterns natively
+                # We'll need to handle this differently by creating a filtered archive
+                success, output = await self._create_windows_archive_with_exclusions(
+                    archive_name, exclusions
+                )
+            else:
+                # Unix systems (Linux/macOS) support exclusion patterns with zip -x
+                success, output = await self._create_unix_archive_with_exclusions(
+                    archive_name, exclusions
+                )
 
             if success:
                 logger.info("Successfully created archive: %s", archive_name)
@@ -508,6 +505,172 @@ class FileService(AsyncServiceInterface):
                     os.chdir(original_cwd)
                 except Exception as e:
                     logger.warning("Failed to restore working directory: %s", e)
+
+    async def _create_windows_archive_with_exclusions(
+        self, archive_name: str, exclusions: str
+    ) -> Tuple[bool, str]:
+        """Create archive on Windows with exclusion patterns using Python filtering + PowerShell"""
+        try:
+            # Use Python to determine which files to include (more reliable than PowerShell)
+            current_dir = Path.cwd()
+            items_to_include = []
+
+            # Get all items recursively
+            for item in current_dir.rglob("*"):
+                if item.is_file() and item.name != archive_name:
+                    # Get relative path from current directory
+                    try:
+                        relative_path = item.relative_to(current_dir)
+                        relative_path_str = str(relative_path).replace("\\", "/")
+
+                        # Check if this item should be excluded
+                        should_exclude = False
+
+                        # Check against ignore directories
+                        for ignore_dir in self.cleanup_dirs:
+                            if ignore_dir in relative_path_str:
+                                should_exclude = True
+                                break
+
+                        # Check against ignore files
+                        if not should_exclude:
+                            for ignore_file in self.cleanup_files:
+                                if ignore_file in relative_path_str:
+                                    should_exclude = True
+                                    break
+
+                        if not should_exclude:
+                            items_to_include.append(str(relative_path))
+                    except ValueError:
+                        # Skip if can't get relative path
+                        continue
+
+                        # Add top-level files that aren't excluded (directories are handled recursively above)
+            for item in current_dir.iterdir():
+                if item.name != archive_name and item.is_file():
+                    should_exclude = False
+
+                    # Check against ignore directories/files
+                    for ignore_dir in self.cleanup_dirs:
+                        if ignore_dir in item.name:
+                            should_exclude = True
+                            break
+
+                    if not should_exclude:
+                        for ignore_file in self.cleanup_files:
+                            if ignore_file in item.name:
+                                should_exclude = True
+                                break
+
+                    if not should_exclude:
+                        items_to_include.append(item.name)
+
+            # Remove duplicates
+            items_to_include = list(set(items_to_include))
+
+            if items_to_include:
+                # Create PowerShell command with the filtered items
+                # Use a temporary file to avoid command line length limits
+                import tempfile
+                import os
+
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".txt", delete=False
+                ) as f:
+                    for item in items_to_include:
+                        f.write(f"{item}\n")
+                    temp_file = f.name
+
+                try:
+                    ps_command = f"""
+                    $items = Get-Content '{temp_file}' | Where-Object {{ $_.Trim() -ne '' }}
+                    if ($items.Count -gt 0) {{
+                        Compress-Archive -Path $items -DestinationPath '{archive_name}' -Force
+                    }} else {{
+                        # Create empty archive if no files to include
+                        New-Item -ItemType File -Path temp_empty.txt -Value ""
+                        Compress-Archive -Path temp_empty.txt -DestinationPath '{archive_name}' -Force
+                        Remove-Item temp_empty.txt
+                    }}
+                    """
+
+                    # Execute PowerShell command
+                    import subprocess
+
+                    result = subprocess.run(
+                        ["powershell", "-Command", ps_command],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+
+                    if result.returncode == 0:
+                        return True, result.stdout
+                    else:
+                        return False, result.stderr or result.stdout
+
+                finally:
+                    # Clean up temporary file
+                    try:
+                        os.unlink(temp_file)
+                    except:
+                        pass
+            else:
+                # No items to include, create empty archive
+                ps_command = f"""
+                New-Item -ItemType File -Path temp_empty.txt -Value ""
+                Compress-Archive -Path temp_empty.txt -DestinationPath '{archive_name}' -Force
+                Remove-Item temp_empty.txt
+                """
+
+                import subprocess
+
+                result = subprocess.run(
+                    ["powershell", "-Command", ps_command],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+
+                if result.returncode == 0:
+                    return True, result.stdout
+                else:
+                    return False, result.stderr or result.stdout
+
+        except Exception as e:
+            logger.exception("Error creating Windows archive with exclusions")
+            return False, f"Error creating archive: {str(e)}"
+
+    async def _create_unix_archive_with_exclusions(
+        self, archive_name: str, exclusions: str
+    ) -> Tuple[bool, str]:
+        """Create archive on Unix systems (Linux/macOS) with exclusion patterns"""
+        try:
+            # Build command with exclusions
+            cmd = ["zip", "-r", archive_name, ".", "-x", archive_name]
+
+            # Add exclusion patterns if any
+            if exclusions:
+                exclusion_patterns = exclusions.split()
+                cmd.extend(exclusion_patterns)
+
+            # Execute the command
+            import subprocess
+
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+            )
+
+            if result.returncode == 0:
+                return True, result.stdout
+            else:
+                return False, result.stderr or result.stdout
+
+        except Exception as e:
+            logger.exception("Error creating Unix archive with exclusions")
+            return False, f"Error creating archive: {str(e)}"
 
     # Backward compatibility methods
     async def scan_for_cleanup_dirs(
