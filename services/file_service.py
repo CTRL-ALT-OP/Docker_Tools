@@ -646,27 +646,82 @@ class FileService(AsyncServiceInterface):
     async def _create_unix_archive_with_exclusions(
         self, archive_name: str, exclusions: str
     ) -> Tuple[bool, str]:
-        """Create archive on Unix systems (Linux/macOS) with exclusion patterns"""
+        """Create archive on Unix systems (Linux/macOS) with exclusion patterns using Python zipfile"""
         try:
-            # Build command with exclusions
-            cmd = ["zip", "-r", archive_name, ".", "-x", archive_name]
+            import zipfile
 
-            # Add exclusion patterns if any
-            if exclusions:
-                exclusion_patterns = exclusions.split()
-                cmd.extend(exclusion_patterns)
+            # Use Python to determine which files to include (consistent with Windows approach)
+            current_dir = Path.cwd()
+            items_to_include = []
 
-            # Execute the command
-            import subprocess
+            # Get all items recursively
+            for item in current_dir.rglob("*"):
+                if item.is_file() and item.name != archive_name:
+                    # Get relative path from current directory
+                    try:
+                        relative_path = item.relative_to(current_dir)
+                        relative_path_str = str(relative_path)
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+                        # Check if this item should be excluded
+                        should_exclude = False
+
+                        # Check against ignore directories
+                        for ignore_dir in self.cleanup_dirs:
+                            if ignore_dir in relative_path_str:
+                                should_exclude = True
+                                break
+
+                        # Check against ignore files
+                        if not should_exclude:
+                            for ignore_file in self.cleanup_files:
+                                if ignore_file in relative_path_str:
+                                    should_exclude = True
+                                    break
+
+                        if not should_exclude:
+                            items_to_include.append((item, relative_path))
+                    except ValueError:
+                        # Skip if can't get relative path
+                        continue
+
+            # Add top-level files that aren't excluded
+            for item in current_dir.iterdir():
+                if item.name != archive_name and item.is_file():
+                    should_exclude = False
+
+                    # Check against ignore directories/files
+                    for ignore_dir in self.cleanup_dirs:
+                        if ignore_dir in item.name:
+                            should_exclude = True
+                            break
+
+                    if not should_exclude:
+                        for ignore_file in self.cleanup_files:
+                            if ignore_file in item.name:
+                                should_exclude = True
+                                break
+
+                    if not should_exclude:
+                        items_to_include.append((item, Path(item.name)))
+
+            # Remove duplicates based on the relative path
+            seen_paths = set()
+            unique_items = []
+            for item, rel_path in items_to_include:
+                if str(rel_path) not in seen_paths:
+                    seen_paths.add(str(rel_path))
+                    unique_items.append((item, rel_path))
+
+            # Create the zip archive
+            with zipfile.ZipFile(archive_name, "w", zipfile.ZIP_DEFLATED) as zipf:
+                for item, rel_path in unique_items:
+                    if item.is_file():
+                        zipf.write(item, str(rel_path))
+
+            return (
+                True,
+                f"Successfully created archive {archive_name} with {len(unique_items)} files",
             )
-
-            if result.returncode == 0:
-                return True, result.stdout
-            else:
-                return False, result.stderr or result.stdout
 
         except Exception as e:
             logger.exception("Error creating Unix archive with exclusions")
