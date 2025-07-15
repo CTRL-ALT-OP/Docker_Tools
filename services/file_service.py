@@ -509,6 +509,16 @@ class FileService(AsyncServiceInterface):
                 except Exception as e:
                     logger.warning("Failed to restore working directory: %s", e)
 
+    async def _create_windows_archive_with_exclusions(
+        self, archive_name: str, exclusions: str
+    ) -> Tuple[bool, str]:
+        pass
+
+    async def _create_unix_archive_with_exclusions(
+        self, archive_name: str, exclusions: str
+    ) -> Tuple[bool, str]:
+        pass
+
     # Backward compatibility methods
     async def scan_for_cleanup_dirs(
         self, project_path: Path
