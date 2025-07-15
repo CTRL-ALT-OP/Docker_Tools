@@ -746,58 +746,107 @@ class TestFileService:
 
     @pytest.mark.asyncio
     async def test_unix_archive_exclusion_command_building(self):
-        """Test that Unix archive exclusion commands are built correctly"""
+        """Test Unix archive creation with exclusions using Python zipfile"""
         service = FileService()
 
-        # Test with exclusions
-        exclusions = "*__pycache__* *.pytest_cache/* *.coverage*"
+        # Create a temporary directory with test files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            original_cwd = os.getcwd()
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = Mock(returncode=0, stdout="Archive created")
+            try:
+                os.chdir(temp_path)
 
-            success, output = await service._create_unix_archive_with_exclusions(
-                "test.zip", exclusions
-            )
+                # Create test files and directories
+                (temp_path / "main.py").write_text("print('hello')")
+                (temp_path / "README.md").write_text("# Test")
 
-            assert success is True
-            mock_run.assert_called_once()
+                # Create files that should be excluded
+                (temp_path / "__pycache__").mkdir()
+                (temp_path / "__pycache__" / "main.cpython-39.pyc").write_text(
+                    "bytecode"
+                )
+                (temp_path / ".coverage").write_text("coverage data")
 
-            # Verify command structure
-            call_args = mock_run.call_args[0][
-                0
-            ]  # First positional argument (command list)
-            assert call_args[0] == "zip"
-            assert call_args[1] == "-r"
-            assert call_args[2] == "test.zip"
-            assert call_args[3] == "."
-            assert call_args[4] == "-x"
-            assert call_args[5] == "test.zip"
+                # Test with exclusions
+                exclusions = "*__pycache__* *.pytest_cache/* *.coverage*"
 
-            # Verify exclusions are added to command
-            exclusion_patterns = call_args[6:]
-            assert "*__pycache__*" in exclusion_patterns
-            assert "*.pytest_cache/*" in exclusion_patterns
-            assert "*.coverage*" in exclusion_patterns
+                success, output = await service._create_unix_archive_with_exclusions(
+                    "test.zip", exclusions
+                )
+
+                assert success is True
+                assert "Successfully created archive" in output
+
+                # Verify archive was created
+                archive_path = temp_path / "test.zip"
+                assert archive_path.exists()
+
+                # Verify archive contents (should exclude __pycache__ and .coverage)
+                import zipfile
+
+                with zipfile.ZipFile(archive_path, "r") as zipf:
+                    file_names = zipf.namelist()
+
+                    # Should include main files
+                    assert "main.py" in file_names
+                    assert "README.md" in file_names
+
+                    # Should exclude files matching patterns
+                    pycache_files = [f for f in file_names if "__pycache__" in f]
+                    coverage_files = [f for f in file_names if ".coverage" in f]
+
+                    assert len(pycache_files) == 0
+                    assert len(coverage_files) == 0
+
+            finally:
+                os.chdir(original_cwd)
 
     @pytest.mark.asyncio
     async def test_unix_archive_no_exclusions(self):
-        """Test Unix archive creation with no exclusions"""
+        """Test Unix archive creation with no exclusions using Python zipfile"""
         service = FileService()
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = Mock(returncode=0, stdout="Archive created")
+        # Create a temporary directory with test files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            original_cwd = os.getcwd()
 
-            success, output = await service._create_unix_archive_with_exclusions(
-                "test.zip", ""
-            )
+            try:
+                os.chdir(temp_path)
 
-            assert success is True
-            mock_run.assert_called_once()
+                # Create test files
+                (temp_path / "main.py").write_text("print('hello')")
+                (temp_path / "README.md").write_text("# Test")
+                (temp_path / "config.json").write_text('{"key": "value"}')
 
-            # Verify command structure (should only exclude the archive file itself)
-            call_args = mock_run.call_args[0][0]
-            expected_cmd = ["zip", "-r", "test.zip", ".", "-x", "test.zip"]
-            assert call_args == expected_cmd
+                success, output = await service._create_unix_archive_with_exclusions(
+                    "test.zip", ""
+                )
+
+                assert success is True
+                assert "Successfully created archive" in output
+
+                # Verify archive was created
+                archive_path = temp_path / "test.zip"
+                assert archive_path.exists()
+
+                # Verify archive contains all files (no exclusions)
+                import zipfile
+
+                with zipfile.ZipFile(archive_path, "r") as zipf:
+                    file_names = zipf.namelist()
+
+                    # Should include all files
+                    assert "main.py" in file_names
+                    assert "README.md" in file_names
+                    assert "config.json" in file_names
+
+                    # Archive should not contain itself
+                    assert "test.zip" not in file_names
+
+            finally:
+                os.chdir(original_cwd)
 
     @pytest.mark.asyncio
     async def test_windows_archive_exclusion_powershell(self):
