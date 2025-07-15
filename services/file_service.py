@@ -420,54 +420,26 @@ class FileService(AsyncServiceInterface):
                     file_count += 1
         return file_count
 
-    def _generate_exclusion_patterns(self) -> str:
-        """Generate exclusion patterns for ignore files and directories"""
-        exclusions = []
-
-        # Add ignore directories with wildcard patterns
-        for ignore_dir in self.cleanup_dirs:
-            # Add exact match pattern
-            exclusions.append(f"*{ignore_dir}*")
-            # Add pattern for subdirectories
-            exclusions.append(f"*/{ignore_dir}/*")
-
-        # Add ignore files with wildcard patterns
-        for ignore_file in self.cleanup_files:
-            # Add exact match pattern
-            exclusions.append(f"*{ignore_file}*")
-            # Add pattern for files in subdirectories
-            exclusions.append(f"*/{ignore_file}")
-
-        # Join all exclusions with spaces for zip command
-        return " ".join(exclusions) if exclusions else ""
-
     async def _create_archive_async(
         self, project_path: Path, archive_name: str
     ) -> Dict[str, Any]:
-        """Async implementation of archive creation using new command structure with exclusions"""
+        """Async implementation of archive creation with cleanup and exclusions"""
         original_cwd = None
         try:
             # Change to project directory
             original_cwd = os.getcwd()
             os.chdir(project_path)
 
-            # Generate exclusion patterns for ignore files and directories
-            exclusions = self._generate_exclusion_patterns()
-
-            # Get current platform to handle platform-specific exclusions
-            current_platform = self.platform_service.get_platform()
-
-            if current_platform == "windows":
-                # Windows PowerShell doesn't support exclusion patterns natively
-                # We'll need to handle this differently by creating a filtered archive
-                success, output = await self._create_windows_archive_with_exclusions(
-                    archive_name, exclusions
+            # First, run cleanup on directories to remove unwanted items
+            cleanup_result = await self.cleanup_project_items(project_path)
+            if cleanup_result.is_error:
+                logger.warning(
+                    "Cleanup failed before archive creation: %s", cleanup_result.error
                 )
-            else:
-                # Unix systems (Linux/macOS) support exclusion patterns with zip -x
-                success, output = await self._create_unix_archive_with_exclusions(
-                    archive_name, exclusions
-                )
+                # Continue with archive creation even if cleanup fails
+
+            # Create archive with exclusions
+            success, output = await self._create_archive_with_exclusions(archive_name)
 
             if success:
                 logger.info("Successfully created archive: %s", archive_name)
@@ -506,12 +478,33 @@ class FileService(AsyncServiceInterface):
                 except Exception as e:
                     logger.warning("Failed to restore working directory: %s", e)
 
-    async def _create_windows_archive_with_exclusions(
-        self, archive_name: str, exclusions: str
-    ) -> Tuple[bool, str]:
-        """Create archive on Windows with exclusion patterns using Python filtering + PowerShell"""
+    def _is_hidden(self, path: Path) -> bool:
+        """Check if a file or directory is hidden (starts with dot or has hidden attribute on Windows)"""
+        # Check if any part of the path starts with a dot (Unix-style hidden)
+        for part in path.parts:
+            if part.startswith(".") and part not in (".", ".."):
+                return True
+
+        # On Windows, also check the hidden attribute
         try:
-            # Use Python to determine which files to include (more reliable than PowerShell)
+            if os.name == "nt" and path.exists():
+                import stat
+
+                return bool(path.stat().st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN)
+        except (AttributeError, OSError):
+            # Fallback to dot-based detection only
+            pass
+
+        return False
+
+    async def _create_archive_with_exclusions(
+        self, archive_name: str
+    ) -> Tuple[bool, str]:
+        """Create archive with exclusions for hidden files, ignore patterns, and cleanup items"""
+        try:
+            import zipfile
+
+            # Use Python to determine which files to include
             current_dir = Path.cwd()
             items_to_include = []
 
@@ -526,13 +519,18 @@ class FileService(AsyncServiceInterface):
                         # Check if this item should be excluded
                         should_exclude = False
 
-                        # Check against ignore directories
-                        for ignore_dir in self.cleanup_dirs:
-                            if ignore_dir in relative_path_str:
-                                should_exclude = True
-                                break
+                        # 1. Exclude hidden files and directories (PowerShell-like behavior)
+                        if self._is_hidden(relative_path):
+                            should_exclude = True
 
-                        # Check against ignore files
+                        # 2. Check against ignore directories (cleanup_dirs)
+                        if not should_exclude:
+                            for ignore_dir in self.cleanup_dirs:
+                                if ignore_dir in relative_path_str:
+                                    should_exclude = True
+                                    break
+
+                        # 3. Check against ignore files (cleanup_files)
                         if not should_exclude:
                             for ignore_file in self.cleanup_files:
                                 if ignore_file in relative_path_str:
@@ -540,151 +538,34 @@ class FileService(AsyncServiceInterface):
                                     break
 
                         if not should_exclude:
-                            items_to_include.append(str(relative_path))
+                            # Ensure consistent forward slashes for archive paths
+                            archive_path = str(relative_path).replace("\\", "/")
+                            items_to_include.append((item, archive_path))
                     except ValueError:
                         # Skip if can't get relative path
                         continue
 
-            # Remove duplicates
-            items_to_include = list(set(items_to_include))
-
-            if items_to_include:
-                # Create PowerShell command with the filtered items
-                # Use a temporary file to avoid command line length limits
-                import tempfile
-                import os
-
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".txt", delete=False
-                ) as f:
-                    for item in items_to_include:
-                        f.write(f"{item}\n")
-                    temp_file = f.name
-
-                try:
-                    ps_command = f"""
-                    $items = Get-Content '{temp_file}' | Where-Object {{ $_.Trim() -ne '' }}
-                    if ($items.Count -gt 0) {{
-                        Compress-Archive -Path $items -DestinationPath '{archive_name}' -Force
-                    }} else {{
-                        # Create empty archive if no files to include
-                        New-Item -ItemType File -Path temp_empty.txt -Value ""
-                        Compress-Archive -Path temp_empty.txt -DestinationPath '{archive_name}' -Force
-                        Remove-Item temp_empty.txt
-                    }}
-                    """
-
-                    # Execute PowerShell command
-                    import subprocess
-
-                    result = subprocess.run(
-                        ["powershell", "-Command", ps_command],
-                        capture_output=True,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                    )
-
-                    if result.returncode == 0:
-                        return True, result.stdout
-                    else:
-                        return False, result.stderr or result.stdout
-
-                finally:
-                    # Clean up temporary file
-                    try:
-                        os.unlink(temp_file)
-                    except:
-                        pass
-            else:
-                # No items to include, create empty archive
-                ps_command = f"""
-                New-Item -ItemType File -Path temp_empty.txt -Value ""
-                Compress-Archive -Path temp_empty.txt -DestinationPath '{archive_name}' -Force
-                Remove-Item temp_empty.txt
-                """
-
-                import subprocess
-
-                result = subprocess.run(
-                    ["powershell", "-Command", ps_command],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                )
-
-                if result.returncode == 0:
-                    return True, result.stdout
-                else:
-                    return False, result.stderr or result.stdout
-
-        except Exception as e:
-            logger.exception("Error creating Windows archive with exclusions")
-            return False, f"Error creating archive: {str(e)}"
-
-    async def _create_unix_archive_with_exclusions(
-        self, archive_name: str, exclusions: str
-    ) -> Tuple[bool, str]:
-        """Create archive on Unix systems (Linux/macOS) with exclusion patterns using Python zipfile"""
-        try:
-            import zipfile
-
-            # Use Python to determine which files to include (consistent with Windows approach)
-            current_dir = Path.cwd()
-            items_to_include = []
-
-            # Get all items recursively (this includes top-level files)
-            for item in current_dir.rglob("*"):
-                if item.is_file() and item.name != archive_name:
-                    # Get relative path from current directory
-                    try:
-                        relative_path = item.relative_to(current_dir)
-                        relative_path_str = str(relative_path)
-
-                        # Check if this item should be excluded
-                        should_exclude = False
-
-                        # Check against ignore directories
-                        for ignore_dir in self.cleanup_dirs:
-                            if ignore_dir in relative_path_str:
-                                should_exclude = True
-                                break
-
-                        # Check against ignore files
-                        if not should_exclude:
-                            for ignore_file in self.cleanup_files:
-                                if ignore_file in relative_path_str:
-                                    should_exclude = True
-                                    break
-
-                        if not should_exclude:
-                            items_to_include.append((item, relative_path))
-                    except ValueError:
-                        # Skip if can't get relative path
-                        continue
-
-            # Remove duplicates based on the relative path
+            # Remove duplicates based on the archive path
             seen_paths = set()
             unique_items = []
-            for item, rel_path in items_to_include:
-                if str(rel_path) not in seen_paths:
-                    seen_paths.add(str(rel_path))
-                    unique_items.append((item, rel_path))
+            for item, archive_path in items_to_include:
+                if archive_path not in seen_paths:
+                    seen_paths.add(archive_path)
+                    unique_items.append((item, archive_path))
 
-            # Create the zip archive
+            # Create the zip archive using Python zipfile for consistent directory structure
             with zipfile.ZipFile(archive_name, "w", zipfile.ZIP_DEFLATED) as zipf:
-                for item, rel_path in unique_items:
+                for item, archive_path in unique_items:
                     if item.is_file():
-                        zipf.write(item, str(rel_path))
+                        zipf.write(item, archive_path)
 
             return (
                 True,
-                f"Successfully created archive {archive_name} with {len(unique_items)} files",
+                f"Successfully created archive {archive_name} with {len(unique_items)} files (hidden files excluded)",
             )
 
         except Exception as e:
-            logger.exception("Error creating Unix archive with exclusions")
+            logger.exception("Error creating archive with exclusions")
             return False, f"Error creating archive: {str(e)}"
 
     # Backward compatibility methods
