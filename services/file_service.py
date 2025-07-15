@@ -545,26 +545,6 @@ class FileService(AsyncServiceInterface):
                         # Skip if can't get relative path
                         continue
 
-                        # Add top-level files that aren't excluded (directories are handled recursively above)
-            for item in current_dir.iterdir():
-                if item.name != archive_name and item.is_file():
-                    should_exclude = False
-
-                    # Check against ignore directories/files
-                    for ignore_dir in self.cleanup_dirs:
-                        if ignore_dir in item.name:
-                            should_exclude = True
-                            break
-
-                    if not should_exclude:
-                        for ignore_file in self.cleanup_files:
-                            if ignore_file in item.name:
-                                should_exclude = True
-                                break
-
-                    if not should_exclude:
-                        items_to_include.append(item.name)
-
             # Remove duplicates
             items_to_include = list(set(items_to_include))
 
@@ -654,7 +634,7 @@ class FileService(AsyncServiceInterface):
             current_dir = Path.cwd()
             items_to_include = []
 
-            # Get all items recursively
+            # Get all items recursively (this includes top-level files)
             for item in current_dir.rglob("*"):
                 if item.is_file() and item.name != archive_name:
                     # Get relative path from current directory
@@ -683,26 +663,6 @@ class FileService(AsyncServiceInterface):
                     except ValueError:
                         # Skip if can't get relative path
                         continue
-
-            # Add top-level files that aren't excluded
-            for item in current_dir.iterdir():
-                if item.name != archive_name and item.is_file():
-                    should_exclude = False
-
-                    # Check against ignore directories/files
-                    for ignore_dir in self.cleanup_dirs:
-                        if ignore_dir in item.name:
-                            should_exclude = True
-                            break
-
-                    if not should_exclude:
-                        for ignore_file in self.cleanup_files:
-                            if ignore_file in item.name:
-                                should_exclude = True
-                                break
-
-                    if not should_exclude:
-                        items_to_include.append((item, Path(item.name)))
 
             # Remove duplicates based on the relative path
             seen_paths = set()
