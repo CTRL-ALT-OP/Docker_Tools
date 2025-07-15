@@ -2,6 +2,7 @@
 GUI utilities for common operations
 """
 
+import contextlib
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 from typing import Callable, Optional, Dict, Any
@@ -77,36 +78,27 @@ class GuiUtils:
 
         # Bind mousewheel to canvas (widget-specific, not global)
         def _on_mousewheel(event):
-            try:
+            with contextlib.suppress(tk.TclError):
                 # Check if canvas still exists before scrolling
                 if canvas.winfo_exists():
                     canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-            except tk.TclError:
-                # Canvas was destroyed, ignore the event
-                pass
 
         # Function to bind mousewheel events to a widget and its children
         def bind_mousewheel_recursive(widget):
             """Recursively bind mousewheel events to widget and all its children"""
-            try:
+            with contextlib.suppress(tk.TclError):
                 widget.bind("<MouseWheel>", _on_mousewheel)
                 # Bind to all children recursively
                 for child in widget.winfo_children():
                     bind_mousewheel_recursive(child)
-            except tk.TclError:
-                # Widget was destroyed, ignore
-                pass
 
         def unbind_mousewheel_recursive(widget):
             """Recursively unbind mousewheel events from widget and all its children"""
-            try:
+            with contextlib.suppress(tk.TclError):
                 widget.unbind("<MouseWheel>")
                 # Unbind from all children recursively
                 for child in widget.winfo_children():
                     unbind_mousewheel_recursive(child)
-            except tk.TclError:
-                # Widget was destroyed, ignore
-                pass
 
         # Bind initial mousewheel to canvas and scrollable_frame
         canvas.bind("<MouseWheel>", _on_mousewheel)

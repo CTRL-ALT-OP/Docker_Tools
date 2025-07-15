@@ -2,8 +2,9 @@
 Popup window modules for displaying terminal output and other information
 """
 
+import contextlib
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import ttk, scrolledtext, messagebox, colorchooser
 from typing import Optional, Callable, Dict, Any, List
 from pathlib import Path
 
@@ -16,9 +17,14 @@ class TerminalOutputWindow:
     """A reusable terminal output window with real-time updates"""
 
     def __init__(
-        self, parent_window: tk.Tk, title: str, size: str = OUTPUT_WINDOW_SIZE
+        self,
+        parent_window: tk.Tk,
+        title: str,
+        size: str = OUTPUT_WINDOW_SIZE,
+        control_panel=None,
     ):
         self.parent_window = parent_window
+        self.control_panel = control_panel
         self.window = None
         self.text_area = None
         self.status_label = None
@@ -104,11 +110,16 @@ class TerminalOutputWindow:
                 # Log unexpected errors but don't crash
                 print(f"Unexpected error updating text area: {e}")
 
-        try:
+        with contextlib.suppress(tk.TclError):
             if self.window:
                 self.window.after(0, update_text)
-        except tk.TclError:
-            # Window was destroyed - ignore silently
+
+        # Always update the global web terminal buffer
+        try:
+            from models.web_terminal_buffer import web_terminal_buffer
+
+            web_terminal_buffer.append(text)
+        except Exception as e:
             pass
 
     def update_status(self, status_text: str, color: str = None):
@@ -139,12 +150,9 @@ class TerminalOutputWindow:
                 # Log unexpected errors but don't crash
                 print(f"Unexpected error updating status label: {e}")
 
-        try:
+        with contextlib.suppress(tk.TclError):
             if self.window:
                 self.window.after(0, update_label)
-        except tk.TclError:
-            # Window was destroyed - ignore silently
-            pass
 
     def add_final_buttons(
         self,
@@ -455,14 +463,11 @@ class GitCommitWindow:
     def update_status(self, status_text: str, color: str = None):
         """Update the status label with real-time progress"""
         if self.status_label and self.window:
-            try:
+            with contextlib.suppress(tk.TclError):
                 if self.window.winfo_exists():
                     self.status_label.config(text=status_text)
                     if color:
                         self.status_label.config(fg=color)
-            except tk.TclError:
-                # Window was destroyed - ignore silently
-                pass
 
     def update_with_commits(self, commits, current_commit_hash=None):
         """Update window with loaded commits"""
@@ -707,61 +712,47 @@ class GitCheckoutAllWindow:
     def update_status(self, status_text: str, color: str = None):
         """Update the status label with real-time progress"""
         if self.status_label and self.window:
-            try:
+            with contextlib.suppress(tk.TclError):
                 if self.window.winfo_exists():
                     self.status_label.config(text=status_text)
                     if color:
                         self.status_label.config(fg=color)
                     self.window.update_idletasks()
-            except tk.TclError:
-                # Window was destroyed
-                pass
 
     def update_with_commits(self, commits):
         """Update the window with loaded commits"""
         self.commits = commits
         if self.commit_listbox and self.window:
-            try:
+            with contextlib.suppress(tk.TclError):
                 if self.window.winfo_exists():
                     self.commit_listbox.config(state="normal")
                     self.populate_commits()
                     self.checkout_all_btn.config(state="normal")
                     self.window.update_idletasks()
-            except tk.TclError:
-                # Window was destroyed
-                pass
 
     def update_with_error(self, error_message):
         """Update the window with an error message"""
         if self.commit_listbox and self.window:
-            try:
+            with contextlib.suppress(tk.TclError):
                 if self.window.winfo_exists():
                     self.commit_listbox.delete(0, tk.END)
                     self.commit_listbox.insert(tk.END, f"Error: {error_message}")
-                    self.checkout_all_btn.config(state="disabled")
-                    self.status_label.config(
-                        text="Failed to load commits", fg=COLORS["error"]
-                    )
-                    self.window.update_idletasks()
-            except tk.TclError:
-                # Window was destroyed
-                pass
+                    self._update_all("Failed to load commits", COLORS["error"])
 
     def update_with_no_commits(self):
         """Update the window when no commits are found"""
         if self.commit_listbox and self.window:
-            try:
+            with contextlib.suppress(tk.TclError):
                 if self.window.winfo_exists():
                     self.commit_listbox.delete(0, tk.END)
                     self.commit_listbox.insert(tk.END, "No commits found in repository")
-                    self.checkout_all_btn.config(state="disabled")
-                    self.status_label.config(
-                        text="No commits available", fg=COLORS["muted"]
-                    )
-                    self.window.update_idletasks()
-            except tk.TclError:
-                # Window was destroyed
-                pass
+                    self._update_all("No commits available", COLORS["muted"])
+
+    def _update_all(self, text, color):
+        """Update the window with a message and color"""
+        self.checkout_all_btn.config(state="disabled")
+        self.status_label.config(text=text, fg=color)
+        self.window.update_idletasks()
 
     def destroy(self):
         """Destroy the git checkout all window"""
@@ -1643,27 +1634,7 @@ class SettingsWindow:
 
     def _create_general_tab(self):
         """Create the general settings tab"""
-        tab_frame = GuiUtils.create_styled_frame(self.notebook)
-        self.notebook.add(tab_frame, text="General")
-
-        # Create scrollable frame for this tab
-        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
-        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = GuiUtils.create_styled_frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        # Store canvas reference for mouse wheel scrolling
-        self.tab_canvases["General"] = canvas
-
+        scrollable_frame = self._create_tab_scrollable("General")
         # Source Directory
         self._create_path_setting(
             scrollable_frame,
@@ -1710,27 +1681,7 @@ class SettingsWindow:
 
     def _create_appearance_tab(self):
         """Create the appearance settings tab"""
-        tab_frame = GuiUtils.create_styled_frame(self.notebook)
-        self.notebook.add(tab_frame, text="Appearance")
-
-        # Create scrollable frame
-        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
-        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = GuiUtils.create_styled_frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        # Store canvas reference for mouse wheel scrolling
-        self.tab_canvases["Appearance"] = canvas
-
+        scrollable_frame = self._create_tab_scrollable("Appearance")
         # Colors section
         self._create_section_header(scrollable_frame, "Colors")
 
@@ -1774,34 +1725,14 @@ class SettingsWindow:
 
     def _create_directories_tab(self):
         """Create the directories settings tab"""
-        tab_frame = GuiUtils.create_styled_frame(self.notebook)
-        self.notebook.add(tab_frame, text="Directories")
-
-        # Create scrollable frame
-        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
-        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = GuiUtils.create_styled_frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        # Store canvas reference for mouse wheel scrolling
-        self.tab_canvases["Directories"] = canvas
-
+        scrollable_frame = self._create_tab_scrollable("Directories")
         # Ignore directories
         self._create_section_header(scrollable_frame, "Ignore Directories")
         self._create_list_setting(
             scrollable_frame,
             "Ignored Directories",
             "IGNORE_DIRS",
-            "Directories to ignore during cleanup operations",
+            "Directories to remove during cleanup operations",
             self.settings_module.IGNORE_DIRS,
         )
 
@@ -1811,7 +1742,7 @@ class SettingsWindow:
             scrollable_frame,
             "Ignored Files",
             "IGNORE_FILES",
-            "Files to ignore during cleanup operations",
+            "Files to remove during cleanup operations",
             self.settings_module.IGNORE_FILES,
         )
 
@@ -1827,27 +1758,7 @@ class SettingsWindow:
 
     def _create_languages_tab(self):
         """Create the languages settings tab"""
-        tab_frame = GuiUtils.create_styled_frame(self.notebook)
-        self.notebook.add(tab_frame, text="Languages")
-
-        # Create scrollable frame
-        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
-        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = GuiUtils.create_styled_frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        # Store canvas reference for mouse wheel scrolling
-        self.tab_canvases["Languages"] = canvas
-
+        scrollable_frame = self._create_tab_scrollable("Languages")
         # Language extensions
         self._create_section_header(scrollable_frame, "Language Extensions")
         self._create_lang_dict_setting(
@@ -1867,6 +1778,23 @@ class SettingsWindow:
             "Required files for each programming language",
             self.settings_module.LANGUAGE_REQUIRED_FILES,
         )
+
+    def _create_tab_scrollable(self, text):
+        tab_frame = GuiUtils.create_styled_frame(self.notebook)
+        self.notebook.add(tab_frame, text=text)
+        canvas = tk.Canvas(tab_frame, bg=COLORS["background"])
+        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
+        result = GuiUtils.create_styled_frame(canvas)
+        result.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas.create_window((0, 0), window=result, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        self.tab_canvases[text] = canvas
+        return result
 
     def _create_section_header(self, parent, title):
         """Create a section header"""
@@ -2034,7 +1962,7 @@ class SettingsWindow:
     def _create_color_setting(
         self, parent, label_text, setting_key, description, current_value
     ):
-        """Create a color input setting"""
+        """Create a color input setting with color picker"""
         frame = GuiUtils.create_styled_frame(parent)
         frame.pack(fill="x", pady=(0, 10))
 
@@ -2056,16 +1984,32 @@ class SettingsWindow:
         entry = tk.Entry(color_frame, textvariable=var, font=FONTS["info"], width=20)
         entry.pack(side="left")
 
-        # Color preview
-        color_preview = tk.Frame(color_frame, bg=current_value, width=30, height=25)
-        color_preview.pack(side="left", padx=(5, 0))
+        # Color picker button (serves as preview)
+        def open_color_picker():
+            """Open color picker dialog and update color"""
+            color = colorchooser.askcolor(
+                initialcolor=var.get(), title=f"Choose {label_text}"
+            )
+            if color[1]:  # If user didn't cancel (color[1] is the hex value)
+                var.set(color[1])
+                color_picker_btn.config(bg=color[1])
 
-        # Update color preview when value changes
+        color_picker_btn = tk.Button(
+            color_frame,
+            bg=current_value,
+            width=4,
+            height=1,
+            bd=2,
+            command=open_color_picker,
+            cursor="hand2",
+        )
+        color_picker_btn.pack(side="left", padx=(5, 0))
+
+        # Update color preview when entry value changes
         def update_color_preview(*args):
-            try:
-                color_preview.config(bg=var.get())
-            except Exception:
-                pass
+            with contextlib.suppress(tk.TclError):
+                new_color = var.get()
+                color_picker_btn.config(bg=new_color)
 
         var.trace_add("write", update_color_preview)
 

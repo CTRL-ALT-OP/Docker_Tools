@@ -60,10 +60,7 @@ def setup_mock_stringvar_with_trace():
 
     def capture_trace(mode, callback=None):
         nonlocal trace_callback
-        if callback is None:  # trace_add("write", callback) format
-            trace_callback = mode  # mode is actually the callback in trace_add
-        else:  # trace("w", callback) format
-            trace_callback = callback
+        trace_callback = mode if callback is None else callback
 
     def capture_trace_add(mode, callback):
         nonlocal trace_callback
@@ -138,14 +135,14 @@ class TestColorPickerFunctionality:
         # Create mock parent with tkinter attributes
         mock_parent = create_mock_tkinter_widget()
 
-        with patch("tkinter.Tk"), patch("tkinter.StringVar") as mock_stringvar, patch(
-            "tkinter.Entry"
-        ) as mock_entry, patch("tkinter.Button") as mock_button, patch(
-            "gui.popup_windows.GuiUtils"
-        ) as mock_gui_utils, patch(
-            "tkinter.Frame", create_mock_tkinter_widget
-        ), patch(
-            "tkinter.Text", create_mock_tkinter_widget
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.StringVar") as mock_stringvar,
+            patch("tkinter.Entry") as mock_entry,
+            patch("tkinter.Button") as mock_button,
+            patch("gui.popup_windows.GuiUtils") as mock_gui_utils,
+            patch("tkinter.Frame", create_mock_tkinter_widget),
+            patch("tkinter.Text", create_mock_tkinter_widget),
         ):
 
             # Set up mocks
@@ -190,11 +187,13 @@ class TestColorPickerFunctionality:
         """Test that manually changing hex code in entry updates button background"""
         mock_parent = Mock()
 
-        with patch("tkinter.Tk"), patch("tkinter.StringVar") as mock_stringvar, patch(
-            "tkinter.Entry"
-        ) as mock_entry, patch("tkinter.Button") as mock_button, patch(
-            "gui.popup_windows.GuiUtils"
-        ) as mock_gui_utils:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.StringVar") as mock_stringvar,
+            patch("tkinter.Entry") as mock_entry,
+            patch("tkinter.Button") as mock_button,
+            patch("gui.popup_windows.GuiUtils") as mock_gui_utils,
+        ):
 
             # Set up mocks
             mock_var = Mock()
@@ -216,10 +215,7 @@ class TestColorPickerFunctionality:
 
             def capture_trace(mode, callback=None):
                 nonlocal trace_callback
-                if callback is None:  # trace_add("write", callback) format
-                    trace_callback = mode  # mode is actually the callback in trace_add
-                else:  # trace("w", callback) format
-                    trace_callback = callback
+                trace_callback = mode if callback is None else callback
 
             def capture_trace_add(mode, callback):
                 nonlocal trace_callback
@@ -249,11 +245,13 @@ class TestColorPickerFunctionality:
         """Test that invalid color codes don't crash the application"""
         mock_parent = Mock()
 
-        with patch("tkinter.Tk"), patch("tkinter.StringVar") as mock_stringvar, patch(
-            "tkinter.Entry"
-        ) as mock_entry, patch("tkinter.Button") as mock_button, patch(
-            "gui.popup_windows.GuiUtils"
-        ) as mock_gui_utils:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.StringVar") as mock_stringvar,
+            patch("tkinter.Entry") as mock_entry,
+            patch("tkinter.Button") as mock_button,
+            patch("gui.popup_windows.GuiUtils") as mock_gui_utils,
+        ):
 
             # Set up mocks
             mock_var = Mock()
@@ -278,10 +276,7 @@ class TestColorPickerFunctionality:
 
             def capture_trace(mode, callback=None):
                 nonlocal trace_callback
-                if callback is None:  # trace_add("write", callback) format
-                    trace_callback = mode  # mode is actually the callback in trace_add
-                else:  # trace("w", callback) format
-                    trace_callback = callback
+                trace_callback = mode if callback is None else callback
 
             def capture_trace_add(mode, callback):
                 nonlocal trace_callback
@@ -314,11 +309,13 @@ class TestColorPickerFunctionality:
         """Test that clicking the color button opens colorchooser.askcolor"""
         mock_parent = Mock()
 
-        with patch("tkinter.Tk"), patch("tkinter.StringVar") as mock_stringvar, patch(
-            "tkinter.Entry"
-        ) as mock_entry, patch("tkinter.Button") as mock_button, patch(
-            "gui.popup_windows.GuiUtils"
-        ) as mock_gui_utils:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.StringVar") as mock_stringvar,
+            patch("tkinter.Entry") as mock_entry,
+            patch("tkinter.Button") as mock_button,
+            patch("gui.popup_windows.GuiUtils") as mock_gui_utils,
+        ):
 
             # Set up mocks
             mock_var = Mock()
@@ -370,11 +367,13 @@ class TestColorPickerFunctionality:
         """Test that color chooser result updates both entry field and button"""
         mock_parent = Mock()
 
-        with patch("tkinter.Tk"), patch("tkinter.StringVar") as mock_stringvar, patch(
-            "tkinter.Entry"
-        ) as mock_entry, patch("tkinter.Button") as mock_button, patch(
-            "gui.popup_windows.GuiUtils"
-        ) as mock_gui_utils:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.StringVar") as mock_stringvar,
+            patch("tkinter.Entry") as mock_entry,
+            patch("tkinter.Button") as mock_button,
+            patch("gui.popup_windows.GuiUtils") as mock_gui_utils,
+        ):
 
             # Set up mocks
             mock_var = Mock()
@@ -428,11 +427,13 @@ class TestColorPickerFunctionality:
         """Test that cancelling color chooser doesn't change existing values"""
         mock_parent = Mock()
 
-        with patch("tkinter.Tk"), patch("tkinter.StringVar") as mock_stringvar, patch(
-            "tkinter.Entry"
-        ) as mock_entry, patch("tkinter.Button") as mock_button, patch(
-            "gui.popup_windows.GuiUtils"
-        ) as mock_gui_utils:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.StringVar") as mock_stringvar,
+            patch("tkinter.Entry") as mock_entry,
+            patch("tkinter.Button") as mock_button,
+            patch("gui.popup_windows.GuiUtils") as mock_gui_utils,
+        ):
 
             # Set up mocks
             mock_var = Mock()
@@ -479,10 +480,8 @@ class TestColorPickerFunctionality:
 
             # Verify button background was NOT updated (only initial setup call)
             # The button should only have config called once during creation
-            config_calls = [call for call in mock_button_instance.config.call_args_list]
-            assert (
-                len(config_calls) == 0
-            )  # No additional config calls after cancellation
+            config_calls = list(mock_button_instance.config.call_args_list)
+            assert not config_calls
 
     def test_apply_settings_processes_color_from_picker(self):
         """Test that color values from picker are correctly processed in settings collection"""
@@ -533,11 +532,13 @@ class TestColorPickerFunctionality:
         """Test that multiple color settings work independently"""
         mock_parent = Mock()
 
-        with patch("tkinter.Tk"), patch("tkinter.StringVar") as mock_stringvar, patch(
-            "tkinter.Entry"
-        ) as mock_entry, patch("tkinter.Button") as mock_button, patch(
-            "gui.popup_windows.GuiUtils"
-        ) as mock_gui_utils:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.StringVar") as mock_stringvar,
+            patch("tkinter.Entry") as mock_entry,
+            patch("tkinter.Button") as mock_button,
+            patch("gui.popup_windows.GuiUtils") as mock_gui_utils,
+        ):
 
             # Set up mocks for multiple calls
             mock_vars = []
@@ -659,23 +660,18 @@ class TestColorPickerIntegration:
     def test_full_color_picker_workflow_in_appearance_tab(self, mock_askcolor):
         """Test complete workflow: create appearance tab, pick color, save settings"""
 
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel") as mock_toplevel, patch(
-            "tkinter.ttk.Notebook"
-        ) as mock_notebook, patch(
-            "gui.popup_windows.GuiUtils"
-        ) as mock_gui_utils, patch(
-            "tkinter.Canvas"
-        ) as mock_canvas, patch(
-            "tkinter.ttk.Scrollbar"
-        ) as mock_scrollbar, patch(
-            "tkinter.StringVar"
-        ) as mock_stringvar, patch(
-            "tkinter.Entry"
-        ) as mock_entry, patch(
-            "tkinter.Button"
-        ) as mock_button, patch(
-            "tkinter.messagebox"
-        ) as mock_messagebox:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel") as mock_toplevel,
+            patch("tkinter.ttk.Notebook") as mock_notebook,
+            patch("gui.popup_windows.GuiUtils") as mock_gui_utils,
+            patch("tkinter.Canvas") as mock_canvas,
+            patch("tkinter.ttk.Scrollbar") as mock_scrollbar,
+            patch("tkinter.StringVar") as mock_stringvar,
+            patch("tkinter.Entry") as mock_entry,
+            patch("tkinter.Button") as mock_button,
+            patch("tkinter.messagebox") as mock_messagebox,
+        ):
 
             # Mock messagebox to avoid UI interactions during tests
             mock_messagebox.showerror = Mock()
@@ -763,17 +759,16 @@ class TestColorPickerIntegration:
     def test_color_picker_error_handling_in_integration(self):
         """Test that color picker errors don't break the settings window"""
 
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils") as mock_gui_utils, patch(
-            "tkinter.StringVar"
-        ) as mock_stringvar, patch(
-            "tkinter.Entry"
-        ) as mock_entry, patch(
-            "tkinter.Button"
-        ) as mock_button, patch(
-            "tkinter.colorchooser.askcolor"
-        ) as mock_askcolor:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils") as mock_gui_utils,
+            patch("tkinter.StringVar") as mock_stringvar,
+            patch("tkinter.Entry") as mock_entry,
+            patch("tkinter.Button") as mock_button,
+            patch("tkinter.colorchooser.askcolor") as mock_askcolor,
+        ):
 
             # Mock askcolor to raise an exception
             mock_askcolor.side_effect = Exception("Color chooser error")

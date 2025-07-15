@@ -2,6 +2,7 @@
 Platform-specific operations service
 """
 
+import contextlib
 import os
 import platform
 import subprocess
@@ -241,13 +242,12 @@ class PlatformService:
 
             if result.returncode == 0:
                 return True, result.stdout.strip() if result.stdout else ""
-            else:
-                error_msg = (
-                    result.stderr.strip()
-                    if result.stderr
-                    else f"Command failed with exit code {result.returncode}"
-                )
-                return False, error_msg
+            error_msg = (
+                result.stderr.strip()
+                if result.stderr
+                else f"Command failed with exit code {result.returncode}"
+            )
+            return False, error_msg
 
         except subprocess.TimeoutExpired as e:
             return False, f"Command timed out after 30 seconds: {e}"
@@ -294,7 +294,9 @@ class PlatformService:
                 explorer_cmd = ["explorer.exe", file_path]
 
                 # Try explorer.exe first
-                try:
+                with contextlib.suppress(
+                    subprocess.TimeoutExpired, subprocess.CalledProcessError
+                ):
                     result = subprocess.run(
                         explorer_cmd,
                         capture_output=True,
@@ -310,29 +312,20 @@ class PlatformService:
                         1,
                     ]:  # Both 0 and 1 can indicate success for explorer.exe
                         return True, "File explorer opened successfully"
-                    else:
-                        # Fall back to start command
-                        pass
-                except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-                    # Fall back to start command
-                    pass
-
                 # Fallback: Use cmd /c start with proper quoting
                 start_cmd = ["cmd", "/c", "start", "", quoted_path]
                 result = subprocess.run(
                     start_cmd, capture_output=True, text=True, timeout=10, check=False
                 )
 
-                # For start command, return code 0 usually means success
                 if result.returncode == 0:
                     return True, "File explorer opened successfully"
-                else:
-                    error_msg = (
-                        result.stderr.strip()
-                        if result.stderr
-                        else f"Start command failed with exit code {result.returncode}"
-                    )
-                    return False, f"Failed to open file explorer: {error_msg}"
+                error_msg = (
+                    result.stderr.strip()
+                    if result.stderr
+                    else f"Start command failed with exit code {result.returncode}"
+                )
+                return False, f"Failed to open file explorer: {error_msg}"
 
             else:
                 # For Unix-like systems (Linux, macOS)
@@ -347,13 +340,12 @@ class PlatformService:
 
                 if result.returncode == 0:
                     return True, "File manager opened successfully"
-                else:
-                    error_msg = (
-                        result.stderr.strip()
-                        if result.stderr
-                        else f"Command failed with exit code {result.returncode}"
-                    )
-                    return False, f"Failed to open file manager: {error_msg}"
+                error_msg = (
+                    result.stderr.strip()
+                    if result.stderr
+                    else f"Command failed with exit code {result.returncode}"
+                )
+                return False, f"Failed to open file manager: {error_msg}"
 
         except subprocess.TimeoutExpired:
             return False, "File manager command timed out"
@@ -527,7 +519,9 @@ class PlatformService:
                 explorer_cmd = ["explorer.exe", file_path]
 
                 # Try explorer.exe first
-                try:
+                with contextlib.suppress(
+                    subprocess.TimeoutExpired, subprocess.CalledProcessError
+                ):
                     result = await run_subprocess_async(
                         explorer_cmd,
                         capture_output=True,
@@ -543,29 +537,20 @@ class PlatformService:
                         1,
                     ]:  # Both 0 and 1 can indicate success for explorer.exe
                         return True, "File explorer opened successfully"
-                    else:
-                        # Fall back to start command
-                        pass
-                except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-                    # Fall back to start command
-                    pass
-
                 # Fallback: Use cmd /c start with proper quoting
                 start_cmd = ["cmd", "/c", "start", "", quoted_path]
                 result = await run_subprocess_async(
                     start_cmd, capture_output=True, text=True, timeout=10, check=False
                 )
 
-                # For start command, return code 0 usually means success
                 if result.returncode == 0:
                     return True, "File explorer opened successfully"
-                else:
-                    error_msg = (
-                        result.stderr.strip()
-                        if result.stderr
-                        else f"Start command failed with exit code {result.returncode}"
-                    )
-                    return False, f"Failed to open file explorer: {error_msg}"
+                error_msg = (
+                    result.stderr.strip()
+                    if result.stderr
+                    else f"Start command failed with exit code {result.returncode}"
+                )
+                return False, f"Failed to open file explorer: {error_msg}"
 
             else:
                 # For Unix-like systems (Linux, macOS)
@@ -580,13 +565,12 @@ class PlatformService:
 
                 if result.returncode == 0:
                     return True, "File manager opened successfully"
-                else:
-                    error_msg = (
-                        result.stderr.strip()
-                        if result.stderr
-                        else f"Command failed with exit code {result.returncode}"
-                    )
-                    return False, f"Failed to open file manager: {error_msg}"
+                error_msg = (
+                    result.stderr.strip()
+                    if result.stderr
+                    else f"Command failed with exit code {result.returncode}"
+                )
+                return False, f"Failed to open file manager: {error_msg}"
 
         except subprocess.TimeoutExpired:
             return False, "File manager command timed out"

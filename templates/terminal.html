@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docker Tools - Terminal View</title>
+    <link rel="stylesheet" href="{{ url_for('dynamic_css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .terminal-container {
+            background-color: var(--terminal-bg, #1e1e1e);
+            color: var(--terminal-text, #ffffff);
+            font-family: 'Courier New', monospace;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            min-height: 400px;
+            max-height: 600px;
+            overflow-y: auto;
+            position: relative;
+        }
+        
+        .terminal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--terminal-border, #333);
+        }
+        
+        .terminal-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: var(--terminal-text, #ffffff);
+        }
+        
+        .terminal-controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .terminal-output {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background-color: transparent;
+            border: none;
+            color: var(--terminal-text, #ffffff);
+            width: 100%;
+            min-height: 300px;
+            resize: vertical;
+        }
+        
+        .terminal-output:focus {
+            outline: none;
+        }
+        
+        .terminal-status {
+            margin-top: 10px;
+            padding: 8px;
+            background-color: var(--terminal-status-bg, #2d2d2d);
+            border-radius: 4px;
+            font-size: 11px;
+            color: var(--terminal-status-text, #cccccc);
+        }
+        
+        .btn-terminal {
+            background-color: var(--terminal-btn-bg, #333);
+            color: var(--terminal-btn-text, #ffffff);
+            border: 1px solid var(--terminal-btn-border, #555);
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-terminal:hover {
+            background-color: var(--terminal-btn-hover-bg, #444);
+        }
+        
+        .btn-terminal:active {
+            background-color: var(--terminal-btn-active-bg, #222);
+        }
+        
+        .btn-clear {
+            background-color: var(--clear-bg, #e74c3c);
+            color: var(--clear-fg, white);
+        }
+        
+        .btn-clear:hover {
+            background-color: var(--clear-hover-bg, #c0392b);
+        }
+        
+        .btn-copy {
+            background-color: var(--copy-bg, #3498db);
+            color: var(--copy-fg, white);
+        }
+        
+        .btn-copy:hover {
+            background-color: var(--copy-hover-bg, #2980b9);
+        }
+        
+        .auto-scroll {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: var(--terminal-status-bg, #2d2d2d);
+            border: 1px solid var(--terminal-border, #333);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 10px;
+            color: var(--terminal-status-text, #cccccc);
+        }
+        
+        .auto-scroll.active {
+            background-color: var(--success, #27ae60);
+            color: white;
+        }
+        
+        .no-output {
+            color: var(--terminal-muted, #666);
+            font-style: italic;
+            text-align: center;
+            padding: 40px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Navigation Header -->
+        <header class="navigation-header">
+            <div class="project-selection">
+                <label for="project-selector" class="project-label">Project:</label>
+                <select id="project-selector" class="project-dropdown">
+                    {% for group in project_groups %}
+                        <option value="{{ group }}" {% if group == selected_group_name %}selected{% endif %}>
+                            {{ group }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="navigation-buttons">
+                <button id="back-btn" class="btn btn-secondary" onclick="goBack()">
+                    <i class="fas fa-arrow-left"></i> Back to Dashboard
+                </button>
+                <button id="refresh-btn" class="btn btn-refresh">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Terminal Header -->
+            <div class="project-header">
+                <h1><i class="fas fa-terminal"></i> Terminal View</h1>
+                <div class="project-summary">
+                    <span class="version-count">Real-time terminal output from Docker Tools operations</span>
+                    {% if current_group %}
+                        <div class="version-list">
+                            <span class="version-tag">Current Project: {{ current_group.name }}</span>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Terminal Container -->
+            <div class="terminal-container">
+                <div class="terminal-header">
+                    <div class="terminal-title">
+                        <i class="fas fa-terminal"></i> Terminal Output
+                    </div>
+                    <div class="terminal-controls">
+                        <button class="btn-terminal btn-copy" onclick="copyTerminalOutput()">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                        <button class="btn-terminal btn-clear" onclick="clearTerminal()">
+                            <i class="fas fa-trash"></i> Clear
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="auto-scroll" id="auto-scroll-indicator">
+                    <i class="fas fa-arrow-down"></i> Auto-scroll
+                </div>
+                
+                <textarea 
+                    id="terminal-output" 
+                    class="terminal-output" 
+                    readonly 
+                    placeholder="Terminal output will appear here when operations are running..."
+                ></textarea>
+                
+                <div class="terminal-status" id="terminal-status">
+                    <i class="fas fa-info-circle"></i> 
+                    <span id="status-text">Ready - Waiting for output...</span>
+                    <span id="last-update"></span>
+                </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="project-actions">
+                <div style="background-color: var(--white, white); padding: 15px; border-radius: 4px; border: 1px solid var(--muted, #7f8c8d);">
+                    <h3 style="margin-bottom: 10px; color: var(--text, #2c3e50);">
+                        <i class="fas fa-info-circle"></i> How to Use Terminal View
+                    </h3>
+                    <ul style="color: var(--text, #2c3e50); line-height: 1.6; margin-left: 20px;">
+                        <li>This terminal view shows real-time output from Docker operations, Git commands, and other system processes</li>
+                        <li>Output will automatically appear when you run operations from the main dashboard</li>
+                        <li>Use the <strong>Copy</strong> button to copy all terminal output to your clipboard</li>
+                        <li>Use the <strong>Clear</strong> button to clear the terminal output</li>
+                        <li>Auto-scroll is enabled by default to show the latest output</li>
+                        <li>Switch between projects using the dropdown above to see project-specific output</li>
+                    </ul>
+                </div>
+            </div>
+        </main>
+
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <span id="status-message">Terminal View Ready</span>
+            <div id="loading-indicator" class="loading-indicator" style="display: none;">
+                <i class="fas fa-spinner fa-spin"></i> Updating...
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/terminal.js') }}"></script>
+</body>
+</html> 

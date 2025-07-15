@@ -2,6 +2,7 @@
 Git Service - Standardized Async Version
 """
 
+import contextlib
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
@@ -539,7 +540,7 @@ class GitService(AsyncServiceInterface):
                 # For non-main branch commits, try multiple approaches to find original branch
 
                 # Approach 1: Use git name-rev with better parsing
-                try:
+                with contextlib.suppress(Exception):
                     name_rev_result = await run_subprocess_async(
                         ["git", "name-rev", "--name-only", commit.hash],
                         cwd=str(project_path),
@@ -563,9 +564,6 @@ class GitService(AsyncServiceInterface):
                             ]:
                                 commit.source_branch = cleaned_branch
                                 return commit
-                except Exception:
-                    pass  # Fall back to approach 2
-
                 # Approach 2: Use git branch --contains with better logic
                 # Using PlatformService for branch contains check
                 result = await PlatformService.run_command_async(

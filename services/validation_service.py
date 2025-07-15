@@ -2,6 +2,7 @@
 Validation Service - Standardized Async Version
 """
 
+import contextlib
 import os
 import shutil
 import logging
@@ -589,11 +590,8 @@ class ValidationService(AsyncServiceInterface):
             # Cancel streaming task if it exists
             if self._streaming_task and not self._streaming_task.done():
                 self._streaming_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await self._streaming_task
-                except asyncio.CancelledError:
-                    pass  # Expected when cancelling
-
             # Clean up process reference
             if hasattr(self, "_validation_process"):
                 self._validation_process = None

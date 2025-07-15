@@ -2,6 +2,7 @@
 Configuration settings for the Project Control Panel
 """
 
+import contextlib
 import os
 
 # Directories to ignore during cleanup operations
@@ -115,6 +116,7 @@ BUTTON_STYLES = {
     "save": {"bg": "#27ae60", "fg": "white"},
     "cancel": {"bg": "#e74c3c", "fg": "white"},
     "secondary": {"bg": "#95a5a6", "fg": "white"},
+    "info": {"bg": "#3498db", "fg": "white"},
 }
 
 
@@ -131,7 +133,7 @@ def _apply_user_settings():
     if not user_settings_file.exists():
         return
 
-    try:
+    with contextlib.suppress(json.JSONDecodeError, FileNotFoundError, KeyError):
         with open(user_settings_file, "r", encoding="utf-8") as f:
             user_settings = json.load(f)
 
@@ -166,10 +168,6 @@ def _apply_user_settings():
             elif key in current_globals:
                 # Handle direct setting overrides
                 current_globals[key] = value
-
-    except (json.JSONDecodeError, FileNotFoundError, KeyError) as e:
-        # Silently ignore errors - use defaults if user settings are corrupted
-        pass
 
 
 # Apply user settings overrides

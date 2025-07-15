@@ -18,8 +18,22 @@ COMMANDS = {
                 "-Command",
                 "Compress-Archive -Path ./* -DestinationPath ./{archive_name} -Force",
             ],
-            "linux": ["zip", "-r", "{archive_name}", ".", "-x", "{archive_name}"],
-            "darwin": ["zip", "-r", "{archive_name}", ".", "-x", "{archive_name}"],
+            "linux": [
+                "zip",
+                "-r",
+                "{archive_name}",
+                ".",
+                "-x",
+                "{archive_name}",
+            ],
+            "darwin": [
+                "zip",
+                "-r",
+                "{archive_name}",
+                ".",
+                "-x",
+                "{archive_name}",
+            ],
         },
         # Legacy structure for backward compatibility
         "windows": {
@@ -31,10 +45,24 @@ COMMANDS = {
             ],
         },
         "linux": {
-            "zip": ["zip", "-r", "{archive_name}", ".", "-x", "{archive_name}"],
+            "zip": [
+                "zip",
+                "-r",
+                "{archive_name}",
+                ".",
+                "-x",
+                "{archive_name}",
+            ],
         },
         "darwin": {  # macOS
-            "zip": ["zip", "-r", "{archive_name}", ".", "-x", "{archive_name}"],
+            "zip": [
+                "zip",
+                "-r",
+                "{archive_name}",
+                ".",
+                "-x",
+                "{archive_name}",
+            ],
         },
     },
     # Docker commands

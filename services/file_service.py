@@ -2,6 +2,7 @@
 File Service - Standardized Async Version
 """
 
+import contextlib
 import os
 import shutil
 import logging
@@ -166,16 +167,13 @@ class FileService(AsyncServiceInterface):
                         dir_path = root_path / dir_name
                         cleanup_dirs.append(dir_path)
                         # Calculate directory size
-                        try:
+                        with contextlib.suppress(OSError):
                             dir_size = sum(
                                 f.stat().st_size
                                 for f in dir_path.rglob("*")
                                 if f.is_file()
                             )
                             total_size += dir_size
-                        except (OSError, PermissionError):
-                            pass  # Skip if we can't calculate size
-
                 # Scan for files to cleanup
                 for file_name in files:
                     if any(
@@ -183,11 +181,8 @@ class FileService(AsyncServiceInterface):
                     ):
                         file_path = root_path / file_name
                         cleanup_files.append(file_path)
-                        try:
+                        with contextlib.suppress(OSError):
                             total_size += file_path.stat().st_size
-                        except (OSError, PermissionError):
-                            pass  # Skip if we can't get file size
-
         except PermissionError as e:
             logger.error("Permission denied scanning directory %s: %s", project_path, e)
             # Re-raise so the async method can handle it properly
@@ -441,23 +436,19 @@ class FileService(AsyncServiceInterface):
     def _calculate_directory_size(self, directory: Path) -> int:
         """Calculate total size of directory contents"""
         total_size = 0
-        try:
+        with contextlib.suppress(OSError):
             for file_path in directory.rglob("*"):
                 if file_path.is_file():
                     total_size += file_path.stat().st_size
-        except (OSError, PermissionError):
-            pass  # Skip files we can't access
         return total_size
 
     def _count_files(self, directory: Path) -> int:
         """Count total number of files in directory"""
         file_count = 0
-        try:
+        with contextlib.suppress(OSError):
             for file_path in directory.rglob("*"):
                 if file_path.is_file():
                     file_count += 1
-        except (OSError, PermissionError):
-            pass  # Skip files we can't access
         return file_count
 
     async def _create_archive_async(
