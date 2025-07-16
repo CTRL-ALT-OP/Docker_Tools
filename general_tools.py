@@ -33,28 +33,12 @@ from services.docker_files_service import DockerFilesService
 from services.file_monitor_service import file_monitor
 from gui import (
     MainWindow,
-    TerminalOutputWindow,
-    GitCommitWindow,
-    GitCheckoutAllWindow,
     AddProjectWindow,
-    EditRunTestsWindow,
 )
 from utils.async_utils import (
     task_manager,
     shutdown_all,
-    AsyncResourceManager,
     TkinterAsyncBridge,
-    AsyncTaskGroup,
-)
-from commands import (
-    CleanupProjectCommand,
-    ArchiveProjectCommand,
-    DockerBuildAndTestCommand,
-    GitViewCommand,
-    GitCheckoutAllCommand,
-    SyncRunTestsCommand,
-    ValidateProjectGroupCommand,
-    BuildDockerFilesCommand,
 )
 from models.project import Project
 from services.web_integration_service import WebIntegration
