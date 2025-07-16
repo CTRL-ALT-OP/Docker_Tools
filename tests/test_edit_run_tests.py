@@ -1200,16 +1200,13 @@ pytest -vv tests/
 
     @pytest.mark.asyncio
     async def test_lf_line_endings_enforcement(self):
-        """Test that run_tests.sh files demonstrate current line ending behavior"""
-        # This test verifies the CURRENT operation_manager behavior with line endings
-        # The current implementation uses write_text() without newline="\n" parameter
+        """Test that operation_manager calls write_text with newline parameter for LF enforcement"""
+        # This test verifies that operation_manager uses newline="\n" parameter
+        # It will FAIL without the fix by checking method calls rather than file system results
 
-        # Don't create any existing run_tests.sh files - test new file creation
-
-        # Import real operation manager
         from core.operation_manager import OperationManager
         from unittest.mock import Mock, patch
-        import platform
+        from pathlib import Path
 
         mock_services = {
             "project_service": Mock(),
@@ -1229,72 +1226,75 @@ pytest -vv tests/
             control_panel=Mock(),
         )
 
-        # Mock the TerminalOutputWindow to avoid GUI dependencies
+        # Track write_text calls to verify newline parameter
+        write_text_calls = []
+
+        def mock_write_text(content, encoding=None, errors=None, newline=None):
+            call_info = {
+                "newline": newline,
+                "encoding": encoding,
+                "has_shebang": content.startswith("#!"),
+                "is_run_tests_content": "run_tests.sh" in content
+                or "Auto-generated run_tests.sh" in content,
+            }
+            write_text_calls.append(call_info)
+
+        # Mock the TerminalOutputWindow and Path.write_text
         with patch(
             "core.operation_manager.TerminalOutputWindow"
-        ) as mock_output_window_class:
+        ) as mock_output_window_class, patch.object(
+            Path, "write_text", side_effect=mock_write_text
+        ):
+
             mock_output_window = Mock()
             mock_output_window_class.return_value = mock_output_window
 
-            # Mock task_manager to actually run the async function
+            # Mock task_manager to run the coroutine directly
             with patch("core.operation_manager.task_manager") as mock_task_manager:
-                # Capture the coroutine and run it directly
                 captured_coro = None
 
-                def capture_and_run(coro, task_name=None):
+                def capture_coro(coro, task_name=None):
                     nonlocal captured_coro
                     captured_coro = coro
-                    return asyncio.create_task(coro)
+                    mock_task = Mock()
+                    mock_task.done.return_value = True
+                    return mock_task
 
-                mock_task_manager.run_task.side_effect = capture_and_run
+                mock_task_manager.run_task.side_effect = capture_coro
 
                 # Call the ACTUAL operation_manager method
                 operation_manager._handle_run_tests_edit(
                     self.project_group, ["tests/test_example.py"], "python"
                 )
 
-                # Wait for the async task to complete
+                # Now await the captured coroutine directly
                 if captured_coro:
                     await captured_coro
 
-                # Test that files should have LF line endings for Docker compatibility (will FAIL on Windows with current implementation)
-        for version in ["post-edit", "post-edit2", "correct-edit"]:
-            version_path = Path(self.temp_dir) / version / "test-project"
-            run_tests_path = version_path / "run_tests.sh"
+        # Filter to run_tests.sh files
+        run_tests_writes = [
+            call
+            for call in write_text_calls
+            if call["has_shebang"] and call["is_run_tests_content"]
+        ]
 
-            if run_tests_path.exists():
-                # Read as bytes to check exact line ending characters
-                content_bytes = run_tests_path.read_bytes()
-                content_str = content_bytes.decode("utf-8")
+        assert len(run_tests_writes) > 0, "Should have written run_tests.sh files"
 
-                # Should have LF line endings for Docker compatibility
-                assert (
-                    b"\n" in content_bytes
-                ), f"File should contain LF characters in {version}/run_tests.sh"
-
-                # Should NOT have CRLF line endings (will FAIL on Windows with current buggy implementation)
-                assert (
-                    b"\r\n" not in content_bytes
-                ), f"Operation_manager should enforce LF line endings for Docker compatibility. Platform: {platform.system()}. Content: {repr(content_str[:100])}"
-
-                # Should NOT have isolated CR characters
-                assert (
-                    b"\r" not in content_bytes
-                ), f"Operation_manager should not create CR characters. Platform: {platform.system()}. Content: {repr(content_str[:100])}"
-
-                # Verify the content was written
-                lines = content_str.split("\n")
-                assert (
-                    len(lines) > 5
-                ), f"File should have multiple lines in {version}/run_tests.sh"
+        # Every run_tests.sh write should use newline="\n" for Docker compatibility (will FAIL without fix)
+        for write_call in run_tests_writes:
+            assert write_call["newline"] == "\n", (
+                f"Operation_manager should call write_text with newline='\\n' for Docker compatibility. "
+                f"Got newline={write_call['newline']}"
+            )
 
     @pytest.mark.asyncio
     async def test_lf_enforcement_simulates_windows_vs_unix_behavior(self):
-        """Test the current operation_manager line ending behavior across platforms"""
-        # Import real operation manager
+        """Test that operation_manager consistently uses newline parameter across platforms"""
+        # This test verifies newline="\n" usage through method mocking, not file system results
+
         from core.operation_manager import OperationManager
         from unittest.mock import Mock, patch
-        import platform
+        from pathlib import Path
 
         mock_services = {
             "project_service": Mock(),
@@ -1314,24 +1314,40 @@ pytest -vv tests/
             control_panel=Mock(),
         )
 
-        # Mock the TerminalOutputWindow to avoid GUI dependencies
+        # Track write_text calls to verify newline parameter
+        write_text_calls = []
+
+        def mock_write_text(content, encoding=None, errors=None, newline=None):
+            call_info = {
+                "newline": newline,
+                "has_shebang": content.startswith("#!"),
+                "is_run_tests_content": "run_tests.sh" in content
+                or "Auto-generated run_tests.sh" in content,
+            }
+            write_text_calls.append(call_info)
+
+        # Mock the TerminalOutputWindow and Path.write_text
         with patch(
             "core.operation_manager.TerminalOutputWindow"
-        ) as mock_output_window_class:
+        ) as mock_output_window_class, patch.object(
+            Path, "write_text", side_effect=mock_write_text
+        ):
+
             mock_output_window = Mock()
             mock_output_window_class.return_value = mock_output_window
 
-            # Mock task_manager to actually run the async function
+            # Mock task_manager to run the coroutine directly
             with patch("core.operation_manager.task_manager") as mock_task_manager:
-                # Capture the coroutine and run it directly
                 captured_coro = None
 
-                def capture_and_run(coro, task_name=None):
+                def capture_coro(coro, task_name=None):
                     nonlocal captured_coro
                     captured_coro = coro
-                    return asyncio.create_task(coro)
+                    mock_task = Mock()
+                    mock_task.done.return_value = True
+                    return mock_task
 
-                mock_task_manager.run_task.side_effect = capture_and_run
+                mock_task_manager.run_task.side_effect = capture_coro
 
                 # Call the ACTUAL operation_manager method
                 operation_manager._handle_run_tests_edit(
@@ -1340,39 +1356,34 @@ pytest -vv tests/
                     "python",
                 )
 
-                # Wait for the async task to complete
+                # Now await the captured coroutine directly
                 if captured_coro:
                     await captured_coro
 
-        # Test that files should have consistent LF line endings across platforms (will FAIL on Windows with current implementation)
-        for version in ["post-edit", "post-edit2", "correct-edit"]:
-            version_path = Path(self.temp_dir) / version / "test-project"
-            run_tests_path = version_path / "run_tests.sh"
+        # Filter to run_tests.sh files
+        run_tests_writes = [
+            call
+            for call in write_text_calls
+            if call["has_shebang"] and call["is_run_tests_content"]
+        ]
 
-            if run_tests_path.exists():
-                content_bytes = run_tests_path.read_bytes()
+        assert len(run_tests_writes) > 0, "Should have written run_tests.sh files"
 
-                # Should have LF line endings for Docker compatibility
-                assert (
-                    b"\n" in content_bytes
-                ), f"File should contain LF characters in {version}/run_tests.sh"
-
-                # Should NOT have CRLF line endings (will FAIL on Windows with current implementation)
-                assert (
-                    b"\r\n" not in content_bytes
-                ), f"Operation_manager should enforce LF consistently across platforms. Platform: {platform.system()}. File: {version}/run_tests.sh"
-
-                # Should NOT have isolated CR characters
-                assert (
-                    b"\r" not in content_bytes
-                ), f"Operation_manager should not create CR characters. Platform: {platform.system()}. File: {version}/run_tests.sh"
+        # Every write should use newline="\n" for consistent behavior across platforms (will FAIL without fix)
+        for write_call in run_tests_writes:
+            assert write_call["newline"] == "\n", (
+                f"Operation_manager should enforce LF consistently across platforms. "
+                f"Got newline={write_call['newline']}"
+            )
 
     @pytest.mark.asyncio
     async def test_lf_enforcement_demonstrates_newline_parameter_importance(self):
-        """Test that current operation_manager demonstrates lack of newline parameter"""
-        # Import real operation manager
+        """Test that operation_manager calls write_text with newline parameter"""
+        # This test verifies that operation_manager uses newline="\n" parameter through method mocking
+
         from core.operation_manager import OperationManager
         from unittest.mock import Mock, patch
+        from pathlib import Path
 
         mock_services = {
             "project_service": Mock(),
@@ -1392,64 +1403,74 @@ pytest -vv tests/
             control_panel=Mock(),
         )
 
-        # Mock the TerminalOutputWindow to avoid GUI dependencies
+        # Track write_text calls to verify newline parameter
+        write_text_calls = []
+
+        def mock_write_text(content, encoding=None, errors=None, newline=None):
+            call_info = {
+                "newline": newline,
+                "has_shebang": content.startswith("#!"),
+                "is_run_tests_content": "run_tests.sh" in content
+                or "Auto-generated run_tests.sh" in content,
+            }
+            write_text_calls.append(call_info)
+
+        # Mock the TerminalOutputWindow and Path.write_text
         with patch(
             "core.operation_manager.TerminalOutputWindow"
-        ) as mock_output_window_class:
+        ) as mock_output_window_class, patch.object(
+            Path, "write_text", side_effect=mock_write_text
+        ):
+
             mock_output_window = Mock()
             mock_output_window_class.return_value = mock_output_window
 
-            # Mock task_manager to actually run the async function
+            # Mock task_manager to run the coroutine directly
             with patch("core.operation_manager.task_manager") as mock_task_manager:
-                # Capture the coroutine and run it directly
                 captured_coro = None
 
-                def capture_and_run(coro, task_name=None):
+                def capture_coro(coro, task_name=None):
                     nonlocal captured_coro
                     captured_coro = coro
-                    return asyncio.create_task(coro)
+                    mock_task = Mock()
+                    mock_task.done.return_value = True
+                    return mock_task
 
-                mock_task_manager.run_task.side_effect = capture_and_run
+                mock_task_manager.run_task.side_effect = capture_coro
 
                 # Call the ACTUAL operation_manager method
                 operation_manager._handle_run_tests_edit(
                     self.project_group, ["tests/test_example.py"], "python"
                 )
 
-                # Wait for the async task to complete
+                # Now await the captured coroutine directly
                 if captured_coro:
                     await captured_coro
 
-        # Test that files should have LF line endings due to newline="\n" parameter (will FAIL on Windows with current implementation)
-        for version in ["post-edit", "post-edit2", "correct-edit"]:
-            version_path = Path(self.temp_dir) / version / "test-project"
-            run_tests_path = version_path / "run_tests.sh"
+        # Filter to run_tests.sh files
+        run_tests_writes = [
+            call
+            for call in write_text_calls
+            if call["has_shebang"] and call["is_run_tests_content"]
+        ]
 
-            if run_tests_path.exists():
-                content_bytes = run_tests_path.read_bytes()
+        assert len(run_tests_writes) > 0, "Should have written run_tests.sh files"
 
-                # Should have LF line endings for Docker compatibility
-                assert (
-                    b"\n" in content_bytes
-                ), f"File should contain LF characters in {version}/run_tests.sh"
-
-                # Should NOT have CRLF line endings (will FAIL on Windows because current implementation lacks newline="\n")
-                assert (
-                    b"\r\n" not in content_bytes
-                ), f"Operation_manager should use newline='\\n' to enforce LF. File: {version}/run_tests.sh"
-
-                # Should NOT have isolated CR characters
-                assert (
-                    b"\r" not in content_bytes
-                ), f"Operation_manager should not create CR characters. File: {version}/run_tests.sh"
+        # Every write should use newline="\n" to enforce LF (will FAIL without fix)
+        for write_call in run_tests_writes:
+            assert write_call["newline"] == "\n", (
+                f"Operation_manager should use newline='\\n' to enforce LF. "
+                f"Got newline={write_call['newline']}"
+            )
 
     @pytest.mark.asyncio
     async def test_lf_enforcement_on_all_platforms(self):
-        """Test current operation_manager line ending behavior on all platforms"""
-        # Import real operation manager
+        """Test that operation_manager enforces LF line endings on all platforms via method calls"""
+        # This test verifies newline="\n" usage through method mocking for platform independence
+
         from core.operation_manager import OperationManager
         from unittest.mock import Mock, patch
-        import platform
+        from pathlib import Path
 
         mock_services = {
             "project_service": Mock(),
@@ -1469,24 +1490,40 @@ pytest -vv tests/
             control_panel=Mock(),
         )
 
-        # Mock the TerminalOutputWindow to avoid GUI dependencies
+        # Track write_text calls to verify newline parameter
+        write_text_calls = []
+
+        def mock_write_text(content, encoding=None, errors=None, newline=None):
+            call_info = {
+                "newline": newline,
+                "has_shebang": content.startswith("#!"),
+                "is_run_tests_content": "run_tests.sh" in content
+                or "Auto-generated run_tests.sh" in content,
+            }
+            write_text_calls.append(call_info)
+
+        # Mock the TerminalOutputWindow and Path.write_text
         with patch(
             "core.operation_manager.TerminalOutputWindow"
-        ) as mock_output_window_class:
+        ) as mock_output_window_class, patch.object(
+            Path, "write_text", side_effect=mock_write_text
+        ):
+
             mock_output_window = Mock()
             mock_output_window_class.return_value = mock_output_window
 
-            # Mock task_manager to actually run the async function
+            # Mock task_manager to run the coroutine directly
             with patch("core.operation_manager.task_manager") as mock_task_manager:
-                # Capture the coroutine and run it directly
                 captured_coro = None
 
-                def capture_and_run(coro, task_name=None):
+                def capture_coro(coro, task_name=None):
                     nonlocal captured_coro
                     captured_coro = coro
-                    return asyncio.create_task(coro)
+                    mock_task = Mock()
+                    mock_task.done.return_value = True
+                    return mock_task
 
-                mock_task_manager.run_task.side_effect = capture_and_run
+                mock_task_manager.run_task.side_effect = capture_coro
 
                 # Call the ACTUAL operation_manager method
                 operation_manager._handle_run_tests_edit(
@@ -1495,32 +1532,25 @@ pytest -vv tests/
                     "python",
                 )
 
-                # Wait for the async task to complete
+                # Now await the captured coroutine directly
                 if captured_coro:
                     await captured_coro
 
-        # Test that files should have consistent LF line endings regardless of platform (will FAIL on Windows with current implementation)
-        for version in ["post-edit", "post-edit2", "correct-edit"]:
-            version_path = Path(self.temp_dir) / version / "test-project"
-            run_tests_path = version_path / "run_tests.sh"
+        # Filter to run_tests.sh files
+        run_tests_writes = [
+            call
+            for call in write_text_calls
+            if call["has_shebang"] and call["is_run_tests_content"]
+        ]
 
-            if run_tests_path.exists():
-                content_bytes = run_tests_path.read_bytes()
+        assert len(run_tests_writes) > 0, "Should have written run_tests.sh files"
 
-                # Should have LF line endings for Docker compatibility
-                assert (
-                    b"\n" in content_bytes
-                ), f"File should contain LF characters in {version}/run_tests.sh"
-
-                # Should NOT have CRLF line endings (will FAIL on Windows with current implementation)
-                assert (
-                    b"\r\n" not in content_bytes
-                ), f"Operation_manager should enforce LF on ALL platforms. Platform: {platform.system()}. File: {version}/run_tests.sh"
-
-                # Should NOT have isolated CR characters
-                assert (
-                    b"\r" not in content_bytes
-                ), f"Operation_manager should not create CR characters on platform {platform.system()}. File: {version}/run_tests.sh"
+        # Every write should use newline="\n" for platform-independent LF enforcement (will FAIL without fix)
+        for write_call in run_tests_writes:
+            assert write_call["newline"] == "\n", (
+                f"Operation_manager should enforce LF on ALL platforms. "
+                f"Got newline={write_call['newline']}"
+            )
 
     @pytest.mark.asyncio
     async def test_newline_parameter_enforcement_via_method_mocking(self):
