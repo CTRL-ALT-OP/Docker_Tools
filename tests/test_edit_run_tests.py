@@ -947,3 +947,444 @@ dotnet test
             assert "tests/MainTest.cs" in selected_tests
             assert "tests/UtilsTest.cs" in selected_tests
             assert "tests/HandlerTest.cs" in selected_tests
+
+
+class TestEditRunTestsShebangAndLineEndings:
+    """Test cases for shebang preservation and LF line ending enforcement in edit run_tests functionality"""
+
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.temp_dir = tempfile.mkdtemp()
+        self.project_service = ProjectService()
+
+        # Create test project group with multiple versions
+        self.project_group = ProjectGroup("test-project", self.project_service)
+
+        # Create test projects for different versions
+        versions = ["pre-edit", "post-edit", "post-edit2", "correct-edit"]
+        for version in versions:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            version_path.mkdir(parents=True, exist_ok=True)
+
+            project = Project(
+                parent=version,
+                name="test-project",
+                path=version_path,
+                relative_path=f"{version}/test-project",
+            )
+            self.project_group.add_project(project)
+
+        # Create test files in pre-edit version
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+        tests_dir = pre_edit_path / "tests"
+        tests_dir.mkdir(exist_ok=True)
+        (tests_dir / "test_example.py").write_text("def test_example(): pass")
+        (tests_dir / "test_another.py").write_text("def test_another(): pass")
+
+    def teardown_method(self):
+        """Clean up test fixtures"""
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
+    @pytest.mark.asyncio
+    async def test_shebang_preservation_sh_to_sh(self):
+        """Test that #!/bin/sh shebang is preserved and not changed to #!/bin/bash"""
+        # Create run_tests.sh with #!/bin/sh shebang in all versions
+        original_shebang = "#!/bin/sh"
+        original_content = f"""{original_shebang}
+# Original run_tests.sh content
+pytest -vv tests/
+"""
+
+        # Set up run_tests.sh files with #!/bin/sh in all versions
+        for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            run_tests_path = version_path / "run_tests.sh"
+            run_tests_path.write_text(original_content, encoding="utf-8")
+
+        # Mock the operation manager and run the actual edit functionality
+        from core.operation_manager import OperationManager
+        from unittest.mock import AsyncMock, Mock, patch
+
+        # Mock the dependencies
+        mock_services = {
+            "project_service": Mock(),
+            "file_service": Mock(),
+            "git_service": Mock(),
+            "docker_service": Mock(),
+            "sync_service": Mock(),
+            "validation_service": Mock(),
+            "docker_files_service": Mock(),
+            "async_bridge": Mock(),
+        }
+
+        mock_callback_handler = Mock()
+        mock_window = Mock()
+        mock_control_panel = Mock()
+
+        # Create operation manager instance
+        operation_manager = OperationManager(
+            services=mock_services,
+            callback_handler=mock_callback_handler,
+            window=mock_window,
+            control_panel=mock_control_panel,
+        )
+
+        # Mock the TerminalOutputWindow to avoid GUI dependencies
+        with patch(
+            "core.operation_manager.TerminalOutputWindow"
+        ) as mock_output_window_class:
+            mock_output_window = Mock()
+            mock_output_window_class.return_value = mock_output_window
+
+            # Call the actual edit functionality
+            operation_manager._handle_run_tests_edit(
+                self.project_group, ["tests/test_example.py"], "python"
+            )
+
+            # Wait a moment for async operations to complete
+            await asyncio.sleep(0.1)
+
+        # Verify that all run_tests.sh files still have #!/bin/sh shebang
+        for version in ["post-edit", "post-edit2", "correct-edit"]:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            run_tests_path = version_path / "run_tests.sh"
+
+            if run_tests_path.exists():
+                content = run_tests_path.read_text(encoding="utf-8")
+                lines = content.split("\n")
+
+                # First line should still be #!/bin/sh, not #!/bin/bash
+                assert (
+                    lines[0] == "#!/bin/sh"
+                ), f"Expected '#!/bin/sh' but got '{lines[0]}' in {version}/run_tests.sh"
+                assert (
+                    lines[0] != "#!/bin/bash"
+                ), f"Shebang incorrectly changed to #!/bin/bash in {version}/run_tests.sh"
+
+    @pytest.mark.asyncio
+    async def test_shebang_preservation_bash_to_bash(self):
+        """Test that #!/bin/bash shebang is preserved as #!/bin/bash"""
+        # Create run_tests.sh with #!/bin/bash shebang in all versions
+        original_shebang = "#!/bin/bash"
+        original_content = f"""{original_shebang}
+# Original run_tests.sh content with bash
+pytest -vv tests/
+"""
+
+        # Set up run_tests.sh files with #!/bin/bash in all versions
+        for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            run_tests_path = version_path / "run_tests.sh"
+            run_tests_path.write_text(original_content, encoding="utf-8")
+
+        # Mock the operation manager and run the actual edit functionality
+        from core.operation_manager import OperationManager
+        from unittest.mock import AsyncMock, Mock, patch
+
+        # Mock the dependencies
+        mock_services = {
+            "project_service": Mock(),
+            "file_service": Mock(),
+            "git_service": Mock(),
+            "docker_service": Mock(),
+            "sync_service": Mock(),
+            "validation_service": Mock(),
+            "docker_files_service": Mock(),
+            "async_bridge": Mock(),
+        }
+
+        mock_callback_handler = Mock()
+        mock_window = Mock()
+        mock_control_panel = Mock()
+
+        # Create operation manager instance
+        operation_manager = OperationManager(
+            services=mock_services,
+            callback_handler=mock_callback_handler,
+            window=mock_window,
+            control_panel=mock_control_panel,
+        )
+
+        # Mock the TerminalOutputWindow to avoid GUI dependencies
+        with patch(
+            "core.operation_manager.TerminalOutputWindow"
+        ) as mock_output_window_class:
+            mock_output_window = Mock()
+            mock_output_window_class.return_value = mock_output_window
+
+            # Call the actual edit functionality
+            operation_manager._handle_run_tests_edit(
+                self.project_group, ["tests/test_example.py"], "python"
+            )
+
+            # Wait a moment for async operations to complete
+            await asyncio.sleep(0.1)
+
+        # Verify that all run_tests.sh files still have #!/bin/bash shebang
+        for version in ["post-edit", "post-edit2", "correct-edit"]:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            run_tests_path = version_path / "run_tests.sh"
+
+            if run_tests_path.exists():
+                content = run_tests_path.read_text(encoding="utf-8")
+                lines = content.split("\n")
+
+                # First line should still be #!/bin/bash
+                assert (
+                    lines[0] == "#!/bin/bash"
+                ), f"Expected '#!/bin/bash' but got '{lines[0]}' in {version}/run_tests.sh"
+
+    @pytest.mark.asyncio
+    async def test_default_shebang_for_new_files(self):
+        """Test that new run_tests.sh files get #!/bin/sh as default shebang"""
+        # Don't create any existing run_tests.sh files
+        # The edit functionality should create new files with default shebang
+
+        # Mock the operation manager and run the actual edit functionality
+        from core.operation_manager import OperationManager
+        from unittest.mock import AsyncMock, Mock, patch
+
+        # Mock the dependencies
+        mock_services = {
+            "project_service": Mock(),
+            "file_service": Mock(),
+            "git_service": Mock(),
+            "docker_service": Mock(),
+            "sync_service": Mock(),
+            "validation_service": Mock(),
+            "docker_files_service": Mock(),
+            "async_bridge": Mock(),
+        }
+
+        mock_callback_handler = Mock()
+        mock_window = Mock()
+        mock_control_panel = Mock()
+
+        # Create operation manager instance
+        operation_manager = OperationManager(
+            services=mock_services,
+            callback_handler=mock_callback_handler,
+            window=mock_window,
+            control_panel=mock_control_panel,
+        )
+
+        # Mock the TerminalOutputWindow to avoid GUI dependencies
+        with patch(
+            "core.operation_manager.TerminalOutputWindow"
+        ) as mock_output_window_class:
+            mock_output_window = Mock()
+            mock_output_window_class.return_value = mock_output_window
+
+            # Call the actual edit functionality
+            operation_manager._handle_run_tests_edit(
+                self.project_group, ["tests/test_example.py"], "python"
+            )
+
+            # Wait a moment for async operations to complete
+            await asyncio.sleep(0.1)
+
+        # Verify that all newly created run_tests.sh files have #!/bin/sh as default
+        for version in ["post-edit", "post-edit2", "correct-edit"]:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            run_tests_path = version_path / "run_tests.sh"
+
+            if run_tests_path.exists():
+                content = run_tests_path.read_text(encoding="utf-8")
+                lines = content.split("\n")
+
+                # First line should be #!/bin/sh (the portable default)
+                assert (
+                    lines[0] == "#!/bin/sh"
+                ), f"Expected default '#!/bin/sh' but got '{lines[0]}' in {version}/run_tests.sh"
+
+    @pytest.mark.asyncio
+    async def test_lf_line_endings_enforcement(self):
+        """Test that run_tests.sh files are always saved with LF line endings, even on Windows"""
+        # Create run_tests.sh with CRLF line endings to simulate Windows editing
+        crlf_content = (
+            "#!/bin/sh\r\n# Original content with CRLF\r\npytest -vv tests/\r\n"
+        )
+
+        # Set up run_tests.sh files with CRLF in all versions
+        for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            run_tests_path = version_path / "run_tests.sh"
+            # Write as bytes to ensure CRLF line endings
+            run_tests_path.write_bytes(crlf_content.encode("utf-8"))
+
+        # Verify initial state has CRLF
+        pre_edit_path = (
+            Path(self.temp_dir) / "pre-edit" / "test-project" / "run_tests.sh"
+        )
+        initial_bytes = pre_edit_path.read_bytes()
+        assert b"\r\n" in initial_bytes, "Test setup should have CRLF line endings"
+
+        # Mock the operation manager and run the actual edit functionality
+        from core.operation_manager import OperationManager
+        from unittest.mock import AsyncMock, Mock, patch
+
+        # Mock the dependencies
+        mock_services = {
+            "project_service": Mock(),
+            "file_service": Mock(),
+            "git_service": Mock(),
+            "docker_service": Mock(),
+            "sync_service": Mock(),
+            "validation_service": Mock(),
+            "docker_files_service": Mock(),
+            "async_bridge": Mock(),
+        }
+
+        mock_callback_handler = Mock()
+        mock_window = Mock()
+        mock_control_panel = Mock()
+
+        # Create operation manager instance
+        operation_manager = OperationManager(
+            services=mock_services,
+            callback_handler=mock_callback_handler,
+            window=mock_window,
+            control_panel=mock_control_panel,
+        )
+
+        # Mock the TerminalOutputWindow to avoid GUI dependencies
+        with patch(
+            "core.operation_manager.TerminalOutputWindow"
+        ) as mock_output_window_class:
+            mock_output_window = Mock()
+            mock_output_window_class.return_value = mock_output_window
+
+            # Call the actual edit functionality
+            operation_manager._handle_run_tests_edit(
+                self.project_group, ["tests/test_example.py"], "python"
+            )
+
+            # Wait a moment for async operations to complete
+            await asyncio.sleep(0.1)
+
+        # Verify that all run_tests.sh files now have LF line endings only
+        for version in ["post-edit", "post-edit2", "correct-edit"]:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            run_tests_path = version_path / "run_tests.sh"
+
+            if run_tests_path.exists():
+                # Read as bytes to check exact line ending characters
+                content_bytes = run_tests_path.read_bytes()
+                content_str = content_bytes.decode("utf-8")
+
+                # Should have LF line endings
+                assert (
+                    b"\n" in content_bytes
+                ), f"File should contain LF characters in {version}/run_tests.sh"
+
+                # Should NOT have CRLF line endings
+                assert (
+                    b"\r\n" not in content_bytes
+                ), f"File should not contain CRLF in {version}/run_tests.sh. Content: {repr(content_str)}"
+
+                # Should NOT have isolated CR characters
+                assert (
+                    b"\r" not in content_bytes
+                ), f"File should not contain CR characters in {version}/run_tests.sh. Content: {repr(content_str)}"
+
+    @pytest.mark.asyncio
+    async def test_lf_enforcement_on_all_platforms(self):
+        """Test that LF enforcement works regardless of the current platform's default line endings"""
+        # This test ensures the fix works even on Linux where LF would be default anyway
+
+        # Create run_tests.sh with mixed line endings (simulate cross-platform editing)
+        mixed_content_bytes = b"#!/bin/sh\n# Line 1 with LF\r\n# Line 2 with CRLF\r# Line 3 with just CR\npytest tests/\n"
+
+        # Set up run_tests.sh files with mixed line endings
+        for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            run_tests_path = version_path / "run_tests.sh"
+            run_tests_path.write_bytes(mixed_content_bytes)
+
+        # Verify initial state has mixed line endings
+        pre_edit_path = (
+            Path(self.temp_dir) / "pre-edit" / "test-project" / "run_tests.sh"
+        )
+        initial_bytes = pre_edit_path.read_bytes()
+        assert b"\r\n" in initial_bytes, "Test setup should have CRLF"
+        assert b"\r" in initial_bytes, "Test setup should have CR characters"
+
+        # Mock the operation manager and run the actual edit functionality
+        from core.operation_manager import OperationManager
+        from unittest.mock import AsyncMock, Mock, patch
+
+        # Mock the dependencies
+        mock_services = {
+            "project_service": Mock(),
+            "file_service": Mock(),
+            "git_service": Mock(),
+            "docker_service": Mock(),
+            "sync_service": Mock(),
+            "validation_service": Mock(),
+            "docker_files_service": Mock(),
+            "async_bridge": Mock(),
+        }
+
+        mock_callback_handler = Mock()
+        mock_window = Mock()
+        mock_control_panel = Mock()
+
+        # Create operation manager instance
+        operation_manager = OperationManager(
+            services=mock_services,
+            callback_handler=mock_callback_handler,
+            window=mock_window,
+            control_panel=mock_control_panel,
+        )
+
+        # Mock the TerminalOutputWindow to avoid GUI dependencies
+        with patch(
+            "core.operation_manager.TerminalOutputWindow"
+        ) as mock_output_window_class:
+            mock_output_window = Mock()
+            mock_output_window_class.return_value = mock_output_window
+
+            # Call the actual edit functionality
+            operation_manager._handle_run_tests_edit(
+                self.project_group,
+                ["tests/test_example.py", "tests/test_another.py"],
+                "python",
+            )
+
+            # Wait a moment for async operations to complete
+            await asyncio.sleep(0.1)
+
+        # Verify that all run_tests.sh files are normalized to LF only
+        for version in ["post-edit", "post-edit2", "correct-edit"]:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            run_tests_path = version_path / "run_tests.sh"
+
+            if run_tests_path.exists():
+                # Read as bytes to check exact line ending characters
+                content_bytes = run_tests_path.read_bytes()
+                content_str = content_bytes.decode("utf-8")
+
+                # Count line endings
+                lf_count = content_bytes.count(b"\n")
+                crlf_count = content_bytes.count(b"\r\n")
+                cr_only_count = content_bytes.count(b"\r") - crlf_count
+
+                # Should have LF line endings (at least some)
+                assert (
+                    lf_count > 0
+                ), f"File should contain LF characters in {version}/run_tests.sh"
+
+                # Should NOT have any CRLF or CR characters
+                assert (
+                    crlf_count == 0
+                ), f"File should not contain CRLF in {version}/run_tests.sh. Content: {repr(content_str)}"
+                assert (
+                    cr_only_count == 0
+                ), f"File should not contain standalone CR in {version}/run_tests.sh. Content: {repr(content_str)}"
+
+                # Verify shebang is preserved
+                lines = content_str.split("\n")
+                assert (
+                    lines[0] == "#!/bin/sh"
+                ), f"Shebang should be preserved in {version}/run_tests.sh"
