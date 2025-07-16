@@ -71,10 +71,7 @@ Each subdirectory can contain multiple projects that will be automatically group
 
 ## Configuration
 
-### config/settings.py
-
-The main configuration file contains several important settings:
-
+(Note that these settings can be changed easily through the GUI in the settings menu. This is recommended.)
 #### Core Settings
 - **`SOURCE_DIR`**: Absolute path to your project directory (MUST be configured)
 - **`FOLDER_ALIASES`**: Maps folder names to project workflow stages
