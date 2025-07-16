@@ -1390,41 +1390,54 @@ echo "Tests completed for test-project"
             "#!/bin/sh\n# Auto-generated content\npytest tests/test_example.py\n"
         )
 
-        # Mock os.name to simulate Windows
-        with patch("os.name", "nt"):
-            # This simulates what would happen without our fix on Windows
-            # We'll write to one file without newline parameter to show the difference
-            broken_path = (
-                Path(self.temp_dir) / "post-edit" / "test-project" / "run_tests.sh"
+        # Test the difference between approaches without platform-specific mocking
+        # Write to one file without newline parameter (simulates the old broken behavior)
+        broken_path = (
+            Path(self.temp_dir) / "post-edit" / "test-project" / "run_tests.sh"
+        )
+        broken_path.write_text(test_content, encoding="utf-8")  # No newline="\n"
+
+        # Write to another file with our fix
+        fixed_path = (
+            Path(self.temp_dir) / "post-edit2" / "test-project" / "run_tests.sh"
+        )
+        fixed_path.write_text(
+            test_content, encoding="utf-8", newline="\n"
+        )  # With our fix
+
+        # Read both files as bytes to compare
+        broken_bytes = broken_path.read_bytes() if broken_path.exists() else b""
+        fixed_bytes = fixed_path.read_bytes() if fixed_path.exists() else b""
+
+        # The fixed version should have LF only
+        if fixed_bytes:
+            assert b"\n" in fixed_bytes, "Fixed version should contain LF"
+            assert (
+                b"\r\n" not in fixed_bytes
+            ), f"Fixed version should not contain CRLF: {repr(fixed_bytes.decode('utf-8'))}"
+
+        # On Windows, the broken version might have CRLF (this would expose the bug)
+        # On Unix, both might be the same, but the test still validates our fix is explicit
+        # The key assertion: our fix should be explicit about line endings
+        # This test documents the importance of the newline="\n" parameter
+
+        # Verify that the fixed approach produces consistent results
+        if broken_bytes and fixed_bytes:
+            # Both should contain the same content when normalized
+            broken_str = (
+                broken_bytes.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
             )
+            fixed_str = fixed_bytes.decode("utf-8")
 
-            # Write without newline parameter (simulates the old broken behavior)
-            broken_path.write_text(test_content, encoding="utf-8")  # No newline="\n"
+            # Content should be equivalent when normalized
+            assert (
+                broken_str == fixed_str
+            ), "Content should be equivalent after line ending normalization"
 
-            # Write to another file with our fix
-            fixed_path = (
-                Path(self.temp_dir) / "post-edit2" / "test-project" / "run_tests.sh"
-            )
-            fixed_path.write_text(
-                test_content, encoding="utf-8", newline="\n"
-            )  # With our fix
-
-            # Read both files as bytes to compare
-            broken_bytes = broken_path.read_bytes() if broken_path.exists() else b""
-            fixed_bytes = fixed_path.read_bytes() if fixed_path.exists() else b""
-
-            # The fixed version should have LF only
-            if fixed_bytes:
-                assert b"\n" in fixed_bytes, "Fixed version should contain LF"
-                assert (
-                    b"\r\n" not in fixed_bytes
-                ), f"Fixed version should not contain CRLF: {repr(fixed_bytes.decode('utf-8'))}"
-
-            # On Windows, the broken version might have CRLF (this would expose the bug)
-            # On Unix, both might be the same, but the test still validates our fix is explicit
-
-            # The key assertion: our fix should be explicit about line endings
-            # This test documents the importance of the newline="\n" parameter
+            # But the fixed version explicitly ensures LF endings
+            assert b"\n" in fixed_bytes, "Fixed version must have LF"
+            # The fixed version should never have CRLF (regardless of platform)
+            assert b"\r\n" not in fixed_bytes, "Fixed version must not have CRLF"
 
     @pytest.mark.asyncio
     async def test_lf_enforcement_on_all_platforms(self):
