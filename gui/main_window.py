@@ -8,7 +8,16 @@ from tkinter import messagebox, ttk
 from typing import Optional, Callable, Dict, Any, List
 from pathlib import Path
 
-from config.settings import WINDOW_TITLE, MAIN_WINDOW_SIZE, COLORS, FONTS, BUTTON_STYLES
+from config.config import get_config
+
+# Cache config values for efficiency
+_config = get_config()
+WINDOW_TITLE = _config.gui.window_title
+MAIN_WINDOW_SIZE = _config.gui.main_window_size
+COLORS = _config.gui.colors
+FONTS = _config.gui.fonts
+BUTTON_STYLES = _config.gui.button_styles
+
 from services.platform_service import PlatformService
 from services.file_monitor_service import file_monitor
 from gui.gui_utils import GuiUtils

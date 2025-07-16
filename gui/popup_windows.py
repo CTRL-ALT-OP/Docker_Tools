@@ -8,7 +8,13 @@ from tkinter import ttk, scrolledtext, messagebox, colorchooser
 from typing import Optional, Callable, Dict, Any, List
 from pathlib import Path
 
-from config.settings import COLORS, FONTS, OUTPUT_WINDOW_SIZE, GIT_WINDOW_SIZE
+from config.config import get_config
+
+COLORS = get_config().gui.colors
+FONTS = get_config().gui.fonts
+OUTPUT_WINDOW_SIZE = get_config().gui.output_window_size
+GIT_WINDOW_SIZE = get_config().gui.git_window_size
+
 from gui.gui_utils import GuiUtils
 from services.project_group_service import ProjectGroup
 
@@ -1079,15 +1085,15 @@ class EditRunTestsWindow:
 
     def _get_test_file_patterns(self):
         """Get test file patterns based on the detected language"""
-        from config.commands import TEST_FILE_PATTERNS
+        TEST_FILE_PATTERNS = get_config().test.file_patterns
 
         return TEST_FILE_PATTERNS.get(
-            self.detected_language, [("test_*.py", "*_test.py")]
+            self.detected_language, ["test_*.py", "*_test.py"]
         )
 
     def _get_test_directories(self):
         """Get test directories based on the detected language"""
-        from config.commands import TEST_DIRECTORIES
+        TEST_DIRECTORIES = get_config().test.directories
 
         return TEST_DIRECTORIES.get(self.detected_language, ["tests/"])
 
@@ -1106,15 +1112,14 @@ class EditRunTestsWindow:
         for test_dir in test_directories:
             dir_path = pre_edit_version.path / test_dir.rstrip("/")
             if dir_path.exists() and dir_path.is_dir():
-                for pattern_group in test_patterns:
-                    for pattern in pattern_group:
-                        for test_file in dir_path.rglob(pattern):
-                            if test_file.is_file():
-                                rel_path = test_file.relative_to(pre_edit_version.path)
-                                # Normalize to forward slashes
-                                normalized_path = str(rel_path).replace("\\", "/")
-                                if normalized_path not in self.all_test_files:
-                                    self.all_test_files.append(normalized_path)
+                for pattern in test_patterns:
+                    for test_file in dir_path.rglob(pattern):
+                        if test_file.is_file():
+                            rel_path = test_file.relative_to(pre_edit_version.path)
+                            # Normalize to forward slashes
+                            normalized_path = str(rel_path).replace("\\", "/")
+                            if normalized_path not in self.all_test_files:
+                                self.all_test_files.append(normalized_path)
 
         # Sort the test files for consistent display
         self.all_test_files.sort()
@@ -1501,9 +1506,9 @@ class SettingsWindow:
         self.pending_folder_creation = None  # Store pending folder creation info
 
         # Import settings to get current values
-        from config import settings
+        from config.config import get_config
 
-        self.settings_module = settings
+        self.config = get_config()
 
     def create_window(self):
         """Create the settings window with tabbed interface"""
@@ -1641,7 +1646,7 @@ class SettingsWindow:
             "Source Directory",
             "SOURCE_DIR",
             "Main directory where projects are located",
-            self.settings_module.SOURCE_DIR,
+            self.config.project.source_dir,
         )
 
         # Window Settings
@@ -1652,31 +1657,31 @@ class SettingsWindow:
             "Window Title",
             "WINDOW_TITLE",
             "Title displayed in the main window",
-            self.settings_module.WINDOW_TITLE,
+            self.config.gui.window_title,
         )
 
         self._create_text_setting(
             scrollable_frame,
             "Main Window Size",
             "MAIN_WINDOW_SIZE",
-            "Size of the main window (format: WIDTHxHEIGHT)",
-            self.settings_module.MAIN_WINDOW_SIZE,
+            "Size of the main window (widthxheight)",
+            self.config.gui.main_window_size,
         )
 
         self._create_text_setting(
             scrollable_frame,
             "Output Window Size",
             "OUTPUT_WINDOW_SIZE",
-            "Size of terminal output windows",
-            self.settings_module.OUTPUT_WINDOW_SIZE,
+            "Size of the output window (widthxheight)",
+            self.config.gui.output_window_size,
         )
 
         self._create_text_setting(
             scrollable_frame,
             "Git Window Size",
             "GIT_WINDOW_SIZE",
-            "Size of git commit windows",
-            self.settings_module.GIT_WINDOW_SIZE,
+            "Size of the git window (widthxheight)",
+            self.config.gui.git_window_size,
         )
 
     def _create_appearance_tab(self):
@@ -1701,7 +1706,7 @@ class SettingsWindow:
                 name,
                 f"COLORS.{key}",
                 description,
-                self.settings_module.COLORS[key],
+                self.config.gui.colors[key],
             )
 
         # Fonts section
@@ -1715,7 +1720,7 @@ class SettingsWindow:
         ]
 
         for name, key, description in font_settings:
-            font_value = self.settings_module.FONTS[key]
+            font_value = self.config.gui.fonts[key]
             font_str = f"{font_value[0]}, {font_value[1]}"
             if len(font_value) > 2:
                 font_str += f", {font_value[2]}"
@@ -1733,7 +1738,7 @@ class SettingsWindow:
             "Ignored Directories",
             "IGNORE_DIRS",
             "Directories to remove during cleanup operations",
-            self.settings_module.IGNORE_DIRS,
+            self.config.project.ignore_dirs,
         )
 
         # Ignore files
@@ -1743,7 +1748,7 @@ class SettingsWindow:
             "Ignored Files",
             "IGNORE_FILES",
             "Files to remove during cleanup operations",
-            self.settings_module.IGNORE_FILES,
+            self.config.project.ignore_files,
         )
 
         # Folder aliases
@@ -1753,7 +1758,7 @@ class SettingsWindow:
             "Folder Aliases",
             "FOLDER_ALIASES",
             "Aliases for project folder names",
-            self.settings_module.FOLDER_ALIASES,
+            self.config.project.folder_aliases,
         )
 
     def _create_languages_tab(self):
@@ -1766,7 +1771,7 @@ class SettingsWindow:
             "Language Extensions",
             "LANGUAGE_EXTENSIONS",
             "File extensions for each programming language",
-            self.settings_module.LANGUAGE_EXTENSIONS,
+            self.config.language.extensions,
         )
 
         # Required files
@@ -1776,7 +1781,7 @@ class SettingsWindow:
             "Required Files",
             "LANGUAGE_REQUIRED_FILES",
             "Required files for each programming language",
-            self.settings_module.LANGUAGE_REQUIRED_FILES,
+            self.config.language.required_files,
         )
 
     def _create_tab_scrollable(self, text):
@@ -1938,7 +1943,7 @@ class SettingsWindow:
             }
 
             # Get the first alias from each category in FOLDER_ALIASES to show preview
-            from config.settings import FOLDER_ALIASES
+            FOLDER_ALIASES = get_config().project.folder_aliases
 
             folders_to_create = []
             folders_to_create.extend(
@@ -2187,6 +2192,55 @@ class SettingsWindow:
             # Fallback message if no callback provided
             messagebox.showinfo("Reset", "Reset functionality not available.")
 
+    def _convert_legacy_keys_to_unified_format(
+        self, settings: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Convert legacy setting keys to unified config format"""
+        # Key mapping from old format to new unified config format
+        key_mapping = {
+            # General settings
+            "SOURCE_DIR": "project.source_dir",
+            "WINDOW_TITLE": "gui.window_title",
+            "MAIN_WINDOW_SIZE": "gui.main_window_size",
+            "OUTPUT_WINDOW_SIZE": "gui.output_window_size",
+            "GIT_WINDOW_SIZE": "gui.git_window_size",
+            # Project settings
+            "IGNORE_DIRS": "project.ignore_dirs",
+            "IGNORE_FILES": "project.ignore_files",
+            "FOLDER_ALIASES": "project.folder_aliases",
+            # Language settings
+            "LANGUAGE_EXTENSIONS": "language.extensions",
+            "LANGUAGE_REQUIRED_FILES": "language.required_files",
+        }
+
+        converted_settings = {}
+
+        for key, value in settings.items():
+            # Handle COLORS.* keys
+            if key.startswith("COLORS."):
+                color_key = key.split(".", 1)[1]
+                new_key = f"gui.colors.{color_key}"
+                converted_settings[new_key] = value
+            # Handle FONTS.* keys
+            elif key.startswith("FONTS."):
+                font_key = key.split(".", 1)[1]
+                new_key = f"gui.fonts.{font_key}"
+                converted_settings[new_key] = value
+            # Handle BUTTON_STYLES.* keys
+            elif key.startswith("BUTTON_STYLES."):
+                style_key = key.split(".", 1)[1]
+                new_key = f"gui.button_styles.{style_key}"
+                converted_settings[new_key] = value
+            # Handle direct mapping
+            elif key in key_mapping:
+                new_key = key_mapping[key]
+                converted_settings[new_key] = value
+            else:
+                # If no mapping found, use the key as-is (might already be in new format)
+                converted_settings[key] = value
+
+        return converted_settings
+
     def _apply_settings(self):
         """Apply the settings and restart the application"""
         try:
@@ -2198,7 +2252,7 @@ class SettingsWindow:
                 return  # Folder creation failed, don't proceed with settings
 
             # Collect all settings
-            new_settings = {}
+            legacy_settings = {}
 
             for key, var in self.settings_vars.items():
                 if isinstance(var, tk.Text):
@@ -2208,10 +2262,10 @@ class SettingsWindow:
                         # Dictionary settings
                         import json
 
-                        new_settings[key] = json.loads(content)
+                        legacy_settings[key] = json.loads(content)
                     else:
                         # List settings
-                        new_settings[key] = [
+                        legacy_settings[key] = [
                             line.strip() for line in content.split("\n") if line.strip()
                         ]
                 else:
@@ -2222,22 +2276,27 @@ class SettingsWindow:
                         font_parts = [part.strip() for part in value.split(",")]
                         if len(font_parts) >= 2:
                             try:
-                                new_settings[key] = (
+                                legacy_settings[key] = (
                                     font_parts[0],
                                     int(font_parts[1]),
                                 ) + tuple(font_parts[2:])
                             except ValueError:
-                                new_settings[key] = (font_parts[0], 12) + tuple(
+                                legacy_settings[key] = (font_parts[0], 12) + tuple(
                                     font_parts[2:]
                                 )
                     else:
-                        new_settings[key] = value
+                        legacy_settings[key] = value
+
+            # Convert legacy keys to unified config format
+            new_settings = self._convert_legacy_keys_to_unified_format(legacy_settings)
 
             # Validate settings
-            if not self._validate_settings(new_settings):
+            if not self._validate_settings(
+                legacy_settings
+            ):  # Still validate with legacy format for compatibility
                 return
 
-            # Call the callback to save settings
+            # Call the callback to save settings (now in unified format)
             self.on_save_callback(new_settings)
             self.destroy()
 
@@ -2247,8 +2306,7 @@ class SettingsWindow:
     def _create_dockerized_folder_structure(self):
         """Actually create the dockerized folder structure"""
         try:
-            from pathlib import Path
-            from config.settings import FOLDER_ALIASES
+            FOLDER_ALIASES = get_config().project.folder_aliases
 
             dockerized_path = self.pending_folder_creation["dockerized_path"]
             use_existing = self.pending_folder_creation["use_existing"]

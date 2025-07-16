@@ -8,12 +8,20 @@ import asyncio
 import tkinter as tk
 import logging
 import re
-import threading
 from tkinter import messagebox, ttk
 from pathlib import Path
 from typing import List, Dict, Any
 
-from config.settings import WINDOW_TITLE, MAIN_WINDOW_SIZE, COLORS, FONTS, SOURCE_DIR
+from config.config import get_config
+
+# Cache config values for efficiency
+_config = get_config()
+WINDOW_TITLE = _config.gui.window_title
+MAIN_WINDOW_SIZE = _config.gui.main_window_size
+COLORS = _config.gui.colors
+FONTS = _config.gui.fonts
+SOURCE_DIR = _config.project.source_dir
+
 from services.project_service import ProjectService
 from services.project_group_service import ProjectGroupService, ProjectGroup
 from services.file_service import FileService
@@ -38,7 +46,7 @@ from utils.async_utils import (
     TkinterAsyncBridge,
     AsyncTaskGroup,
 )
-from utils.async_commands import (
+from commands import (
     CleanupProjectCommand,
     ArchiveProjectCommand,
     DockerBuildAndTestCommand,
@@ -47,10 +55,11 @@ from utils.async_commands import (
     SyncRunTestsCommand,
     ValidateProjectGroupCommand,
     BuildDockerFilesCommand,
-    AsyncTaskManager,
 )
 from models.project import Project
 from services.web_integration_service import WebIntegration
+from core.callback_handler import CallbackHandler
+from core.operation_manager import OperationManager
 
 # Set up logging
 logging.basicConfig(
@@ -79,23 +88,32 @@ class ProjectControlPanel:
         self.main_window = MainWindow(root_dir)
         self.window = self.main_window.window  # For backward compatibility
 
+        # Initialize unified callback handler
+        self.callback_handler = CallbackHandler(self.window, control_panel=self)
+
         # Initialize async bridge for GUI coordination
         self.async_bridge = TkinterAsyncBridge(self.window, task_manager)
 
-        # Initialize standardized async executor
-        self.async_executor = AsyncTaskManager()
+        # Initialize operation manager with all services
+        services = {
+            "project_service": self.project_service,
+            "file_service": self.file_service,
+            "git_service": self.git_service,
+            "docker_service": self.docker_service,
+            "sync_service": self.sync_service,
+            "validation_service": self.validation_service,
+            "docker_files_service": self.docker_files_service,
+            "async_bridge": self.async_bridge,
+        }
+        self.operation_manager = OperationManager(
+            services=services,
+            callback_handler=self.callback_handler,
+            window=self.window,
+            control_panel=self,
+        )
 
         # Initialize web interface integration
         self.web_integration = WebIntegration(self)
-
-        # Initialize terminal output tracking
-        self._current_terminal_output = ""
-        self._terminal_output_lock = threading.Lock()
-
-        # Set global reference for terminal output access
-        import sys
-
-        sys.modules[__name__].current_control_panel = self
 
         # Set up proper event loop for async operations
         self._setup_async_integration()
@@ -300,23 +318,11 @@ class ProjectControlPanel:
             self.main_window.create_version_section(project, self.project_service)
 
     def cleanup_project(self, project: Project):
-        """Standardized async cleanup operation using command pattern"""
-        command = CleanupProjectCommand(
-            project=project,
-            file_service=self.file_service,
-            progress_callback=self._update_status,
-            completion_callback=self._handle_cleanup_completion,
-        )
-
-        # Standard async execution
-        task_manager.run_task(
-            command.run_with_progress(), task_name=f"cleanup-{project.name}"
-        )
+        """Execute project cleanup operation"""
+        self.operation_manager.cleanup_project(project)
 
     def _update_status(self, message: str, level: str):
         """Standard progress callback for async operations"""
-        from config.settings import COLORS
-
         color_map = {
             "info": COLORS["info"],
             "warning": COLORS["warning"],
@@ -338,920 +344,45 @@ class ProjectControlPanel:
         ):
             logger.info(f"Status: {message} ({color})")
 
-    def _handle_cleanup_completion(self, result):
-        """Standard completion callback for cleanup operations"""
-        if result.is_success:
-            self._show_cleanup_success(result.data)
-        else:
-            self._show_cleanup_error(result.error)
-
-    def _show_cleanup_success(self, data):
-        """Show cleanup success message"""
-        message = data.get("message", "Cleanup completed successfully")
-        if deleted_items := data.get("deleted_directories", []) + data.get(
-            "deleted_files", []
-        ):
-            item_list = "\n".join(
-                [f"  • {item}" for item in deleted_items[:10]]
-            )  # Show first 10
-            if len(deleted_items) > 10:
-                item_list += f"\n  ... and {len(deleted_items) - 10} more items"
-            full_message = f"{message}\n\nDeleted items:\n{item_list}"
-        else:
-            full_message = f"{message}\n\nNo items needed cleanup."
-
-        self.window.after(
-            0, lambda: messagebox.showinfo("Cleanup Complete", full_message)
-        )
-
-    def _show_cleanup_error(self, error):
-        """Show cleanup error message"""
-        error_message = f"Cleanup failed: {error.message}"
-        self.window.after(
-            0, lambda: messagebox.showerror("Cleanup Error", error_message)
-        )
-
     def archive_project(self, project: Project):
-        """Standardized async archive operation with cleanup prompt before archiving"""
-
-        async def archive_with_cleanup_prompt():
-            try:
-                # First, scan for cleanup items before creating archive
-                self._update_status("Scanning for cleanup items...", "info")
-                scan_result = await self.file_service.scan_for_cleanup_items(
-                    project.path
-                )
-
-                should_cleanup = False
-                if scan_result.is_success and scan_result.data.item_count > 0:
-                    # Build cleanup message
-                    cleanup_items = []
-                    if scan_result.data.directories:
-                        cleanup_items.append("Directories:")
-                        cleanup_items.extend(
-                            [f"  • {d.name}" for d in scan_result.data.directories[:5]]
-                        )
-                        if len(scan_result.data.directories) > 5:
-                            cleanup_items.append(
-                                f"  ... and {len(scan_result.data.directories) - 5} more"
-                            )
-
-                    if scan_result.data.files:
-                        if cleanup_items:
-                            cleanup_items.append("")
-                        cleanup_items.append("Files:")
-                        cleanup_items.extend(
-                            [f"  • {f.name}" for f in scan_result.data.files[:5]]
-                        )
-                        if len(scan_result.data.files) > 5:
-                            cleanup_items.append(
-                                f"  ... and {len(scan_result.data.files) - 5} more"
-                            )
-
-                    cleanup_message = "\n".join(cleanup_items)
-
-                    # Show dialog on main thread and wait for response using async bridge
-                    response = None
-                    event_id, response_event = self.async_bridge.create_sync_event()
-
-                    def show_cleanup_dialog():
-                        nonlocal response
-                        response = messagebox.askyesnocancel(
-                            "Cleanup Before Archive",
-                            f"Found items to cleanup:\n\n{cleanup_message}\n\n"
-                            f"Would you like to clean these up before creating the archive?\n\n"
-                            f"• Yes: Clean up and then archive\n"
-                            f"• No: Archive without cleanup\n"
-                            f"• Cancel: Don't archive",
-                        )
-                        # Signal the event using the async bridge (thread-safe)
-                        self.async_bridge.signal_from_gui(event_id)
-
-                    # Show dialog on main thread
-                    self.window.after(0, show_cleanup_dialog)
-                    # Wait for user response
-                    await response_event.wait()
-                    # Clean up the event
-                    self.async_bridge.cleanup_event(event_id)
-
-                    if response is None:  # Cancel
-                        self._update_status("Archive cancelled by user", "info")
-                        return
-                    elif response:  # Yes - cleanup first
-                        should_cleanup = True
-
-                # Perform cleanup if requested
-                if should_cleanup:
-                    self._update_status("Cleaning up before archive...", "warning")
-                    cleanup_result = await self.file_service.cleanup_project_items(
-                        project.path
-                    )
-                    if cleanup_result.is_success:
-                        deleted_count = len(
-                            cleanup_result.data.deleted_directories
-                        ) + len(cleanup_result.data.deleted_files)
-                        self._update_status(
-                            f"Cleaned up {deleted_count} items", "success"
-                        )
-                    else:
-                        self._update_status(
-                            "Cleanup failed, proceeding with archive", "warning"
-                        )
-
-                # Now create the archive
-                self._update_status("Creating archive...", "info")
-                archive_name = self.project_service.get_archive_name(
-                    project.parent, project.name
-                )
-                archive_result = await self.file_service.create_archive(
-                    project.path, archive_name
-                )
-
-                if archive_result.is_success:
-                    self._update_status("Archive created successfully", "success")
-                    # Show success message
-                    self.window.after(
-                        0,
-                        lambda: messagebox.showinfo(
-                            "Archive Complete",
-                            f"Archive created successfully for {project.name}\n\nLocation: {archive_result.data.archive_path}",
-                        ),
-                    )
-                    # Mark button as archived
-                    self.main_window.mark_project_archived(project)
-                else:
-                    self._update_status("Archive creation failed", "error")
-                    self.window.after(
-                        0,
-                        lambda: messagebox.showerror(
-                            "Archive Error",
-                            f"Failed to create archive: {archive_result.error.message}",
-                        ),
-                    )
-
-            except Exception as e:
-                logger.exception("Error during archive operation for %s", project.name)
-                self._update_status("Archive operation failed", "error")
-                self.window.after(
-                    0,
-                    lambda: messagebox.showerror(
-                        "Archive Error", f"Archive operation failed: {str(e)}"
-                    ),
-                )
-
-        # Run the async operation
-        task_manager.run_task(
-            archive_with_cleanup_prompt(), task_name=f"archive-{project.name}"
-        )
+        """Execute project archive operation"""
+        self.operation_manager.archive_project(project)
 
     def docker_build_and_test(self, project: Project):
-        """Standardized async Docker build and test operation using command pattern"""
-        command = DockerBuildAndTestCommand(
-            project=project,
-            docker_service=self.docker_service,
-            window=self.window,
-            progress_callback=self._update_status,
-            completion_callback=self._handle_docker_completion,
-        )
-
-        # Standard async execution
-        task_manager.run_task(
-            command.run_with_progress(), task_name=f"docker-{project.name}"
-        )
-
-    def _handle_docker_completion(self, result):
-        """Standard completion callback for Docker operations"""
-        # The command creates its own terminal window with real-time streaming output,
-        # so we don't need to create additional popup windows.
-        # The Docker output is already being streamed to the terminal window in real-time.
-        pass
-
-    def _show_docker_results(self, data):
-        """Show Docker build and test results in terminal window"""
-
-        def create_window():
-            # Extract relevant information from result data
-            docker_tag = data.get("docker_tag", "unknown")
-            project_name = data.get("project_name", "unknown")
-
-            # Create terminal window with correct constructor arguments
-            terminal_window = TerminalOutputWindow(
-                self.window, f"Docker Build & Test - {project_name}", control_panel=self
-            )
-            terminal_window.create_window()
-
-            # Combine build and test output
-            build_data = data.get("build_data", {})
-            test_data = data.get("test_data", {})
-
-            build_output = (
-                build_data.get("build_output", "")
-                if isinstance(build_data, dict)
-                else str(build_data)
-            )
-            test_output = (
-                test_data.get("raw_output", "")
-                if isinstance(test_data, dict)
-                else str(test_data)
-            )
-
-            # Add the output to the terminal window
-            if build_output:
-                terminal_window.append_output("=== BUILD OUTPUT ===\n")
-                terminal_window.append_output(build_output)
-                terminal_window.append_output("\n\n")
-
-            if test_output:
-                terminal_window.append_output("=== TEST OUTPUT ===\n")
-                terminal_window.append_output(test_output)
-                terminal_window.append_output("\n")
-
-            # Add final buttons with copy functionality
-            combined_output = f"=== BUILD OUTPUT ===\n{build_output}\n\n=== TEST OUTPUT ===\n{test_output}"
-            terminal_window.add_final_buttons(copy_text=combined_output)
-
-            # Update final status
-            terminal_window.update_status(
-                "Docker operation completed", COLORS["success"]
-            )
-
-        self.window.after(0, create_window)
-
-    def _show_docker_error(self, error):
-        """Show Docker error message"""
-        error_message = f"Docker operation failed: {error.message}"
-        self.window.after(
-            0, lambda: messagebox.showerror("Docker Error", error_message)
-        )
+        """Execute Docker build and test operation"""
+        self.operation_manager.docker_build_and_test(project)
 
     def git_view(self, project: Project):
-        """Standardized async Git view operation using command pattern"""
-        command = GitViewCommand(
-            project=project,
-            git_service=self.git_service,
-            window=self.window,
-            checkout_callback=lambda commit_hash, git_window: self.checkout_commit_callback(
-                project.path, project.name, commit_hash, git_window
-            ),
-            progress_callback=self._update_status,
-            completion_callback=self._handle_git_completion,
-        )
-
-        # Standard async execution
-        task_manager.run_task(
-            command.run_with_progress(), task_name=f"git-{project.name}"
-        )
-
-    def _handle_git_completion(self, result):
-        """Standard completion callback for Git operations"""
-        # Check if the command already created a git window
-        if result.data and result.data.get("git_window_created", False):
-            # Git window already exists with real-time output, no need for additional handling
-            return
-
-        # Only show messages if the command didn't create a window
-        if result.is_success:
-            self._show_git_success(result.data)
-        else:
-            self._show_git_error(result.error)
-
-    def _show_git_success(self, data):
-        """Show Git success message"""
-        commits_count = len(data.get("commits", []))
-        fetch_success = data.get("fetch_success", False)
-        fetch_message = data.get("fetch_message", "")
-
-        if not fetch_success and "No remote repository" not in fetch_message:
-            self.window.after(
-                0,
-                lambda: messagebox.showwarning(
-                    "Fetch Warning",
-                    f"Could not fetch latest commits:\n{fetch_message}\n\nShowing local commits only.",
-                ),
-            )
-
-    def _show_git_error(self, error):
-        """Show Git error message"""
-        error_message = f"Error accessing git repository: {error.message}"
-        self.window.after(0, lambda: messagebox.showerror("Git Error", error_message))
+        """Execute git view operation"""
+        self.operation_manager.git_view(project)
 
     def checkout_commit_callback(
         self, project_path, project_name, commit_hash, git_window
     ):
         """Handle commit checkout with proper async pattern"""
-        # Confirm checkout
-        response = messagebox.askyesno(
-            "Confirm Checkout",
-            f"Are you sure you want to checkout to commit {commit_hash}?\n\n"
-            f"This will change your working directory to that commit.\n"
-            f"Any uncommitted changes may be lost.",
-        )
-
-        if not response:
-            return
-
-        # Run checkout as async task
-        async def checkout_async():
-            try:
-                # Perform checkout
-                checkout_result = await self.git_service.checkout_commit(
-                    project_path, commit_hash
-                )
-                success = checkout_result.is_success
-                message = checkout_result.message or (
-                    checkout_result.error.message
-                    if checkout_result.error
-                    else "Unknown error"
-                )
-
-                if success:
-                    self.window.after(
-                        0,
-                        lambda: messagebox.showinfo(
-                            "Checkout Success",
-                            f"{message}\n\nProject: {project_name}",
-                        ),
-                    )
-                    if git_window:
-                        self.window.after(0, git_window.destroy)
-                else:
-                    # Check if the error is due to local changes
-                    if (
-                        "would be overwritten" in message
-                        or "local changes" in message.lower()
-                    ):
-                        # Show warning and ask if user wants to discard changes
-                        discard_response = messagebox.askyesnocancel(
-                            "Local Changes Detected",
-                            f"Cannot checkout because local changes would be overwritten:\n\n"
-                            f"{message}\n\n"
-                            f"Would you like to discard all local changes and force checkout?\n\n"
-                            f"⚠️  WARNING: This will permanently delete all uncommitted changes!\n\n"
-                            f"• Yes: Discard changes and checkout\n"
-                            f"• No: Keep changes and cancel checkout\n"
-                            f"• Cancel: Return to commit list",
-                        )
-
-                        if discard_response is True:  # Yes - discard changes
-                            force_result = await self.git_service.force_checkout_commit(
-                                project_path, commit_hash
-                            )
-                            force_success = force_result.is_success
-                            force_message = force_result.message or (
-                                force_result.error.message
-                                if force_result.error
-                                else "Unknown error"
-                            )
-
-                            if force_success:
-                                self.window.after(
-                                    0,
-                                    lambda: messagebox.showinfo(
-                                        "Checkout Success",
-                                        f"{force_message}\n\nProject: {project_name}",
-                                    ),
-                                )
-                                if git_window:
-                                    self.window.after(0, git_window.destroy)
-                            else:
-                                self.window.after(
-                                    0,
-                                    lambda: messagebox.showerror(
-                                        "Force Checkout Failed",
-                                        f"Failed to checkout even after discarding changes:\n\n{force_message}",
-                                    ),
-                                )
-                        elif discard_response is False:  # No - keep changes
-                            self.window.after(
-                                0,
-                                lambda: messagebox.showinfo(
-                                    "Checkout Cancelled",
-                                    "Checkout cancelled. Your local changes have been preserved.",
-                                ),
-                            )
-                        # If None (Cancel), just return to commit list without message
-                    else:
-                        # Some other git error
-                        self.window.after(
-                            0,
-                            lambda: messagebox.showerror(
-                                "Checkout Error",
-                                f"Failed to checkout commit {commit_hash}\n\n{message}",
-                            ),
-                        )
-            except Exception as e:
-                logger.exception("Error during checkout for %s", project_name)
-                error_msg = f"Error during checkout: {str(e)}"
-                self.window.after(
-                    0, lambda: messagebox.showerror("Checkout Error", error_msg)
-                )
-
-        # Run with proper task naming
-        task_manager.run_task(
-            checkout_async(), task_name=f"checkout-{project_name}-{commit_hash[:8]}"
+        self.operation_manager.checkout_commit_callback(
+            project_path, project_name, commit_hash, git_window
         )
 
     def git_checkout_all(self, project_group: ProjectGroup):
-        """Standardized async Git checkout all operation using command pattern"""
-        command = GitCheckoutAllCommand(
-            project_group=project_group,
-            git_service=self.git_service,
-            window=self.window,
-            progress_callback=self._update_status,
-            completion_callback=self._handle_git_checkout_all_completion,
-        )
-
-        # Standard async execution
-        task_manager.run_task(
-            command.run_with_progress(),
-            task_name=f"git-checkout-all-{project_group.name}",
-        )
-
-    def _handle_git_checkout_all_completion(self, result):
-        """Standard completion callback for Git checkout all operations"""
-        # Check if the command already created a git window
-        if result.data and result.data.get("git_window_created", False):
-            # Git window already exists with real-time output, no need for additional handling
-            return
-
-        # Only show messages if the command didn't create a window
-        if result.is_success:
-            self._show_git_checkout_all_success(result.data)
-        else:
-            self._show_git_checkout_all_error(result.error)
-
-    def _show_git_checkout_all_success(self, data):
-        """Show Git checkout all success message"""
-        commits_count = len(data.get("commits", []))
-        versions_count = len(data.get("all_versions", []))
-        fetch_success = data.get("fetch_success", False)
-        fetch_message = data.get("fetch_message", "")
-
-        if not fetch_success and "No remote repository" not in fetch_message:
-            self.window.after(
-                0,
-                lambda: messagebox.showwarning(
-                    "Fetch Warning",
-                    f"Could not fetch latest commits:\n{fetch_message}\n\n"
-                    f"Showing local commits only for {versions_count} versions.",
-                ),
-            )
-
-    def _show_git_checkout_all_error(self, error):
-        """Show Git checkout all error message"""
-        error_message = f"Error accessing git repository: {error.message}"
-        self.window.after(
-            0, lambda: messagebox.showerror("Git Checkout All Error", error_message)
-        )
+        """Execute git checkout all operation"""
+        self.operation_manager.git_checkout_all(project_group)
 
     def sync_run_tests_from_pre_edit(self, project_group: ProjectGroup):
-        """Standardized async sync operation using command pattern"""
-        command = SyncRunTestsCommand(
-            project_group=project_group,
-            sync_service=self.sync_service,
-            progress_callback=self._update_status,
-            completion_callback=self._handle_sync_completion,
-        )
-
-        # Standard async execution
-        task_manager.run_task(
-            command.run_with_progress(), task_name=f"sync-{project_group.name}"
-        )
-
-    def _handle_sync_completion(self, result):
-        """Standard completion callback for sync operations"""
-        if result.is_success:
-            self._show_sync_success(result.data)
-        elif result.is_partial:
-            self._show_sync_partial(result.data, result.error)
-        else:
-            self._show_sync_error(result.error)
-
-    def _show_sync_success(self, data):
-        """Show sync success message"""
-        synced_count = data.get("success_count", 0)
-        total_targets = data.get("total_targets", 0)
-        synced_paths = data.get("synced_paths", [])
-
-        paths_text = "\n".join([f"• {path}" for path in synced_paths[:10]])
-        if len(synced_paths) > 10:
-            paths_text += f"\n... and {len(synced_paths) - 10} more"
-
-        self.window.after(
-            0,
-            lambda: messagebox.showinfo(
-                "Sync Complete",
-                f"Successfully synced run_tests.sh from pre-edit!\n\n"
-                f"Synced to {synced_count}/{total_targets} versions:\n{paths_text}",
-            ),
-        )
-
-    def _show_sync_partial(self, data, error):
-        """Show partial sync message"""
-        synced_count = data.get("success_count", 0)
-        total_targets = data.get("total_targets", 0)
-        failed_syncs = data.get("failed_syncs", [])
-
-        failed_text = "\n".join([f"• {item}" for item in failed_syncs[:5]])
-        if len(failed_syncs) > 5:
-            failed_text += f"\n... and {len(failed_syncs) - 5} more"
-
-        self.window.after(
-            0,
-            lambda: messagebox.showwarning(
-                "Partial Sync",
-                f"Partially synced run_tests.sh ({synced_count}/{total_targets})\n\n"
-                f"Failed syncs:\n{failed_text}\n\nError: {error.message}",
-            ),
-        )
-
-    def _show_sync_error(self, error):
-        """Show sync error message"""
-        error_message = f"Failed to sync run_tests.sh: {error.message}"
-        self.window.after(0, lambda: messagebox.showerror("Sync Error", error_message))
+        """Execute sync run tests operation"""
+        self.operation_manager.sync_run_tests_from_pre_edit(project_group)
 
     def edit_run_tests(self, project_group: ProjectGroup):
         """Open the edit run_tests.sh window"""
-        edit_window = EditRunTestsWindow(
-            self.window, project_group, self._handle_run_tests_edit
-        )
-        edit_window.create_window()
-
-    def _handle_run_tests_edit(
-        self,
-        project_group: ProjectGroup,
-        selected_tests: List[str],
-        language: str = "python",
-    ):
-        """Handle the run_tests.sh edit operation"""
-
-        async def edit_run_tests_async():
-            output_window = None
-            try:
-                # Create output window for showing progress
-                output_window = TerminalOutputWindow(
-                    self.window,
-                    f"Editing run_tests.sh - {project_group.name}",
-                    control_panel=self,
-                )
-                output_window.create_window()
-                output_window.update_status(
-                    "Updating run_tests.sh files...", COLORS["warning"]
-                )
-
-                # Get all versions in the project group
-                all_versions = project_group.get_all_versions()
-
-                if not all_versions:
-                    output_window.update_status(
-                        "Error: No versions found", COLORS["error"]
-                    )
-                    output_window.append_output("No versions found in project group\n")
-                    return
-
-                output_window.append_output(
-                    f"Found {len(all_versions)} versions to update:\n"
-                )
-                for version in all_versions:
-                    output_window.append_output(
-                        f"  • {version.parent}/{version.name}\n"
-                    )
-                output_window.append_output("\n")
-
-                # Create the new test command with forward slashes
-                if len(selected_tests) == 1:
-                    # Single test file
-                    test_paths = selected_tests[0].replace("\\", "/")
-                else:
-                    # Multiple test files - join them with spaces, ensure forward slashes
-                    test_paths = " ".join(
-                        [test.replace("\\", "/") for test in selected_tests]
-                    )
-
-                # Generate language-specific command
-                new_test_command = self._generate_test_command(language, test_paths)
-
-                output_window.append_output(
-                    f"New {language} test command: {new_test_command}\n\n"
-                )
-
-                successful_updates = []
-                failed_updates = []
-
-                # Update run_tests.sh in each version
-                for i, version in enumerate(all_versions):
-                    output_window.update_status(
-                        f"Updating {version.parent} ({i+1}/{len(all_versions)})",
-                        COLORS["warning"],
-                    )
-                    output_window.append_output(
-                        f"📝 Updating {version.parent}/{version.name}...\n"
-                    )
-
-                    run_tests_path = version.path / "run_tests.sh"
-
-                    try:
-                        if run_tests_path.exists():
-                            # Read current content
-                            current_content = run_tests_path.read_text()
-
-                            # Import regex for pytest command parsing
-                            import re
-
-                            # Replace pytest command line, preserving other lines
-                            lines = current_content.split("\n")
-                            new_lines = []
-
-                            # Ensure proper shebang line
-                            if lines and lines[0].startswith("#!"):
-                                # Already has shebang, validate it's appropriate
-                                shebang = lines[0].strip()
-                                if shebang not in [
-                                    "#!/bin/sh",
-                                    "#!/bin/bash",
-                                    "#!/usr/bin/env bash",
-                                ]:
-                                    # Fix shebang to use /bin/sh for maximum compatibility
-                                    lines[0] = "#!/bin/sh"
-                                    output_window.append_output(
-                                        f"   🔧 Fixed shebang: {shebang} -> #!/bin/sh\n"
-                                    )
-                            else:
-                                # No shebang, add one
-                                lines.insert(0, "#!/bin/sh")
-                                output_window.append_output(
-                                    f"   🔧 Added shebang: #!/bin/sh\n"
-                                )
-
-                            updated_line = False
-                            for line in lines:
-                                stripped_line = line.strip()
-                                # Check if line contains test command for this language
-                                if self._is_test_command_line(stripped_line, language):
-                                    # Generate new command preserving prefixes
-                                    old_command = stripped_line
-                                    final_command = self._preserve_command_prefix(
-                                        old_command, new_test_command, language
-                                    )
-                                    new_lines.append(final_command)
-
-                                    output_window.append_output(
-                                        f"   🔄 Updated {language} test command\n"
-                                    )
-                                    output_window.append_output(
-                                        f"      Old: {old_command}\n"
-                                    )
-                                    output_window.append_output(
-                                        f"      New: {final_command}\n"
-                                    )
-                                    updated_line = True
-                                else:
-                                    # Keep other lines as-is
-                                    new_lines.append(line)
-
-                            # If no test command was found, append the new command
-                            if not updated_line:
-                                new_lines.append(new_test_command)
-                                output_window.append_output(
-                                    f"   ➕ Added new {language} test command: {new_test_command}\n"
-                                )
-
-                            # Write updated content with Unix line endings
-                            new_content = "\n".join(new_lines)
-                            # Ensure Unix line endings (LF only) for compatibility with Docker containers
-                            run_tests_path.write_text(new_content, newline="\n")
-                            # Ensure the file has execute permissions
-                            run_tests_path.chmod(0o755)
-
-                            output_window.append_output(
-                                f"   ✅ Successfully updated {run_tests_path}\n"
-                            )
-                            successful_updates.append(
-                                f"{version.parent}/{version.name}"
-                            )
-                        else:
-                            # Create new run_tests.sh file with Unix line endings
-                            run_tests_content = f"#!/bin/sh\n{new_test_command}\n"
-                            # Ensure Unix line endings (LF only) for compatibility with Docker containers
-                            run_tests_path.write_text(run_tests_content, newline="\n")
-                            run_tests_path.chmod(0o755)  # Make executable
-
-                            output_window.append_output(
-                                f"   ✅ Created new {run_tests_path}\n"
-                            )
-                            successful_updates.append(
-                                f"{version.parent}/{version.name}"
-                            )
-
-                    except Exception as e:
-                        error_msg = str(e)
-                        output_window.append_output(f"   ❌ Failed: {error_msg}\n")
-                        failed_updates.append(
-                            f"{version.parent}/{version.name} ({error_msg})"
-                        )
-
-                # Final summary
-                output_window.append_output("\n" + "=" * 50 + "\n")
-                output_window.append_output("SUMMARY:\n")
-                output_window.append_output(
-                    f"✅ Successful updates: {len(successful_updates)}\n"
-                )
-                output_window.append_output(
-                    f"❌ Failed updates: {len(failed_updates)}\n"
-                )
-
-                if successful_updates:
-                    output_window.append_output("\nSuccessful updates:\n")
-                    for update in successful_updates:
-                        output_window.append_output(f"  • {update}\n")
-
-                if failed_updates:
-                    output_window.append_output("\nFailed updates:\n")
-                    for update in failed_updates:
-                        output_window.append_output(f"  • {update}\n")
-
-                # Update status
-                if len(successful_updates) == len(all_versions):
-                    output_window.update_status(
-                        "All run_tests.sh files updated successfully!",
-                        COLORS["success"],
-                    )
-                elif successful_updates:
-                    output_window.update_status(
-                        "Partially completed with some failures", COLORS["warning"]
-                    )
-                else:
-                    output_window.update_status("All updates failed", COLORS["error"])
-
-                # Add final buttons
-                output_window.add_final_buttons(
-                    copy_text=(
-                        output_window.text_area.get("1.0", "end-1c")
-                        if output_window.text_area
-                        else ""
-                    )
-                )
-
-            except asyncio.CancelledError:
-                logger.info("Edit run_tests was cancelled for %s", project_group.name)
-                if output_window:
-                    output_window.update_status("Operation cancelled", COLORS["error"])
-                raise
-            except Exception as e:
-                logger.exception("Error editing run_tests for %s", project_group.name)
-                if output_window:
-                    output_window.update_status("Error occurred", COLORS["error"])
-                    output_window.append_output(f"\nError: {str(e)}\n")
-                else:
-                    self.window.after(
-                        0,
-                        lambda: messagebox.showerror(
-                            "Edit run_tests Error",
-                            f"Error editing run_tests.sh: {str(e)}",
-                        ),
-                    )
-
-        # Run the async operation
-        task_manager.run_task(
-            edit_run_tests_async(), task_name=f"edit-run-tests-{project_group.name}"
-        )
-
-    def _generate_test_command(self, language: str, test_paths: str) -> str:
-        """Generate language-specific test command"""
-        from config.commands import TEST_COMMAND_TEMPLATES, DEFAULT_TEST_COMMANDS
-
-        if not test_paths or not test_paths.strip():
-            # Use default command for the language
-            return DEFAULT_TEST_COMMANDS.get(language, "pytest -vv -s tests/")
-        # Use template with specific test paths
-        template = TEST_COMMAND_TEMPLATES.get(language, "pytest -vv -s {test_paths}")
-        return template.format(test_paths=test_paths)
-
-    def _is_test_command_line(self, line: str, language: str) -> bool:
-        """Check if a line contains a test command for the specified language"""
-        from config.commands import TEST_COMMAND_PATTERNS
-
-        if line.startswith("#"):
-            return False
-
-        patterns = TEST_COMMAND_PATTERNS.get(language, ["pytest"])
-
-        # For languages with multiple patterns, check appropriately
-        if language == "java":
-            return "mvn" in line and "test" in line
-        elif language == "typescript":
-            return ("npm run build" in line and "npm test" in line) or (
-                "npm test" in line
-            )
-        else:
-            return any(pattern in line for pattern in patterns)
-
-    def _preserve_command_prefix(
-        self, old_command: str, new_command: str, language: str
-    ) -> str:
-        """Preserve command prefixes when updating test commands"""
-        # Language-specific prefix preservation
-        if language == "python":
-            if "python" not in old_command or "-m pytest" not in old_command:
-                return new_command
-            python_prefix = old_command.split("pytest")[0] + "pytest"
-            # Replace the base command but keep the prefix
-            return new_command.replace("pytest", python_prefix, 1)
-        elif language in {"javascript", "typescript"}:
-            # Handle cases like "export CI=true && npm test"
-            if "export" in old_command and "CI=true" in old_command:
-                return f"export CI=true\n{new_command}"
-            else:
-                return new_command
-        elif language == "java":
-            if "mvn" not in old_command:
-                return new_command
-            prefix = old_command[: old_command.find("mvn")]
-            return f"{prefix}{new_command}" if prefix.strip() else new_command
-        else:
-            # For other languages, return as-is
-            return new_command
+        self.operation_manager.edit_run_tests(project_group)
 
     def validate_project_group(self, project_group: ProjectGroup):
-        """Standardized async validation operation using command pattern"""
-        command = ValidateProjectGroupCommand(
-            project_group=project_group,
-            validation_service=self.validation_service,
-            window=self.window,
-            async_bridge=self.async_bridge,
-            progress_callback=self._update_status,
-            completion_callback=self._handle_validation_completion,
-        )
-
-        # Standard async execution
-        task_manager.run_task(
-            command.run_with_progress(), task_name=f"validate-{project_group.name}"
-        )
-
-    def _handle_validation_completion(self, result):
-        """Standard completion callback for validation operations"""
-        # The command creates its own terminal window with real-time streaming output
-        # and includes the Copy Validation ID button functionality.
-        # No additional popup windows are needed.
-        pass
-
-    def _show_validation_success(self, data):
-        """Show validation success message"""
-        validation_id = data.get("validation_id", "")
-        if validation_id:
-            message = (
-                f"Validation completed successfully!\nValidation ID: {validation_id}"
-            )
-        else:
-            message = "Validation completed successfully!"
-
-        self.window.after(
-            0,
-            lambda: messagebox.showinfo("Validation Complete", message),
-        )
-
-    def _show_validation_error(self, error):
-        """Show validation error message"""
-        error_message = f"Validation failed: {error.message}"
-        self.window.after(
-            0, lambda: messagebox.showerror("Validation Error", error_message)
-        )
+        """Execute project group validation operation"""
+        self.operation_manager.validate_project_group(project_group)
 
     def build_docker_files_for_project_group(self, project_group: ProjectGroup):
-        """Standardized async Docker files build operation using command pattern"""
-        command = BuildDockerFilesCommand(
-            project_group=project_group,
-            docker_files_service=self.docker_files_service,
-            window=self.window,
-            async_bridge=self.async_bridge,
-            progress_callback=self._update_status,
-            completion_callback=self._handle_build_completion,
-        )
-
-        # Standard async execution
-        task_manager.run_task(
-            command.run_with_progress(), task_name=f"build-docker-{project_group.name}"
-        )
-
-    def _handle_build_completion(self, result):
-        """Standard completion callback for Docker files build operations"""
-        # The command creates its own terminal window with real-time streaming output
-        # and handles user prompts for existing files.
-        # No additional popup windows are needed.
-        pass
-
-    def _show_build_success(self, data):
-        """Show Docker files build success message"""
-        message = f"Docker files build completed successfully for {data.get('project_group_name', 'project group')}"
-        self.window.after(
-            0,
-            lambda: messagebox.showinfo("Build Complete", message),
-        )
-
-    def _show_build_error(self, error):
-        """Show Docker files build error message"""
-        error_message = f"Docker files build failed: {error.message}"
-        self.window.after(0, lambda: messagebox.showerror("Build Error", error_message))
+        """Execute Docker files build operation"""
+        self.operation_manager.build_docker_files_for_project_group(project_group)
 
     def _extract_validation_id(self, raw_output: str) -> str:
         """
@@ -1348,9 +479,6 @@ class ProjectControlPanel:
         """Save user settings to user_settings.json (overrides only)"""
         import json
         from pathlib import Path
-        import importlib.util
-        import sys
-        import os
 
         # Path to user settings file
         user_settings_file = Path("config/user_settings.json")
@@ -1369,30 +497,55 @@ class ProjectControlPanel:
             "User customizations for Docker Tools - this file is not tracked by git"
         )
         user_settings["_instructions"] = (
-            "This file contains only the settings you have customized. Default settings come from settings.py"
+            "This file contains only the settings you have customized. Default settings come from the unified config system"
         )
 
-        # Get original default values by loading settings.py without user overrides
+        # Get original default values from the unified config system
         default_settings = self._load_original_defaults()
+
+        # Helper function to get nested default value using dot notation
+        def get_default_value(key_path: str):
+            """Get default value using dot notation path like 'gui.colors.background'"""
+            # Convert unified config path to old settings attribute path
+            if key_path.startswith("gui.colors."):
+                color_key = key_path.split(".", 2)[2]
+                return default_settings.COLORS.get(color_key)
+            elif key_path.startswith("gui.fonts."):
+                font_key = key_path.split(".", 2)[2]
+                return default_settings.FONTS.get(font_key)
+            elif key_path.startswith("gui.button_styles."):
+                style_key = key_path.split(".", 2)[2]
+                return default_settings.BUTTON_STYLES.get(style_key)
+            elif key_path == "project.source_dir":
+                return default_settings.SOURCE_DIR
+            elif key_path == "gui.window_title":
+                return default_settings.WINDOW_TITLE
+            elif key_path == "gui.main_window_size":
+                return default_settings.MAIN_WINDOW_SIZE
+            elif key_path == "gui.output_window_size":
+                return default_settings.OUTPUT_WINDOW_SIZE
+            elif key_path == "gui.git_window_size":
+                return default_settings.GIT_WINDOW_SIZE
+            elif key_path == "project.ignore_dirs":
+                return default_settings.IGNORE_DIRS
+            elif key_path == "project.ignore_files":
+                return default_settings.IGNORE_FILES
+            elif key_path == "project.folder_aliases":
+                return default_settings.FOLDER_ALIASES
+            elif key_path == "language.extensions":
+                return default_settings.LANGUAGE_EXTENSIONS
+            elif key_path == "language.required_files":
+                return default_settings.LANGUAGE_REQUIRED_FILES
+            else:
+                return None
 
         # Only save settings that differ from defaults
         for key, value in settings.items():
-            default_value = None
+            # Skip metadata keys
+            if key.startswith("_"):
+                continue
 
-            # Get the default value for comparison
-            if key.startswith("COLORS."):
-                color_key = key.split(".", 1)[1]
-                default_value = getattr(default_settings, "COLORS", {}).get(color_key)
-            elif key.startswith("FONTS."):
-                font_key = key.split(".", 1)[1]
-                default_value = getattr(default_settings, "FONTS", {}).get(font_key)
-            elif key.startswith("BUTTON_STYLES."):
-                style_key = key.split(".", 1)[1]
-                default_value = getattr(default_settings, "BUTTON_STYLES", {}).get(
-                    style_key
-                )
-            else:
-                default_value = getattr(default_settings, key, None)
+            default_value = get_default_value(key)
 
             # Convert tuples to lists for JSON serialization
             if isinstance(value, tuple):
@@ -1412,45 +565,47 @@ class ProjectControlPanel:
             json.dump(user_settings, f, indent=4, ensure_ascii=False)
 
     def _load_original_defaults(self):
-        """Load original default settings without user overrides applied"""
-        import importlib.util
-        import sys
-        import os
-        from pathlib import Path
-
-        # Get the path to settings.py
-        settings_path = Path("config/settings.py").resolve()
-
-        # Create a temporary module to load settings without user overrides
-        spec = importlib.util.spec_from_file_location(
-            "original_settings", settings_path
+        """Load original default settings from the unified config system WITHOUT user overrides"""
+        from config.config import (
+            UnifiedConfig,
+            GuiConfig,
+            ProjectConfig,
+            LanguageConfig,
+            CommandConfig,
+            TestConfig,
+            ServiceConfig,
         )
-        original_settings = importlib.util.module_from_spec(spec)
 
-        # Execute the settings module but stop before the user overrides are applied
-        # We need to read the file and execute only the part before _apply_user_settings()
-        with open(settings_path, "r", encoding="utf-8") as f:
-            settings_content = f.read()
+        # Create truly pristine config instances by bypassing the ConfigManager
+        # This ensures we get the actual defaults without user overrides applied
+        default_config = UnifiedConfig(
+            gui=GuiConfig(),
+            project=ProjectConfig(),
+            language=LanguageConfig(),
+            commands=CommandConfig(),
+            test=TestConfig(),
+            service=ServiceConfig(),
+        )
 
-        # Find where _apply_user_settings() is called and exclude that part
-        lines = settings_content.split("\n")
-        filtered_lines = []
+        # Create a mock settings module with the same structure as the old settings.py
+        class DefaultSettings:
+            def __init__(self, config):
+                # Map the unified config structure to the old settings.py format
+                self.SOURCE_DIR = config.project.source_dir
+                self.WINDOW_TITLE = config.gui.window_title
+                self.MAIN_WINDOW_SIZE = config.gui.main_window_size
+                self.OUTPUT_WINDOW_SIZE = config.gui.output_window_size
+                self.GIT_WINDOW_SIZE = config.gui.git_window_size
+                self.COLORS = config.gui.colors
+                self.FONTS = config.gui.fonts
+                self.BUTTON_STYLES = config.gui.button_styles
+                self.IGNORE_DIRS = config.project.ignore_dirs
+                self.IGNORE_FILES = config.project.ignore_files
+                self.FOLDER_ALIASES = config.project.folder_aliases
+                self.LANGUAGE_EXTENSIONS = config.language.extensions
+                self.LANGUAGE_REQUIRED_FILES = config.language.required_files
 
-        for line in lines:
-            # Stop before the _apply_user_settings() call and related code
-            if line.strip().startswith("def _apply_user_settings("):
-                break
-            if line.strip() == "_apply_user_settings()":
-                break
-            filtered_lines.append(line)
-
-        # Execute the filtered content
-        filtered_content = "\n".join(filtered_lines)
-
-        # Create a new module with only default settings
-        exec(filtered_content, original_settings.__dict__)
-
-        return original_settings
+        return DefaultSettings(default_config)
 
     def _restart_application(self):
         """Restart the application"""
@@ -1513,154 +668,7 @@ class ProjectControlPanel:
 
     def add_project(self, repo_url: str, project_name: str):
         """Add a new project by cloning it into all subdirectories"""
-
-        async def add_project_async():
-            output_window = None
-            try:
-                # Create output window for showing progress
-                output_window = TerminalOutputWindow(
-                    self.window, f"Adding Project: {project_name}", control_panel=self
-                )
-                output_window.create_window()
-                output_window.update_status("Initializing...", COLORS["warning"])
-
-                # Get all subdirectories from SOURCE_DIR
-                source_path = Path(SOURCE_DIR)
-                subdirs = [
-                    d
-                    for d in source_path.iterdir()
-                    if d.is_dir() and not d.name.startswith(".")
-                ]
-
-                if not subdirs:
-                    output_window.update_status(
-                        "Error: No subdirectories found", COLORS["error"]
-                    )
-                    output_window.append_output(
-                        f"No subdirectories found in {SOURCE_DIR}\n"
-                    )
-                    return
-
-                output_window.append_output(
-                    f"Found {len(subdirs)} subdirectories to clone into:\n"
-                )
-                for subdir in subdirs:
-                    output_window.append_output(f"  • {subdir.name}\n")
-                output_window.append_output("\n")
-
-                successful_clones = []
-                failed_clones = []
-
-                # Clone repository into each subdirectory
-                for i, subdir in enumerate(subdirs):
-                    output_window.update_status(
-                        f"Cloning into {subdir.name} ({i+1}/{len(subdirs)})",
-                        COLORS["warning"],
-                    )
-                    output_window.append_output(f"📁 Cloning into {subdir.name}/...\n")
-
-                    # Check if project already exists
-                    target_path = subdir / project_name
-                    if target_path.exists():
-                        output_window.append_output(
-                            f"   ⚠️  Project already exists at {target_path}\n"
-                        )
-                        failed_clones.append(f"{subdir.name} (already exists)")
-                        continue
-
-                    # Perform the clone
-                    clone_result = await self.git_service.clone_repository(
-                        repo_url, project_name, subdir
-                    )
-                    success = clone_result.is_success
-                    message = clone_result.message or (
-                        clone_result.error.message
-                        if clone_result.error
-                        else "Unknown error"
-                    )
-
-                    if success:
-                        output_window.append_output(f"   ✅ {message}\n")
-                        successful_clones.append(subdir.name)
-                    else:
-                        output_window.append_output(f"   ❌ {message}\n")
-                        failed_clones.append(f"{subdir.name} ({message})")
-
-                # Final summary
-                output_window.append_output("\n" + "=" * 50 + "\n")
-                output_window.append_output("SUMMARY:\n")
-                output_window.append_output(
-                    f"✅ Successful clones: {len(successful_clones)}\n"
-                )
-                output_window.append_output(f"❌ Failed clones: {len(failed_clones)}\n")
-
-                if successful_clones:
-                    output_window.append_output("\nSuccessful clones:\n")
-                    for clone in successful_clones:
-                        output_window.append_output(f"  • {clone}\n")
-
-                if failed_clones:
-                    output_window.append_output("\nFailed clones:\n")
-                    for clone in failed_clones:
-                        output_window.append_output(f"  • {clone}\n")
-
-                # Update status
-                if len(successful_clones) == len(subdirs):
-                    output_window.update_status(
-                        "All clones completed successfully!", COLORS["success"]
-                    )
-                    # Trigger refresh after successful completion
-                    self.window.after(1000, self.refresh_projects)
-                elif successful_clones:
-                    output_window.update_status(
-                        "Partially completed with some failures", COLORS["warning"]
-                    )
-                    # Trigger refresh after partial completion
-                    self.window.after(1000, self.refresh_projects)
-                else:
-                    output_window.update_status("All clones failed", COLORS["error"])
-
-                # Add final buttons
-                output_window.add_final_buttons(
-                    copy_text=(
-                        output_window.text_area.get("1.0", "end-1c")
-                        if output_window.text_area
-                        else ""
-                    ),
-                    additional_buttons=[
-                        {
-                            "text": "Refresh Projects",
-                            "command": lambda: (
-                                self.refresh_projects(),
-                                output_window.destroy(),
-                            ),
-                            "style": "refresh",
-                        }
-                    ],
-                )
-
-            except asyncio.CancelledError:
-                logger.info("Add project was cancelled for %s", project_name)
-                if output_window:
-                    output_window.update_status("Operation cancelled", COLORS["error"])
-                raise
-            except Exception as e:
-                logger.exception("Error adding project %s", project_name)
-                if output_window:
-                    output_window.update_status("Error occurred", COLORS["error"])
-                    output_window.append_output(f"\nError: {str(e)}\n")
-                else:
-                    self.window.after(
-                        0,
-                        lambda: messagebox.showerror(
-                            "Add Project Error", f"Error adding project: {str(e)}"
-                        ),
-                    )
-
-        # Run the async operation
-        task_manager.run_task(
-            add_project_async(), task_name=f"add-project-{project_name}"
-        )
+        self.operation_manager.add_project(repo_url, project_name)
 
     def refresh_projects(self):
         """Refresh the project list"""

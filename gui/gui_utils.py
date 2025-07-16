@@ -7,7 +7,11 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext
 from typing import Callable, Optional, Dict, Any
 
-from config.settings import COLORS, FONTS, BUTTON_STYLES
+from config.config import get_config
+
+COLORS = get_config().gui.colors
+FONTS = get_config().gui.fonts
+BUTTON_STYLES = get_config().gui.button_styles
 
 
 class GuiUtils:
