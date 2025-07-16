@@ -1200,69 +1200,123 @@ pytest -vv tests/
 
     @pytest.mark.asyncio
     async def test_lf_line_endings_enforcement(self):
-        """Test that run_tests.sh files are always saved with LF line endings, even on Windows"""
-        # This test simulates the Windows CRLF problem by directly testing the core issue:
-        # write_text() without newline="\n" can create CRLF on Windows
+        """Test that run_tests.sh files are always saved with LF line endings by testing operation manager code"""
+        # This test calls the actual operation manager _write_run_tests_file method
+        # to test our shebang preservation and LF enforcement fixes
 
-        # Create test content that would be written by the edit functionality
-        test_content = """#!/bin/sh
-# Auto-generated run_tests.sh for test-project
-# Language: python
-# Selected tests: tests/test_example.py
-
-set -e  # Exit on any error
-
-echo "Running tests for test-project..."
-echo "Language: python"
-echo "Test command: pytest -vv tests/test_example.py"
-echo ""
-
-# Execute the test command
-pytest -vv tests/test_example.py
-
-echo ""
-echo "Tests completed for test-project"
-"""
-
-        # Test the old implementation behavior (without newline="\n")
-        # Simulate what would happen on Windows by manually creating CRLF content
-        old_implementation_path = (
-            Path(self.temp_dir) / "post-edit" / "test-project" / "run_tests.sh"
-        )
-        windows_simulated_content = test_content.replace("\n", "\r\n")
-        old_implementation_path.write_bytes(windows_simulated_content.encode("utf-8"))
-
-        # Test our fix (with newline="\n")
-        fixed_implementation_path = (
-            Path(self.temp_dir) / "post-edit2" / "test-project" / "run_tests.sh"
-        )
-        fixed_implementation_path.write_text(
-            test_content, encoding="utf-8", newline="\n"
+        # Create run_tests.sh with CRLF line endings to simulate Windows editing
+        crlf_content = (
+            "#!/bin/bash\r\n# Original content with CRLF\r\npytest -vv tests/\r\n"
         )
 
-        # Verify the old implementation has CRLF (simulated Windows problem)
-        old_bytes = old_implementation_path.read_bytes()
-        old_str = old_bytes.decode("utf-8")
-        assert (
-            b"\r\n" in old_bytes
-        ), f"Old implementation should have CRLF (simulating Windows). Content: {repr(old_str[:100])}"
+        # Set up run_tests.sh files with CRLF in all versions
+        for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            run_tests_path = version_path / "run_tests.sh"
+            # Write as bytes to ensure CRLF line endings initially
+            run_tests_path.write_bytes(crlf_content.encode("utf-8"))
 
-        # Verify our fix has LF only
-        fixed_bytes = fixed_implementation_path.read_bytes()
-        fixed_str = fixed_bytes.decode("utf-8")
+        # Verify initial state has CRLF and bash shebang
+        pre_edit_path = (
+            Path(self.temp_dir) / "pre-edit" / "test-project" / "run_tests.sh"
+        )
+        initial_bytes = pre_edit_path.read_bytes()
+        assert b"\r\n" in initial_bytes, "Test setup should have CRLF line endings"
+        initial_content = initial_bytes.decode("utf-8")
+        assert initial_content.startswith(
+            "#!/bin/bash"
+        ), "Test setup should have bash shebang"
 
-        assert (
-            b"\n" in fixed_bytes
-        ), f"Fixed implementation should contain LF. Content: {repr(fixed_str[:100])}"
-        assert (
-            b"\r\n" not in fixed_bytes
-        ), f"Fixed implementation should not contain CRLF. Content: {repr(fixed_str[:100])}"
-        assert (
-            b"\r" not in fixed_bytes
-        ), f"Fixed implementation should not contain CR. Content: {repr(fixed_str[:100])}"
+        # Create operation manager instance to test our actual code
+        from core.operation_manager import OperationManager
+        from unittest.mock import Mock, patch
+        import asyncio
 
-        # This test demonstrates that without the newline="\n" fix,
-        # Windows systems would create CRLF files which break Docker execution
+        mock_services = {
+            "project_service": Mock(),
+            "file_service": Mock(),
+            "git_service": Mock(),
+            "docker_service": Mock(),
+            "sync_service": Mock(),
+            "validation_service": Mock(),
+            "docker_files_service": Mock(),
+            "async_bridge": Mock(),
+        }
+
+        operation_manager = OperationManager(
+            services=mock_services,
+            callback_handler=Mock(),
+            window=Mock(),
+            control_panel=Mock(),
+        )
+
+        # Mock task_manager to actually execute the async function instead of ignoring it
+        async def mock_run_task(coro, task_name=None):
+            # Actually run the coroutine instead of ignoring it
+            return await coro
+
+        # Test the actual operation manager method that's used in production
+        with patch("utils.async_utils.task_manager") as mock_task_manager:
+            mock_task_manager.run_task.side_effect = mock_run_task
+
+            # Also mock TerminalOutputWindow since we don't need the UI in tests
+            with patch(
+                "core.operation_manager.TerminalOutputWindow"
+            ) as mock_output_window_class:
+                mock_output_window = Mock()
+                mock_output_window_class.return_value = mock_output_window
+
+                # Call the actual operation manager method that contains our fixes
+                operation_manager._handle_run_tests_edit(
+                    self.project_group, ["tests/test_example.py"], "python"
+                )
+
+                # Give the async operation time to complete
+                await asyncio.sleep(0.1)
+
+        # Verify that all run_tests.sh files now have LF line endings only
+        # This test will FAIL with old implementation because:
+        # 1. Shebang would become "#!/bin/bash\r" (preserving CRLF)
+        # 2. No newline="\n" would create CRLF on Windows
+        # This test will PASS with our fixes because:
+        # 1. Shebang preservation strips CRLF with .rstrip("\r")
+        # 2. newline="\n" forces LF regardless of platform
+        for version in ["post-edit", "post-edit2", "correct-edit"]:
+            version_path = Path(self.temp_dir) / version / "test-project"
+            run_tests_path = version_path / "run_tests.sh"
+
+            # Read as bytes to check exact line ending characters
+            content_bytes = run_tests_path.read_bytes()
+            content_str = content_bytes.decode("utf-8")
+
+            # Should have LF line endings
+            assert (
+                b"\n" in content_bytes
+            ), f"File should contain LF characters in {version}/run_tests.sh"
+
+            # Should NOT have CRLF line endings (fails without our newline="\n" fix)
+            assert (
+                b"\r\n" not in content_bytes
+            ), f"File should not contain CRLF in {version}/run_tests.sh. Content: {repr(content_str[:100])}"
+
+            # Should NOT have isolated CR characters (fails without our .rstrip("\r") fix)
+            assert (
+                b"\r" not in content_bytes
+            ), f"File should not contain CR characters in {version}/run_tests.sh. Content: {repr(content_str[:100])}"
+
+            # Verify shebang preservation worked (should preserve #!/bin/bash but strip CRLF)
+            lines = content_str.split("\n")
+            assert (
+                lines[0] == "#!/bin/bash"
+            ), f"Shebang should be preserved as #!/bin/bash in {version}/run_tests.sh, got: {repr(lines[0])}"
+
+            # Verify the content is auto-generated (not the original)
+            assert (
+                "Auto-generated" in content_str
+            ), f"Content should be auto-generated in {version}/run_tests.sh"
+            assert (
+                version in content_str
+            ), f"Content should contain version name '{version}' in {version}/run_tests.sh"
 
     @pytest.mark.asyncio
     async def test_lf_enforcement_with_simulated_windows_behavior(self):
