@@ -17,7 +17,9 @@ if parent_dir not in sys.path:
 
 from services.docker_service import DockerService
 from services.platform_service import PlatformService
-from config.settings import COLORS
+from config.config import get_config
+
+COLORS = get_config().gui.colors
 
 
 class TestDockerService:

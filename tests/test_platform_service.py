@@ -16,7 +16,12 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from services.platform_service import PlatformService
-from config.commands import BASH_PATHS, ARCHIVE_COMMANDS, ERROR_MESSAGES, SHELL_COMMANDS
+from config.config import get_config
+
+BASH_PATHS = get_config().commands.bash_paths
+ARCHIVE_COMMANDS = get_config().commands.commands["ARCHIVE_COMMANDS"]
+ERROR_MESSAGES = get_config().commands.error_messages
+SHELL_COMMANDS = get_config().commands.commands["SHELL_COMMANDS"]
 
 
 class TestPlatformService:

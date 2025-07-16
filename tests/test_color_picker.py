@@ -86,9 +86,13 @@ class TestColorPickerFunctionality:
         self.mock_save_callback = Mock()
         self.mock_reset_callback = Mock()
 
-        # Patch the settings module
-        self.settings_patch = patch("config.settings")
-        self.mock_settings = self.settings_patch.start()
+        # Patch the config system
+        self.config_patch = patch("config.config.get_config")
+        self.mock_get_config = self.config_patch.start()
+
+        # Create a mock config object
+        self.mock_config = Mock()
+        self.mock_get_config.return_value = self.mock_config
 
         # Patch tkinter widgets to avoid internal tkinter conflicts
         self.tkinter_patches = [
@@ -99,9 +103,9 @@ class TestColorPickerFunctionality:
         for patcher in self.tkinter_patches:
             patcher.start()
 
-        # Set up default mock settings with color values
-        self.mock_settings.SOURCE_DIR = str(self.temp_dir)
-        self.mock_settings.COLORS = {
+        # Set up default mock config with color values
+        self.mock_config.project.source_dir = str(self.temp_dir)
+        self.mock_config.gui.colors = {
             "background": "#f0f0f0",
             "terminal_bg": "#2c3e50",
             "terminal_text": "#ffffff",
@@ -110,7 +114,7 @@ class TestColorPickerFunctionality:
             "warning": "#f39c12",
             "info": "#3498db",
         }
-        self.mock_settings.FONTS = {
+        self.mock_config.gui.fonts = {
             "title": ("Arial", 16, "bold"),
             "header": ("Arial", 14, "bold"),
             "button": ("Arial", 9, "bold"),
@@ -119,8 +123,8 @@ class TestColorPickerFunctionality:
 
     def teardown_method(self):
         """Clean up test fixtures"""
-        if hasattr(self, "settings_patch"):
-            self.settings_patch.stop()
+        if hasattr(self, "config_patch"):
+            self.config_patch.stop()
 
         # Stop tkinter patches
         if hasattr(self, "tkinter_patches"):
@@ -603,9 +607,13 @@ class TestColorPickerIntegration:
         self.mock_save_callback = Mock()
         self.mock_reset_callback = Mock()
 
-        # Patch the settings module
-        self.settings_patch = patch("config.settings")
-        self.mock_settings = self.settings_patch.start()
+        # Patch the config system
+        self.config_patch = patch("config.config.get_config")
+        self.mock_get_config = self.config_patch.start()
+
+        # Create a mock config object
+        self.mock_config = Mock()
+        self.mock_get_config.return_value = self.mock_config
 
         # Patch tkinter widgets to avoid internal tkinter conflicts
         self.tkinter_patches = [
@@ -616,13 +624,13 @@ class TestColorPickerIntegration:
         for patcher in self.tkinter_patches:
             patcher.start()
 
-        # Set up comprehensive mock settings
-        self.mock_settings.SOURCE_DIR = str(self.temp_dir)
-        self.mock_settings.WINDOW_TITLE = "Test App"
-        self.mock_settings.MAIN_WINDOW_SIZE = "800x600"
-        self.mock_settings.OUTPUT_WINDOW_SIZE = "700x500"
-        self.mock_settings.GIT_WINDOW_SIZE = "900x600"
-        self.mock_settings.COLORS = {
+        # Set up comprehensive mock config
+        self.mock_config.project.source_dir = str(self.temp_dir)
+        self.mock_config.gui.window_title = "Test App"
+        self.mock_config.gui.main_window_size = "800x600"
+        self.mock_config.gui.output_window_size = "700x500"
+        self.mock_config.gui.git_window_size = "900x600"
+        self.mock_config.gui.colors = {
             "background": "#f0f0f0",
             "terminal_bg": "#2c3e50",
             "terminal_text": "#ffffff",
@@ -631,22 +639,22 @@ class TestColorPickerIntegration:
             "warning": "#f39c12",
             "info": "#3498db",
         }
-        self.mock_settings.FONTS = {
+        self.mock_config.gui.fonts = {
             "title": ("Arial", 16, "bold"),
             "header": ("Arial", 14, "bold"),
             "button": ("Arial", 9, "bold"),
             "console": ("Consolas", 9),
         }
-        self.mock_settings.IGNORE_DIRS = ["__pycache__", ".git"]
-        self.mock_settings.IGNORE_FILES = [".coverage", ".DS_Store"]
-        self.mock_settings.FOLDER_ALIASES = {"preedit": ["pre-edit"]}
-        self.mock_settings.LANGUAGE_EXTENSIONS = {"python": [".py"]}
-        self.mock_settings.LANGUAGE_REQUIRED_FILES = {"python": ["requirements.txt"]}
+        self.mock_config.project.ignore_dirs = ["__pycache__", ".git"]
+        self.mock_config.project.ignore_files = [".coverage", ".DS_Store"]
+        self.mock_config.project.folder_aliases = {"preedit": ["pre-edit"]}
+        self.mock_config.language.extensions = {"python": [".py"]}
+        self.mock_config.language.required_files = {"python": ["requirements.txt"]}
 
     def teardown_method(self):
         """Clean up test fixtures"""
-        if hasattr(self, "settings_patch"):
-            self.settings_patch.stop()
+        if hasattr(self, "config_patch"):
+            self.config_patch.stop()
 
         # Stop tkinter patches
         if hasattr(self, "tkinter_patches"):

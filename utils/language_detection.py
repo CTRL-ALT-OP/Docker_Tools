@@ -6,8 +6,10 @@ from pathlib import Path
 from typing import Optional, Callable
 from collections import Counter
 
-from config.settings import LANGUAGE_EXTENSIONS
-from config.commands import LANGUAGE_ALIASES
+from config.config import get_config
+
+LANGUAGE_EXTENSIONS = get_config().language.extensions
+LANGUAGE_ALIASES = get_config().language.aliases
 
 
 class LanguageDetector:

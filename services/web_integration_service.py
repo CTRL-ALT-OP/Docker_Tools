@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import time
 
+from config.config import get_config
+
 from flask import Flask, render_template, request, jsonify, Response
 from models.project import Project
 
@@ -57,7 +59,9 @@ class WebIntegration:
 
     def _generate_dynamic_css(self):
         """Generate CSS with dynamic values from settings.py"""
-        from config.settings import COLORS, FONTS, BUTTON_STYLES
+        COLORS = get_config().gui.colors
+        FONTS = get_config().gui.fonts
+        BUTTON_STYLES = get_config().gui.button_styles
 
         # All COLORS keys (including terminal-specific) are injected as CSS variables below
         # Convert colors to CSS variables
@@ -173,7 +177,8 @@ class WebIntegration:
                 )
 
             # Import colors and button styles from config
-            from config.settings import COLORS, BUTTON_STYLES
+            COLORS = get_config().gui.colors
+            BUTTON_STYLES = get_config().gui.button_styles
 
             # Create project data with alias information for template
             enhanced_projects = []
@@ -312,7 +317,7 @@ class WebIntegration:
         def api_get_colors():
             """API endpoint to get current color settings"""
             try:
-                from config.settings import COLORS
+                COLORS = get_config().gui.colors
 
                 return jsonify({"success": True, "colors": COLORS})
             except Exception as e:

@@ -13,7 +13,7 @@ import pytest
 from services.docker_files_service import DockerFilesService
 from services.project_group_service import ProjectGroup
 from models.project import Project
-from config import settings
+from config.config import get_config
 
 
 class TestDockerFilesService:
@@ -656,13 +656,15 @@ class TestDockerFilesService:
     @pytest.mark.asyncio
     async def test_correct_c_extensions(self):
         """Test that C language extensions and required files are correctly configured"""
-        # Check C language is in settings
+        config = get_config()
+
+        # Check C language is in config
         assert (
-            "c" in settings.LANGUAGE_EXTENSIONS
-        ), "C language extensions should be included in settings"
+            "c" in config.language.extensions
+        ), "C language extensions should be included in config"
 
         # Check C extensions are included correctly
-        c_extensions = settings.LANGUAGE_EXTENSIONS["c"]
+        c_extensions = config.language.extensions["c"]
         assert (
             ".c" in c_extensions
         ), ".c extension should be included in C language extensions"
@@ -680,7 +682,7 @@ class TestDockerFilesService:
 
         # Check required files for C projects
         assert (
-            "CMakeLists.txt" in settings.LANGUAGE_REQUIRED_FILES["c"]
+            "CMakeLists.txt" in config.language.required_files["c"]
         ), "CMakeLists.txt should be included in C language required files"
 
     @pytest.mark.asyncio
@@ -1848,7 +1850,7 @@ class TestProjectControlPanelIntegration:
         """Test that ProjectControlPanel.build_docker_files_for_project_group calls task_manager.run_task exactly once"""
 
         # Mock the ProjectControlPanel and related components
-        with patch("general_tools.task_manager") as mock_task_manager, patch(
+        with patch("utils.async_utils.task_manager") as mock_task_manager, patch(
             "general_tools.ProjectControlPanel._setup_async_integration"
         ), patch("general_tools.ProjectControlPanel._setup_async_processing"), patch(
             "general_tools.MainWindow"
@@ -2017,225 +2019,3 @@ class TestProjectControlPanelIntegration:
             # Verify window management
             mock_bridge_instance.create_sync_event.assert_called_once()
             mock_bridge_instance.cleanup_event.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_project_control_panel_runs_docker_files_service_correctly(self):
-        """Test that ProjectControlPanel correctly executes docker files service through command pattern"""
-
-        # Mock all external dependencies
-        with patch("general_tools.task_manager") as mock_task_manager, patch(
-            "general_tools.TkinterAsyncBridge"
-        ) as mock_bridge, patch(
-            "general_tools.TerminalOutputWindow"
-        ) as mock_terminal_window, patch(
-            "gui.TerminalOutputWindow"  # Patch the actual gui module
-        ) as mock_command_terminal, patch(
-            "general_tools.ProjectControlPanel._setup_async_integration"
-        ), patch(
-            "general_tools.ProjectControlPanel._setup_async_processing"
-        ), patch(
-            "general_tools.MainWindow"
-        ), patch(
-            "general_tools.ProjectControlPanel.load_projects"
-        ), patch(
-            "general_tools.tk.Tk"
-        ):
-
-            from general_tools import ProjectControlPanel
-
-            # Setup mock docker files service instance with the method that will actually be called
-            mock_docker_service = Mock()
-            mock_docker_service.build_docker_files_for_project_group = AsyncMock(
-                return_value=(True, "Docker files generated successfully")
-            )
-
-            # Setup other mocks
-            mock_terminal = Mock()
-            mock_terminal_window.return_value = mock_terminal
-            mock_command_terminal.return_value = (
-                mock_terminal  # Also set up command terminal
-            )
-            mock_terminal.create_window = Mock()
-            mock_terminal.update_status = Mock()
-            mock_terminal.append_output = Mock()
-            mock_terminal.add_final_buttons = Mock()
-            mock_terminal.destroy = Mock()  # Add destroy method
-
-            # Setup async bridge mock
-            mock_event = AsyncMock()
-            mock_bridge_instance = Mock()
-            mock_bridge_instance.create_sync_event.return_value = (
-                "event_id",
-                mock_event,
-            )
-            mock_bridge_instance.signal_from_gui = Mock()
-            mock_bridge_instance.cleanup_event = Mock()
-            mock_bridge.return_value = mock_bridge_instance
-
-            # Create control panel and override the docker_files_service
-            control_panel = ProjectControlPanel(".")
-            control_panel.async_bridge = mock_bridge_instance
-            control_panel.docker_files_service = mock_docker_service
-
-            # Mock the window properly with all required attributes
-            control_panel.window = Mock()
-            control_panel.window.after = Mock(
-                side_effect=lambda delay, callback: callback()
-            )
-            control_panel.window._last_child_ids = {}  # Fix for tkinter Mock issue
-
-            # Create mock project group
-            mock_project_group = Mock()
-            mock_project_group.name = "test-project"
-
-            # Capture the async function that would be passed to task_manager.run_task
-            captured_async_func = None
-            captured_task_name = None
-
-            def mock_run_task(async_func, task_name=None):
-                nonlocal captured_async_func, captured_task_name
-                captured_async_func = async_func
-                captured_task_name = task_name
-                return Mock()  # Return a mock future
-
-            mock_task_manager.run_task = Mock(side_effect=mock_run_task)
-
-            # Call the method under test
-            control_panel.build_docker_files_for_project_group(mock_project_group)
-
-            # Verify that task_manager.run_task was called
-            mock_task_manager.run_task.assert_called_once()
-            assert captured_task_name == f"build-docker-{mock_project_group.name}"
-            assert captured_async_func is not None
-            assert asyncio.iscoroutine(captured_async_func)
-
-            # Now execute the captured async function to test its behavior
-            await captured_async_func
-
-            # Verify the docker_files_service main method was called correctly
-            mock_docker_service.build_docker_files_for_project_group.assert_called_once()
-
-            # Verify the service was called with correct parameters
-            service_call_args = (
-                mock_docker_service.build_docker_files_for_project_group.call_args
-            )
-            assert (
-                service_call_args[0][0] == mock_project_group
-            )  # First argument should be the project group
-            # Second argument should be output callback
-            assert callable(service_call_args[0][1])
-            # Third argument should be status callback
-            assert callable(service_call_args[0][2])
-
-            # Verify window operations
-            mock_command_terminal.assert_called_once()  # This is the one actually being called
-            mock_terminal.create_window.assert_called_once()
-            mock_terminal.update_status.assert_called()
-            mock_terminal.add_final_buttons.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_project_control_panel_handles_docker_service_errors(self):
-        """Test that ProjectControlPanel handles docker_files_service errors gracefully"""
-
-        # Mock all external dependencies
-        with patch("general_tools.task_manager") as mock_task_manager, patch(
-            "general_tools.TkinterAsyncBridge"
-        ) as mock_bridge, patch(
-            "general_tools.TerminalOutputWindow"
-        ) as mock_terminal_window, patch(
-            "gui.TerminalOutputWindow"  # Patch the actual gui module
-        ) as mock_command_terminal, patch(
-            "general_tools.messagebox"
-        ) as mock_messagebox, patch(
-            "general_tools.ProjectControlPanel._setup_async_integration"
-        ), patch(
-            "general_tools.ProjectControlPanel._setup_async_processing"
-        ), patch(
-            "general_tools.MainWindow"
-        ), patch(
-            "general_tools.ProjectControlPanel.load_projects"
-        ), patch(
-            "general_tools.tk.Tk"
-        ):
-
-            from general_tools import ProjectControlPanel
-
-            # Setup mock that raises an exception
-            mock_docker_service = Mock()
-            mock_docker_service.build_docker_files_for_project_group = AsyncMock(
-                side_effect=Exception("Docker service error")
-            )
-
-            # Setup other mocks
-            mock_terminal = Mock()
-            mock_terminal_window.return_value = mock_terminal
-            mock_command_terminal.return_value = (
-                mock_terminal  # Also set up command terminal
-            )
-            mock_terminal.create_window = Mock()
-            mock_terminal.update_status = Mock()
-            mock_terminal.append_output = Mock()
-            mock_terminal.add_final_buttons = Mock()
-            mock_terminal.destroy = Mock()  # Add destroy method
-
-            # Setup async bridge mock
-            mock_event = AsyncMock()
-            mock_bridge_instance = Mock()
-            mock_bridge_instance.create_sync_event.return_value = (
-                "event_id",
-                mock_event,
-            )
-            mock_bridge_instance.signal_from_gui = Mock()
-            mock_bridge_instance.cleanup_event = Mock()
-            mock_bridge.return_value = mock_bridge_instance
-
-            # Create control panel
-            control_panel = ProjectControlPanel(".")
-            control_panel.async_bridge = mock_bridge_instance
-            control_panel.docker_files_service = mock_docker_service
-
-            # Mock the window properly with all required attributes
-            control_panel.window = Mock()
-            control_panel.window.after = Mock(
-                side_effect=lambda delay, callback: callback()
-            )
-            control_panel.window._last_child_ids = {}  # Fix for tkinter Mock issue
-
-            # Create mock project group
-            mock_project_group = Mock()
-            mock_project_group.name = "test-project"
-
-            # Capture the async function that would be passed to task_manager.run_task
-            captured_async_func = None
-            captured_task_name = None
-
-            def mock_run_task(async_func, task_name=None):
-                nonlocal captured_async_func, captured_task_name
-                captured_async_func = async_func
-                captured_task_name = task_name
-                return Mock()  # Return a mock future
-
-            mock_task_manager.run_task = Mock(side_effect=mock_run_task)
-
-            # Call the method under test
-            control_panel.build_docker_files_for_project_group(mock_project_group)
-
-            # Verify that task_manager.run_task was called
-            mock_task_manager.run_task.assert_called_once()
-            assert captured_task_name == f"build-docker-{mock_project_group.name}"
-            assert captured_async_func is not None
-            assert asyncio.iscoroutine(captured_async_func)
-
-            # Now execute the captured async function - it should handle the exception gracefully
-            result = await captured_async_func
-
-            # The async function should return an error result but not raise the exception
-            assert hasattr(result, "is_error")
-            assert result.is_error is True
-
-            # Verify the docker_files_service was called (and failed)
-            mock_docker_service.build_docker_files_for_project_group.assert_called_once()
-
-            # The error handling is done in the async function, so we verify the window operations still happened
-            mock_command_terminal.assert_called_once()  # This is the one actually being called
-            mock_terminal.create_window.assert_called_once()

@@ -16,7 +16,9 @@ from utils.async_base import (
 from utils.async_utils import (
     run_in_executor,
 )
-from config.settings import COLORS
+from config.config import get_config
+
+COLORS = get_config().gui.colors
 
 
 class DockerService(AsyncServiceInterface):

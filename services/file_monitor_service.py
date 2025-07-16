@@ -9,9 +9,14 @@ from pathlib import Path
 from typing import Dict, Callable, Set, Optional
 from dataclasses import dataclass
 import logging
-from config import settings
+from config.config import get_config
 
 logger = logging.getLogger(__name__)
+
+# Get config values
+config = get_config()
+IGNORE_DIRS = config.project.ignore_dirs
+IGNORE_FILES = config.project.ignore_files
 
 
 @dataclass
@@ -84,14 +89,12 @@ class FileMonitorService:
             for root, dirs, filenames in os.walk(path):
                 # Skip hidden directories and common ignore patterns
                 dirs[:] = [
-                    d
-                    for d in dirs
-                    if not d.startswith(".") and d not in settings.IGNORE_DIRS
+                    d for d in dirs if not d.startswith(".") and d not in IGNORE_DIRS
                 ]
 
                 for filename in filenames:
                     # Skip hidden files and common ignore patterns
-                    if filename in settings.IGNORE_FILES:
+                    if filename in IGNORE_FILES:
                         continue
 
                     file_path = Path(root) / filename

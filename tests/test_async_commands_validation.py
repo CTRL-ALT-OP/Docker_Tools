@@ -9,7 +9,7 @@ from pathlib import Path
 import json
 from dataclasses import dataclass
 
-from utils.async_commands import ValidateProjectGroupCommand
+from commands import ValidateProjectGroupCommand
 from services.validation_service import ValidationService, ValidationResult, ArchiveInfo
 from services.project_group_service import ProjectGroup
 from models.project import Project

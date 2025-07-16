@@ -17,7 +17,9 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from services.git_service import GitService, GitCommit
-from config.commands import GIT_COMMANDS
+from config.config import get_config
+
+GIT_COMMANDS = get_config().commands.commands["GIT_COMMANDS"]
 
 
 class TestGitCommit:

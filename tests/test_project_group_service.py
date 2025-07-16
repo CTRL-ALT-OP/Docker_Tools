@@ -364,17 +364,27 @@ class TestProjectGroupService:
         # Test navigation when at boundaries
         assert self.project_group_service.get_current_group_index() == 0
 
-        # Try to go previous when at start
-        assert self.project_group_service.previous_group() is False
-        assert self.project_group_service.get_current_group_index() == 0
+        # Navigate previous (should wrap to last group)
+        prev_group = self.project_group_service.get_previous_group()
+        assert prev_group is not None
+        assert (
+            self.project_group_service.get_current_group_index() == 1
+        )  # Wrapped to last group
 
-        # Navigate to end
-        self.project_group_service.next_group()
+        # Navigate back to first
+        self.project_group_service.set_current_group_by_index(0)
+
+        # Navigate to next group
+        next_group = self.project_group_service.get_next_group()
+        assert next_group is not None
         assert self.project_group_service.get_current_group_index() == 1
 
-        # Try to go next when at end
-        assert self.project_group_service.next_group() is False
-        assert self.project_group_service.get_current_group_index() == 1
+        # Navigate next again (should wrap to first group)
+        next_group = self.project_group_service.get_next_group()
+        assert next_group is not None
+        assert (
+            self.project_group_service.get_current_group_index() == 0
+        )  # Wrapped to first group
 
     def test_set_current_group_by_index_boundary_conditions(self):
         """Test setting current group by index with boundary conditions"""
@@ -442,11 +452,9 @@ class TestProjectGroupService:
         assert self.project_group_service.get_current_group_name() is None
         assert self.project_group_service.get_current_group_index() == -1
 
-        # Navigation should not work
-        assert self.project_group_service.has_next_group() is False
-        assert self.project_group_service.has_previous_group() is False
-        assert self.project_group_service.next_group() is False
-        assert self.project_group_service.previous_group() is False
+        # Navigation should return None for empty list
+        assert self.project_group_service.get_next_group() is None
+        assert self.project_group_service.get_previous_group() is None
 
     def test_single_project_group_handling(self):
         """Test handling when only one project group exists"""
@@ -465,11 +473,21 @@ class TestProjectGroupService:
         assert self.project_group_service.get_current_group_index() == 0
         assert self.project_group_service.get_current_group_name() == "single_project"
 
-        # Should not be able to navigate
-        assert self.project_group_service.has_next_group() is False
-        assert self.project_group_service.has_previous_group() is False
-        assert self.project_group_service.next_group() is False
-        assert self.project_group_service.previous_group() is False
+        # Navigation with single group should cycle to itself
+        current_group = self.project_group_service.get_current_group()
+        next_group = self.project_group_service.get_next_group()
+        assert next_group is not None
+        assert next_group.name == current_group.name
+        assert (
+            self.project_group_service.get_current_group_index() == 0
+        )  # Should remain at same position
+
+        prev_group = self.project_group_service.get_previous_group()
+        assert prev_group is not None
+        assert prev_group.name == current_group.name
+        assert (
+            self.project_group_service.get_current_group_index() == 0
+        )  # Should remain at same position
 
     def test_project_group_version_management(self):
         """Test comprehensive version management within project groups"""
@@ -568,10 +586,10 @@ class TestProjectGroupService:
         original_index = self.project_group_service.get_current_group_index()
 
         # Multiple navigation operations
-        self.project_group_service.next_group()
+        self.project_group_service.get_next_group()
         next_index = self.project_group_service.get_current_group_index()
 
-        self.project_group_service.previous_group()
+        self.project_group_service.get_previous_group()
         back_index = self.project_group_service.get_current_group_index()
 
         # Should maintain consistency
@@ -701,20 +719,22 @@ class TestProjectGroupService:
         self.project_service.find_two_layer_projects.return_value = projects
         self.project_group_service.load_project_groups()
 
-        # Test rapid navigation
-        for _ in range(5):
-            if self.project_group_service.has_next_group():
-                self.project_group_service.next_group()
+        # Test cycling navigation - with 3 groups, after 3 steps we should be back at start
+        initial_index = self.project_group_service.get_current_group_index()
 
-        # Should be at the end
-        assert not self.project_group_service.has_next_group()
+        # Navigate forward 3 times (should cycle back to start)
+        for _ in range(3):
+            self.project_group_service.get_next_group()
 
-        # Navigate back to start
-        while self.project_group_service.has_previous_group():
-            self.project_group_service.previous_group()
+        # Should be back at initial position due to cycling
+        assert self.project_group_service.get_current_group_index() == initial_index
 
-        # Should be at the beginning
-        assert self.project_group_service.get_current_group_index() == 0
+        # Navigate backward 3 times (should cycle back to start again)
+        for _ in range(3):
+            self.project_group_service.get_previous_group()
+
+        # Should be back at initial position due to cycling
+        assert self.project_group_service.get_current_group_index() == initial_index
 
     def test_group_state_consistency(self):
         """Test that group state remains consistent across operations"""

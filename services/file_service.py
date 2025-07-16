@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Any
 from dataclasses import dataclass
 
-from config.settings import IGNORE_DIRS, IGNORE_FILES
+from config.config import get_config
+
+config = get_config()
+IGNORE_DIRS = config.project.ignore_dirs
+IGNORE_FILES = config.project.ignore_files
 from services.platform_service import PlatformService
 from utils.async_base import (
     AsyncServiceInterface,

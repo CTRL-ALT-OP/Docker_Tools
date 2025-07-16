@@ -6,7 +6,9 @@ import asyncio
 from pathlib import Path
 from typing import List, Optional
 
-from config.settings import FOLDER_ALIASES
+from config.config import get_config
+
+FOLDER_ALIASES = get_config().project.folder_aliases
 from models.project import Project
 from services.platform_service import PlatformService
 

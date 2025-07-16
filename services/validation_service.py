@@ -23,8 +23,11 @@ from services.file_service import FileService
 from services.project_service import ProjectService
 from services.project_group_service import ProjectGroup
 from models.project import Project
-from config.commands import COMMANDS
-from config.settings import FOLDER_ALIASES, COLORS
+from config.config import get_config
+
+COMMANDS = get_config().commands.commands
+FOLDER_ALIASES = get_config().project.folder_aliases
+COLORS = get_config().gui.colors
 from utils.async_base import (
     AsyncServiceInterface,
     ServiceResult,

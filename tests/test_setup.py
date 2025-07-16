@@ -25,21 +25,26 @@ class TestSetup:
         from services.platform_service import PlatformService
         from services.sync_service import SyncService
         from services.project_group_service import ProjectGroup, ProjectGroupService
-        
+
         # Models
         from models.project import Project
-        
+
         # Utils
         from utils.async_utils import (
             run_subprocess_async,
             run_in_executor,
-            ImprovedAsyncTaskManager
+            ImprovedAsyncTaskManager,
         )
-        
+
         # Config
-        from config.settings import FOLDER_ALIASES, IGNORE_DIRS
-        from config.commands import DOCKER_COMMANDS, GIT_COMMANDS
-        
+        from config.config import get_config
+
+        config = get_config()
+        FOLDER_ALIASES = config.project.folder_aliases
+        IGNORE_DIRS = config.project.ignore_dirs
+        DOCKER_COMMANDS = config.commands.commands["DOCKER_COMMANDS"]
+        GIT_COMMANDS = config.commands.commands["GIT_COMMANDS"]
+
         # If we get here, all imports worked
         assert True
 
@@ -53,17 +58,18 @@ class TestSetup:
     async def test_async_support(self):
         """Test that async tests work"""
         import asyncio
+
         await asyncio.sleep(0.01)
         assert True
 
     def test_mock_support(self):
         """Test that mocking works"""
         from unittest.mock import Mock, patch
-        
+
         mock_obj = Mock()
         mock_obj.method.return_value = "mocked"
         assert mock_obj.method() == "mocked"
-        
+
         with patch("os.path.exists") as mock_exists:
             mock_exists.return_value = True
             assert os.path.exists("/fake/path") is True
@@ -72,7 +78,7 @@ class TestSetup:
         """Test path operations"""
         test_file = temp_directory / "test.txt"
         test_file.write_text("test content")
-        
+
         assert test_file.exists()
         assert test_file.read_text() == "test content"
 
@@ -85,6 +91,7 @@ class TestSetup:
     def test_slow_marker(self):
         """Test marked as slow"""
         import time
+
         time.sleep(0.1)
         assert True
 
@@ -97,10 +104,10 @@ class TestSetup:
         """Test that environment is set up correctly"""
         # Check Python version
         assert sys.version_info >= (3, 7)
-        
+
         # Check current directory is in path
         assert parent_dir in sys.path
-        
+
         # Check we can access test directory
         test_dir = os.path.dirname(__file__)
         assert os.path.exists(test_dir)
@@ -111,6 +118,7 @@ class TestSetup:
         try:
             import coverage
             import pytest_cov
+
             assert True
         except ImportError:
             # Coverage tools are optional
@@ -119,8 +127,12 @@ class TestSetup:
     def test_test_discovery(self):
         """Test that pytest can discover tests"""
         test_dir = os.path.dirname(__file__)
-        test_files = [f for f in os.listdir(test_dir) if f.startswith("test_") and f.endswith(".py")]
-        
+        test_files = [
+            f
+            for f in os.listdir(test_dir)
+            if f.startswith("test_") and f.endswith(".py")
+        ]
+
         # Should find at least this file and others
         assert len(test_files) >= 2
         assert "test_setup.py" in test_files

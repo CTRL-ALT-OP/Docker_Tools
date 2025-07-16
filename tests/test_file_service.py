@@ -17,7 +17,9 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from services.file_service import FileService
-from config.settings import IGNORE_DIRS
+from config.config import get_config
+
+IGNORE_DIRS = get_config().project.ignore_dirs
 
 
 class TestFileService:
@@ -178,7 +180,7 @@ class TestFileService:
         assert isinstance(service.cleanup_dirs, list)
 
         # Check that the service gets its cleanup dirs from the config
-        from config.settings import IGNORE_DIRS
+        IGNORE_DIRS = get_config().project.ignore_dirs
 
         assert service.cleanup_dirs == IGNORE_DIRS
 

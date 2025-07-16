@@ -7,15 +7,15 @@ import asyncio
 from pathlib import Path
 from typing import Tuple, List, Callable, Optional
 
-from config.settings import (
-    FOLDER_ALIASES,
-    LANGUAGE_EXTENSIONS,
-    LANGUAGE_REQUIRED_FILES,
-    COLORS,
-)
+from config.config import get_config
 from services.project_group_service import ProjectGroup
 from services.platform_service import PlatformService
 from models.project import Project
+
+FOLDER_ALIASES = get_config().project.folder_aliases
+LANGUAGE_EXTENSIONS = get_config().language.extensions
+LANGUAGE_REQUIRED_FILES = get_config().language.required_files
+COLORS = get_config().gui.colors
 
 
 class DockerFilesService:

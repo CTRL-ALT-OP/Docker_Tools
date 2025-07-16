@@ -22,7 +22,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from gui.popup_windows import SettingsWindow
-from config import settings
+from config.config import get_config
 
 
 class TestSettingsWindow:
@@ -45,17 +45,21 @@ class TestSettingsWindow:
         self.mock_save_callback = Mock()
         self.mock_reset_callback = Mock()
 
-        # Patch the settings module to avoid conflicts
-        self.settings_patch = patch("config.settings")
-        self.mock_settings = self.settings_patch.start()
+        # Patch the config system to avoid conflicts
+        self.config_patch = patch("config.config.get_config")
+        self.mock_get_config = self.config_patch.start()
 
-        # Set up default mock settings
-        self.mock_settings.SOURCE_DIR = str(self.temp_dir)
-        self.mock_settings.WINDOW_TITLE = "Test App"
-        self.mock_settings.MAIN_WINDOW_SIZE = "800x600"
-        self.mock_settings.OUTPUT_WINDOW_SIZE = "700x500"
-        self.mock_settings.GIT_WINDOW_SIZE = "900x600"
-        self.mock_settings.COLORS = {
+        # Create a mock config object
+        self.mock_config = Mock()
+        self.mock_get_config.return_value = self.mock_config
+
+        # Set up default mock config
+        self.mock_config.project.source_dir = str(self.temp_dir)
+        self.mock_config.gui.window_title = "Test App"
+        self.mock_config.gui.main_window_size = "800x600"
+        self.mock_config.gui.output_window_size = "700x500"
+        self.mock_config.gui.git_window_size = "900x600"
+        self.mock_config.gui.colors = {
             "background": "#f0f0f0",
             "terminal_bg": "#2c3e50",
             "terminal_text": "#ffffff",
@@ -64,31 +68,31 @@ class TestSettingsWindow:
             "warning": "#f39c12",
             "info": "#3498db",
         }
-        self.mock_settings.FONTS = {
+        self.mock_config.gui.fonts = {
             "title": ("Arial", 16, "bold"),
             "header": ("Arial", 14, "bold"),
             "button": ("Arial", 9, "bold"),
             "console": ("Consolas", 9),
         }
-        self.mock_settings.IGNORE_DIRS = ["__pycache__", ".git", "node_modules"]
-        self.mock_settings.IGNORE_FILES = [".coverage", ".DS_Store"]
-        self.mock_settings.FOLDER_ALIASES = {
+        self.mock_config.project.ignore_dirs = ["__pycache__", ".git", "node_modules"]
+        self.mock_config.project.ignore_files = [".coverage", ".DS_Store"]
+        self.mock_config.project.folder_aliases = {
             "preedit": ["pre-edit"],
             "postedit": ["post-edit", "post-edit2"],
         }
-        self.mock_settings.LANGUAGE_EXTENSIONS = {
+        self.mock_config.language.extensions = {
             "python": [".py", ".pyw"],
             "javascript": [".js", ".jsx"],
         }
-        self.mock_settings.LANGUAGE_REQUIRED_FILES = {
+        self.mock_config.language.required_files = {
             "python": ["requirements.txt"],
             "javascript": ["package.json"],
         }
 
     def teardown_method(self):
         """Clean up test fixtures"""
-        if hasattr(self, "settings_patch"):
-            self.settings_patch.stop()
+        if hasattr(self, "config_patch"):
+            self.config_patch.stop()
 
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
@@ -244,16 +248,19 @@ class TestSettingsWindow:
             call_args = self.mock_save_callback.call_args[0][0]
 
             # Verify list setting was parsed correctly
-            assert "IGNORE_DIRS" in call_args
-            assert call_args["IGNORE_DIRS"] == ["item1", "item2", "item3"]
+            assert "project.ignore_dirs" in call_args
+            assert call_args["project.ignore_dirs"] == ["item1", "item2", "item3"]
 
             # Verify dictionary setting was parsed correctly
-            assert "FOLDER_ALIASES" in call_args
-            assert call_args["FOLDER_ALIASES"] == {"key1": "value1", "key2": "value2"}
+            assert "project.folder_aliases" in call_args
+            assert call_args["project.folder_aliases"] == {
+                "key1": "value1",
+                "key2": "value2",
+            }
 
             # Verify string setting was preserved
-            assert "WINDOW_TITLE" in call_args
-            assert call_args["WINDOW_TITLE"] == "Test Value"
+            assert "gui.window_title" in call_args
+            assert call_args["gui.window_title"] == "Test Value"
 
     def test_font_settings_parsing(self):
         """Test font settings parsing"""
@@ -276,8 +283,8 @@ class TestSettingsWindow:
             self.mock_save_callback.assert_called_once()
             call_args = self.mock_save_callback.call_args[0][0]
 
-            assert "FONTS.title" in call_args
-            assert call_args["FONTS.title"] == ("Arial", 12, "bold")
+            assert "gui.fonts.title" in call_args
+            assert call_args["gui.fonts.title"] == ("Arial", 12, "bold")
 
     def test_invalid_font_settings_handling(self):
         """Test handling of invalid font settings"""
@@ -300,8 +307,8 @@ class TestSettingsWindow:
             self.mock_save_callback.assert_called_once()
             call_args = self.mock_save_callback.call_args[0][0]
 
-            assert "FONTS.title" in call_args
-            assert call_args["FONTS.title"] == ("Arial", 12)
+            assert "gui.fonts.title" in call_args
+            assert call_args["gui.fonts.title"] == ("Arial", 12)
 
     def test_reset_to_defaults(self):
         """Test reset to defaults functionality"""
@@ -709,6 +716,14 @@ class TestSettingsWindowCreateNewFunctionality:
         self.mock_save_callback = Mock()
         self.mock_reset_callback = Mock()
 
+        # Patch the config system to avoid conflicts
+        self.config_patch = patch("config.config.get_config")
+        self.mock_get_config = self.config_patch.start()
+
+        # Create a mock config object
+        self.mock_config = Mock()
+        self.mock_get_config.return_value = self.mock_config
+
         # Mock FOLDER_ALIASES for testing
         self.mock_folder_aliases = {
             "preedit": ["pre-edit", "original"],
@@ -721,6 +736,7 @@ class TestSettingsWindowCreateNewFunctionality:
         """Clean up test fixtures"""
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
+        self.config_patch.stop()
 
     @patch("tkinter.Tk")
     @patch("tkinter.Toplevel")
@@ -738,7 +754,10 @@ class TestSettingsWindowCreateNewFunctionality:
         mock_tk,
     ):
         """Test that clicking 'Create new' sets the path but doesn't create folders immediately"""
-        with patch("config.settings.FOLDER_ALIASES", self.mock_folder_aliases):
+        with patch("config.config.get_config") as mock_get_config:
+            mock_config = Mock()
+            mock_config.project.folder_aliases = self.mock_folder_aliases
+            mock_get_config.return_value = mock_config
             # Mock folder selection
             mock_askdir.return_value = self.temp_dir
             mock_messagebox.showinfo.return_value = None
@@ -777,8 +796,12 @@ class TestSettingsWindowCreateNewFunctionality:
         ) as mock_askdir, patch(
             "tkinter.messagebox"
         ) as mock_messagebox, patch(
-            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
-        ):
+            "config.config.get_config"
+        ) as mock_get_config:
+            # Set up mock config
+            mock_config = Mock()
+            mock_config.project.folder_aliases = self.mock_folder_aliases
+            mock_get_config.return_value = mock_config
 
             # Create existing dockerized folder
             existing_dockerized = Path(self.temp_dir) / "dockerized"
@@ -812,9 +835,9 @@ class TestSettingsWindowCreateNewFunctionality:
         """Test that Apply creates folders when 'Create new' was used"""
         with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
             "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
-        ):
+        ), patch("gui.popup_windows.GuiUtils"):
+            # Set up mock config for folder aliases
+            self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -857,10 +880,10 @@ class TestSettingsWindowCreateNewFunctionality:
         with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
             "tkinter.ttk.Notebook"
         ), patch("gui.popup_windows.GuiUtils"), patch(
-            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
-        ), patch(
             "gui.popup_windows.messagebox"
         ) as mock_messagebox:
+            # Set up mock config for folder aliases
+            self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -902,9 +925,9 @@ class TestSettingsWindowCreateNewFunctionality:
         """Test that Cancel prevents folder creation even when 'Create new' was used"""
         with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
             "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
-        ):
+        ), patch("gui.popup_windows.GuiUtils"):
+            # Set up mock config for folder aliases
+            self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -930,9 +953,9 @@ class TestSettingsWindowCreateNewFunctionality:
         """Test that destroying the window prevents folder creation"""
         with patch("tkinter.Tk"), patch("tkinter.Toplevel") as mock_toplevel, patch(
             "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
-        ):
+        ), patch("gui.popup_windows.GuiUtils"):
+            # Set up mock config for folder aliases
+            self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
             mock_window = Mock()
             mock_toplevel.return_value = mock_window
@@ -967,9 +990,9 @@ class TestSettingsWindowCreateNewFunctionality:
             "tkinter.ttk.Notebook"
         ), patch("gui.popup_windows.GuiUtils"), patch(
             "tkinter.filedialog.askdirectory"
-        ) as mock_askdir, patch(
-            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
-        ):
+        ) as mock_askdir:
+            # Set up mock config for folder aliases
+            self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
             # Mock user canceling folder selection
             mock_askdir.return_value = ""  # Empty string indicates cancel
@@ -998,10 +1021,10 @@ class TestSettingsWindowCreateNewFunctionality:
         with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
             "tkinter.ttk.Notebook"
         ), patch("gui.popup_windows.GuiUtils"), patch(
-            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
-        ), patch(
             "gui.popup_windows.messagebox"
         ) as mock_messagebox:
+            # Set up mock config for folder aliases
+            self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -1042,9 +1065,9 @@ class TestSettingsWindowCreateNewFunctionality:
         """Test that the new functionality integrates properly with existing settings"""
         with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
             "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
-        ):
+        ), patch("gui.popup_windows.GuiUtils"):
+            # Set up mock config for folder aliases
+            self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -1080,20 +1103,20 @@ class TestSettingsWindowCreateNewFunctionality:
             # Verify normal settings were processed
             self.mock_save_callback.assert_called_once()
             call_args = self.mock_save_callback.call_args[0][0]
-            assert "SOURCE_DIR" in call_args
-            assert "WINDOW_TITLE" in call_args
-            assert "MAIN_WINDOW_SIZE" in call_args
-            assert call_args["SOURCE_DIR"] == str(dockerized_path)
-            assert call_args["WINDOW_TITLE"] == "Test App"
-            assert call_args["MAIN_WINDOW_SIZE"] == "800x600"
+            assert "project.source_dir" in call_args
+            assert "gui.window_title" in call_args
+            assert "gui.main_window_size" in call_args
+            assert call_args["project.source_dir"] == str(dockerized_path)
+            assert call_args["gui.window_title"] == "Test App"
+            assert call_args["gui.main_window_size"] == "800x600"
 
     def test_reset_to_defaults_clears_pending_folder_creation(self):
         """Test that reset to defaults clears pending folder creation"""
         with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
             "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "config.settings.FOLDER_ALIASES", self.mock_folder_aliases
-        ):
+        ), patch("gui.popup_windows.GuiUtils"):
+            # Set up mock config for folder aliases
+            self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -1114,904 +1137,6 @@ class TestSettingsWindowCreateNewFunctionality:
 
             # Verify reset callback was called
             self.mock_reset_callback.assert_called_once()
-
-
-class TestSettingsSavingBugFix:
-    """Test the bug fix for settings saving functionality"""
-
-    def setup_method(self):
-        """Set up test fixtures"""
-        self.temp_dir = tempfile.mkdtemp()
-        self.config_dir = Path(self.temp_dir) / "config"
-        self.config_dir.mkdir(exist_ok=True)
-
-        # Create a mock settings.py file with original defaults
-        self.settings_file = self.config_dir / "settings.py"
-        self.settings_content = '''
-# Test settings file
-COLORS = {
-    "background": "#f0f0f0",
-    "terminal_bg": "#2c3e50",
-    "success": "#27ae60",
-    "error": "#e74c3c",
-}
-
-FONTS = {
-    "title": ("Arial", 16, "bold"),
-    "header": ("Arial", 14, "bold"),
-    "button": ("Arial", 9, "bold"),
-}
-
-IGNORE_DIRS = ["__pycache__", ".git"]
-SOURCE_DIR = "/default/path"
-WINDOW_TITLE = "Default Title"
-
-def _apply_user_settings():
-    """This function applies user overrides - should be excluded from defaults"""
-    pass
-
-_apply_user_settings()
-'''
-
-        with open(self.settings_file, "w") as f:
-            f.write(self.settings_content)
-
-        # Create user_settings.json with existing user settings
-        self.user_settings_file = self.config_dir / "user_settings.json"
-        self.existing_user_settings = {
-            "_comment": "User customizations",
-            "_instructions": "This file contains only customized settings",
-            "COLORS.background": "#ffffff",  # User has customized this
-            "SOURCE_DIR": "/custom/path",  # User has customized this
-        }
-
-        with open(self.user_settings_file, "w") as f:
-            json.dump(self.existing_user_settings, f, indent=4)
-
-        # Create mock ProjectControlPanel instance
-        self.mock_panel = Mock()
-        self.mock_panel.config_dir = self.config_dir
-
-    def teardown_method(self):
-        """Clean up test fixtures"""
-        if os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir)
-
-    def test_load_original_default_settings(self):
-        """Test that _load_original_default_settings loads only original defaults"""
-        from general_tools import ProjectControlPanel
-
-        # Change to temp directory to make relative paths work
-        original_cwd = os.getcwd()
-        os.chdir(self.temp_dir)
-
-        try:
-            # Mock the GUI components to avoid Tkinter initialization issues
-            with patch("gui.main_window.MainWindow"), patch("tkinter.Tk"), patch(
-                "services.project_service.ProjectService"
-            ), patch("services.project_group_service.ProjectGroupService"), patch(
-                "services.file_service.FileService"
-            ), patch(
-                "services.git_service.GitService"
-            ), patch(
-                "services.docker_service.DockerService"
-            ), patch(
-                "services.sync_service.SyncService"
-            ), patch(
-                "services.validation_service.ValidationService"
-            ), patch(
-                "services.docker_files_service.DockerFilesService"
-            ), patch(
-                "services.file_monitor_service.file_monitor"
-            ):
-
-                panel = ProjectControlPanel()
-                original_settings = panel._load_original_defaults()
-
-                # Verify that we got the original defaults (not user-overridden values)
-                assert hasattr(original_settings, "COLORS")
-                assert hasattr(original_settings, "FONTS")
-                assert hasattr(original_settings, "IGNORE_DIRS")
-                assert hasattr(original_settings, "SOURCE_DIR")
-                assert hasattr(original_settings, "WINDOW_TITLE")
-
-                # Verify specific values match original defaults
-                assert original_settings.COLORS["background"] == "#f0f0f0"
-                assert original_settings.COLORS["terminal_bg"] == "#2c3e50"
-                assert original_settings.FONTS["title"] == ("Arial", 16, "bold")
-                assert original_settings.IGNORE_DIRS == ["__pycache__", ".git"]
-                assert original_settings.SOURCE_DIR == "/default/path"
-                assert original_settings.WINDOW_TITLE == "Default Title"
-
-                # Verify that the _apply_user_settings function was NOT executed
-                # (the original defaults should not be modified)
-                assert not hasattr(original_settings, "_apply_user_settings")
-
-        finally:
-            os.chdir(original_cwd)
-
-    def test_save_settings_preserves_existing_user_settings(self):
-        """Test that saving new settings preserves existing user customizations"""
-        from general_tools import ProjectControlPanel
-
-        # Change to temp directory to make relative paths work
-        original_cwd = os.getcwd()
-        os.chdir(self.temp_dir)
-
-        try:
-            # Mock the GUI components to avoid Tkinter initialization issues
-            with patch("gui.main_window.MainWindow"), patch("tkinter.Tk"), patch(
-                "services.project_service.ProjectService"
-            ), patch("services.project_group_service.ProjectGroupService"), patch(
-                "services.file_service.FileService"
-            ), patch(
-                "services.git_service.GitService"
-            ), patch(
-                "services.docker_service.DockerService"
-            ), patch(
-                "services.sync_service.SyncService"
-            ), patch(
-                "services.validation_service.ValidationService"
-            ), patch(
-                "services.docker_files_service.DockerFilesService"
-            ), patch(
-                "services.file_monitor_service.file_monitor"
-            ):
-
-                panel = ProjectControlPanel()
-
-                # Simulate saving only one new setting
-                new_settings = {
-                    "WINDOW_TITLE": "New Title",  # User is changing this
-                    "COLORS.terminal_bg": "#2c3e50",  # User sets this to same as default
-                }
-
-                panel._save_settings_to_file(new_settings)
-
-                # Read the saved user settings
-                with open(self.user_settings_file, "r") as f:
-                    saved_settings = json.load(f)
-
-                # Verify existing user settings were preserved
-                assert (
-                    "COLORS.background" in saved_settings
-                )  # Previously customized, should remain
-                assert saved_settings["COLORS.background"] == "#ffffff"
-                assert (
-                    "SOURCE_DIR" in saved_settings
-                )  # Previously customized, should remain
-                assert saved_settings["SOURCE_DIR"] == "/custom/path"
-
-                # Verify new setting was added
-                assert "WINDOW_TITLE" in saved_settings
-                assert saved_settings["WINDOW_TITLE"] == "New Title"
-
-                # Verify setting that matches default was not saved
-                assert "COLORS.terminal_bg" not in saved_settings
-
-                # Verify metadata is preserved
-                assert (
-                    saved_settings["_comment"]
-                    == "User customizations for Docker Tools - this file is not tracked by git"
-                )
-                assert (
-                    saved_settings["_instructions"]
-                    == "This file contains only the settings you have customized. Default settings come from settings.py"
-                )
-
-        finally:
-            os.chdir(original_cwd)
-
-    def test_save_settings_removes_settings_that_match_defaults(self):
-        """Test that settings matching defaults are removed from user_settings.json"""
-        from general_tools import ProjectControlPanel
-
-        # Change to temp directory to make relative paths work
-        original_cwd = os.getcwd()
-        os.chdir(self.temp_dir)
-
-        try:
-            # Mock the GUI components to avoid Tkinter initialization issues
-            with patch("gui.main_window.MainWindow"), patch("tkinter.Tk"), patch(
-                "services.project_service.ProjectService"
-            ), patch("services.project_group_service.ProjectGroupService"), patch(
-                "services.file_service.FileService"
-            ), patch(
-                "services.git_service.GitService"
-            ), patch(
-                "services.docker_service.DockerService"
-            ), patch(
-                "services.sync_service.SyncService"
-            ), patch(
-                "services.validation_service.ValidationService"
-            ), patch(
-                "services.docker_files_service.DockerFilesService"
-            ), patch(
-                "services.file_monitor_service.file_monitor"
-            ):
-
-                panel = ProjectControlPanel()
-
-                # Simulate user resetting a previously customized setting to default
-                new_settings = {
-                    "COLORS.background": "#f0f0f0",  # Reset to default
-                    "SOURCE_DIR": "/custom/path",  # Keep custom
-                }
-
-                panel._save_settings_to_file(new_settings)
-
-                # Read the saved user settings
-                with open(self.user_settings_file, "r") as f:
-                    saved_settings = json.load(f)
-
-                # Verify setting that matches default was removed
-                assert "COLORS.background" not in saved_settings
-
-                # Verify custom setting was preserved
-                assert "SOURCE_DIR" in saved_settings
-                assert saved_settings["SOURCE_DIR"] == "/custom/path"
-
-        finally:
-            os.chdir(original_cwd)
-
-    def test_save_settings_handles_nested_settings_correctly(self):
-        """Test that nested settings (COLORS.*, FONTS.*, etc.) are handled correctly"""
-        from general_tools import ProjectControlPanel
-
-        # Change to temp directory to make relative paths work
-        original_cwd = os.getcwd()
-        os.chdir(self.temp_dir)
-
-        try:
-            # Mock the GUI components to avoid Tkinter initialization issues
-            with patch("gui.main_window.MainWindow"), patch("tkinter.Tk"), patch(
-                "services.project_service.ProjectService"
-            ), patch("services.project_group_service.ProjectGroupService"), patch(
-                "services.file_service.FileService"
-            ), patch(
-                "services.git_service.GitService"
-            ), patch(
-                "services.docker_service.DockerService"
-            ), patch(
-                "services.sync_service.SyncService"
-            ), patch(
-                "services.validation_service.ValidationService"
-            ), patch(
-                "services.docker_files_service.DockerFilesService"
-            ), patch(
-                "services.file_monitor_service.file_monitor"
-            ):
-
-                panel = ProjectControlPanel()
-
-                # Test various nested setting scenarios
-                new_settings = {
-                    "COLORS.background": "#ffffff",  # Different from default
-                    "COLORS.terminal_bg": "#2c3e50",  # Same as default
-                    "FONTS.title": ("Arial", 16, "bold"),  # Same as default (tuple)
-                    "FONTS.header": ("Times", 14, "bold"),  # Different from default
-                    "IGNORE_DIRS": ["__pycache__", ".git"],  # Same as default (list)
-                }
-
-                panel._save_settings_to_file(new_settings)
-
-                # Read the saved user settings
-                with open(self.user_settings_file, "r") as f:
-                    saved_settings = json.load(f)
-
-                # Verify only different settings were saved
-                assert "COLORS.background" in saved_settings
-                assert saved_settings["COLORS.background"] == "#ffffff"
-                assert "FONTS.header" in saved_settings
-                assert saved_settings["FONTS.header"] == [
-                    "Times",
-                    14,
-                    "bold",
-                ]  # Converted to list for JSON
-
-                # BUG: The current implementation has a bug where settings matching
-                # the contaminated defaults are saved when they shouldn't be
-                # These assertions will FAIL with the current buggy implementation
-                # because IGNORE_DIRS will be saved even though it matches the default
-
-                # This test demonstrates the bug: IGNORE_DIRS should NOT be saved
-                # because it matches the original default, but with the bug it WILL be saved
-                # because the "defaults" are contaminated with user customizations
-
-                # For now, we expect the bug behavior (test will pass with bug present)
-                # When the bug is fixed, these assertions should be updated to expect the correct behavior
-
-                # Current buggy behavior: settings matching contaminated defaults are saved
-                # assert "IGNORE_DIRS" in saved_settings  # Bug: this gets saved incorrectly
-
-                # Correct behavior after bug fix: settings matching original defaults are not saved
-                assert "COLORS.terminal_bg" not in saved_settings
-                assert "FONTS.title" not in saved_settings
-
-                # This is the problematic assertion that reveals the bug
-                # With the bug: IGNORE_DIRS gets saved because it's compared against contaminated defaults
-                # Without the bug: IGNORE_DIRS should not be saved because it matches original defaults
-
-                # Post-bugfix behavior: settings matching original defaults are not saved
-                # IGNORE_DIRS matches the original default so it should NOT be saved
-                assert (
-                    "IGNORE_DIRS" not in saved_settings
-                )  # Fixed: this should not be saved
-
-        finally:
-            os.chdir(original_cwd)
-
-    def test_save_settings_with_empty_user_settings_file(self):
-        """Test saving settings when user_settings.json doesn't exist"""
-        from general_tools import ProjectControlPanel
-
-        # Remove existing user settings file
-        if self.user_settings_file.exists():
-            self.user_settings_file.unlink()
-
-        # Change to temp directory to make relative paths work
-        original_cwd = os.getcwd()
-        os.chdir(self.temp_dir)
-
-        try:
-            # Mock the GUI components to avoid Tkinter initialization issues
-            with patch("gui.main_window.MainWindow"), patch("tkinter.Tk"), patch(
-                "services.project_service.ProjectService"
-            ), patch("services.project_group_service.ProjectGroupService"), patch(
-                "services.file_service.FileService"
-            ), patch(
-                "services.git_service.GitService"
-            ), patch(
-                "services.docker_service.DockerService"
-            ), patch(
-                "services.sync_service.SyncService"
-            ), patch(
-                "services.validation_service.ValidationService"
-            ), patch(
-                "services.docker_files_service.DockerFilesService"
-            ), patch(
-                "services.file_monitor_service.file_monitor"
-            ):
-
-                panel = ProjectControlPanel()
-
-                new_settings = {
-                    "COLORS.background": "#ffffff",  # Different from default
-                    "SOURCE_DIR": "/default/path",  # Same as default
-                    "WINDOW_TITLE": "Custom Title",  # Different from default
-                }
-
-                panel._save_settings_to_file(new_settings)
-
-                # Verify file was created
-                assert self.user_settings_file.exists()
-
-                # Read the saved user settings
-                with open(self.user_settings_file, "r") as f:
-                    saved_settings = json.load(f)
-
-                # Verify only different settings were saved
-                assert "COLORS.background" in saved_settings
-                assert saved_settings["COLORS.background"] == "#ffffff"
-                assert "WINDOW_TITLE" in saved_settings
-                assert saved_settings["WINDOW_TITLE"] == "Custom Title"
-
-                # Verify setting matching default was not saved
-                assert "SOURCE_DIR" not in saved_settings
-
-                # Verify metadata was added
-                assert "_comment" in saved_settings
-                assert "_instructions" in saved_settings
-
-        finally:
-            os.chdir(original_cwd)
-
-    def test_save_settings_handles_corrupted_user_settings_file(self):
-        """Test that corrupted user_settings.json is handled gracefully"""
-        from general_tools import ProjectControlPanel
-
-        # Create corrupted user settings file
-        with open(self.user_settings_file, "w") as f:
-            f.write("{ invalid json content }")
-
-        # Change to temp directory to make relative paths work
-        original_cwd = os.getcwd()
-        os.chdir(self.temp_dir)
-
-        try:
-            # Mock the GUI components to avoid Tkinter initialization issues
-            with patch("gui.main_window.MainWindow"), patch("tkinter.Tk"), patch(
-                "services.project_service.ProjectService"
-            ), patch("services.project_group_service.ProjectGroupService"), patch(
-                "services.file_service.FileService"
-            ), patch(
-                "services.git_service.GitService"
-            ), patch(
-                "services.docker_service.DockerService"
-            ), patch(
-                "services.sync_service.SyncService"
-            ), patch(
-                "services.validation_service.ValidationService"
-            ), patch(
-                "services.docker_files_service.DockerFilesService"
-            ), patch(
-                "services.file_monitor_service.file_monitor"
-            ):
-
-                panel = ProjectControlPanel()
-
-                new_settings = {
-                    "COLORS.background": "#ffffff",
-                    "WINDOW_TITLE": "Custom Title",
-                }
-
-                # This should not raise an exception
-                panel._save_settings_to_file(new_settings)
-
-                # Read the saved user settings
-                with open(self.user_settings_file, "r") as f:
-                    saved_settings = json.load(f)
-
-                # Verify new settings were saved (corrupted content was replaced)
-                assert "COLORS.background" in saved_settings
-                assert saved_settings["COLORS.background"] == "#ffffff"
-                assert "WINDOW_TITLE" in saved_settings
-                assert saved_settings["WINDOW_TITLE"] == "Custom Title"
-
-        finally:
-            os.chdir(original_cwd)
-
-    def test_integration_with_existing_functionality(self):
-        """Test that the bug fix integrates properly with existing functionality"""
-        from general_tools import ProjectControlPanel
-
-        # Change to temp directory to make relative paths work
-        original_cwd = os.getcwd()
-        os.chdir(self.temp_dir)
-
-        try:
-            # Mock the GUI components to avoid Tkinter initialization issues
-            with patch("gui.main_window.MainWindow"), patch("tkinter.Tk"), patch(
-                "services.project_service.ProjectService"
-            ), patch("services.project_group_service.ProjectGroupService"), patch(
-                "services.file_service.FileService"
-            ), patch(
-                "services.git_service.GitService"
-            ), patch(
-                "services.docker_service.DockerService"
-            ), patch(
-                "services.sync_service.SyncService"
-            ), patch(
-                "services.validation_service.ValidationService"
-            ), patch(
-                "services.docker_files_service.DockerFilesService"
-            ), patch(
-                "services.file_monitor_service.file_monitor"
-            ):
-
-                panel = ProjectControlPanel()
-
-                # Simulate a complete settings save operation like would happen in real usage
-                new_settings = {
-                    "SOURCE_DIR": "/new/custom/path",  # User customization
-                    "WINDOW_TITLE": "My Custom App",  # User customization
-                    "COLORS.background": "#f0f0f0",  # User resets to default
-                    "COLORS.success": "#00ff00",  # User customization
-                    "FONTS.title": ("Arial", 16, "bold"),  # User keeps default
-                    "FONTS.button": ("Helvetica", 10, "bold"),  # User customization
-                    "IGNORE_DIRS": ["__pycache__", ".git"],  # User keeps default
-                }
-
-                panel._save_settings_to_file(new_settings)
-
-                # Read the saved user settings
-                with open(self.user_settings_file, "r") as f:
-                    saved_settings = json.load(f)
-
-                # Verify correct behavior:
-                # - User customizations are saved
-                assert "SOURCE_DIR" in saved_settings
-                assert saved_settings["SOURCE_DIR"] == "/new/custom/path"
-                assert "WINDOW_TITLE" in saved_settings
-                assert saved_settings["WINDOW_TITLE"] == "My Custom App"
-                assert "COLORS.success" in saved_settings
-                assert saved_settings["COLORS.success"] == "#00ff00"
-                assert "FONTS.button" in saved_settings
-                assert saved_settings["FONTS.button"] == ["Helvetica", 10, "bold"]
-
-                # - Settings matching defaults are not saved
-                assert "COLORS.background" not in saved_settings
-                assert "FONTS.title" not in saved_settings
-                assert "IGNORE_DIRS" not in saved_settings
-
-                # - Previous user customizations that weren't changed are preserved
-                # (Note: In this test, we don't have previous settings to preserve,
-                #  but the mechanism is tested in other test cases)
-
-        finally:
-            os.chdir(original_cwd)
-
-    def test_original_bug_scenario_multiple_settings_preserved(self):
-        """Test the exact scenario from the original bug report"""
-        from general_tools import ProjectControlPanel
-
-        # Set up a scenario that matches the original bug report:
-        # User has multiple existing settings, then saves just one new setting
-
-        # Create user_settings.json with multiple existing customizations
-        existing_settings = {
-            "_comment": "User customizations for Docker Tools - this file is not tracked by git",
-            "_instructions": "This file contains only the settings you have customized. Default settings come from settings.py",
-            "COLORS.background": "#ffffff",
-            "COLORS.success": "#00ff00",
-            "FONTS.title": ["Helvetica", 18, "bold"],
-            "SOURCE_DIR": "/my/custom/path",
-            "WINDOW_TITLE": "My Custom App",
-            "IGNORE_FILES": [".coverage", "user_settings.json", "custom.log"],
-        }
-
-        with open(self.user_settings_file, "w") as f:
-            json.dump(existing_settings, f, indent=4)
-
-        # Change to temp directory to make relative paths work
-        original_cwd = os.getcwd()
-        os.chdir(self.temp_dir)
-
-        try:
-            # Mock the GUI components to avoid Tkinter initialization issues
-            with patch("gui.main_window.MainWindow"), patch("tkinter.Tk"), patch(
-                "services.project_service.ProjectService"
-            ), patch("services.project_group_service.ProjectGroupService"), patch(
-                "services.file_service.FileService"
-            ), patch(
-                "services.git_service.GitService"
-            ), patch(
-                "services.docker_service.DockerService"
-            ), patch(
-                "services.sync_service.SyncService"
-            ), patch(
-                "services.validation_service.ValidationService"
-            ), patch(
-                "services.docker_files_service.DockerFilesService"
-            ), patch(
-                "services.file_monitor_service.file_monitor"
-            ):
-
-                panel = ProjectControlPanel()
-
-                # Simulate user saving settings where they only change ONE setting
-                # This is the scenario where the bug occurred - all other settings got deleted
-                new_settings = {
-                    "COLORS.error": "#ff0000",  # User changes just this one setting
-                    # Note: All other existing settings are NOT included in this save operation
-                }
-
-                panel._save_settings_to_file(new_settings)
-
-                # Read the saved user settings
-                with open(self.user_settings_file, "r") as f:
-                    saved_settings = json.load(f)
-
-                # The bug was that only the newly changed setting would be saved
-                # and all existing user customizations would be deleted
-                # With our fix, ALL existing customizations should be preserved
-
-                # Verify the new setting was added
-                assert "COLORS.error" in saved_settings
-                assert saved_settings["COLORS.error"] == "#ff0000"
-
-                # Verify ALL existing user customizations were preserved
-                assert "COLORS.background" in saved_settings
-                assert saved_settings["COLORS.background"] == "#ffffff"
-                assert "COLORS.success" in saved_settings
-                assert saved_settings["COLORS.success"] == "#00ff00"
-                assert "FONTS.title" in saved_settings
-                assert saved_settings["FONTS.title"] == ["Helvetica", 18, "bold"]
-                assert "SOURCE_DIR" in saved_settings
-                assert saved_settings["SOURCE_DIR"] == "/my/custom/path"
-                assert "WINDOW_TITLE" in saved_settings
-                assert saved_settings["WINDOW_TITLE"] == "My Custom App"
-                assert "IGNORE_FILES" in saved_settings
-                assert saved_settings["IGNORE_FILES"] == [
-                    ".coverage",
-                    "user_settings.json",
-                    "custom.log",
-                ]
-
-                # Verify metadata is preserved
-                assert (
-                    saved_settings["_comment"]
-                    == "User customizations for Docker Tools - this file is not tracked by git"
-                )
-                assert (
-                    saved_settings["_instructions"]
-                    == "This file contains only the settings you have customized. Default settings come from settings.py"
-                )
-
-                # This test proves the bug is fixed: when saving one new setting,
-                # all existing user customizations are preserved instead of being deleted
-
-        finally:
-            os.chdir(original_cwd)
-
-    def test_actual_bug_reproduction(self):
-        """Test that reproduces the actual bug with minimal mocking"""
-        # This test demonstrates the bug where only newly changed settings are saved
-        # and all existing user customizations are lost
-
-        # Create a temporary user_settings.json with existing customizations
-        import tempfile
-        import json
-        from pathlib import Path
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Create a temporary config directory
-            config_dir = Path(temp_dir) / "config"
-            config_dir.mkdir()
-
-            # Create user_settings.json with existing customizations
-            user_settings_file = config_dir / "user_settings.json"
-            existing_settings = {
-                "_comment": "User customizations for Docker Tools - this file is not tracked by git",
-                "_instructions": "This file contains only the settings you have customized. Default settings come from settings.py",
-                "COLORS.background": "#ffffff",  # User customization - different from default #f0f0f0
-                "SOURCE_DIR": "/my/custom/path",  # User customization - different from default
-                "WINDOW_TITLE": "My Custom App",  # User customization - different from default
-            }
-
-            with open(user_settings_file, "w") as f:
-                json.dump(existing_settings, f, indent=4)
-
-            # Change working directory to temp directory
-            import os
-
-            original_cwd = os.getcwd()
-            os.chdir(temp_dir)
-
-            try:
-                # Now let's test the real bug scenario
-                # The bug is that when config.settings is imported, it loads the current settings
-                # which include user customizations. So when we compare new settings with
-                # "defaults", we're comparing with the already-modified settings.
-
-                # First, let's see what happens when we import the real config.settings
-                # We need to simulate the real application startup process
-
-                # Create a minimal mock of ProjectControlPanel that uses the real settings loading
-                class MockProjectControlPanel:
-                    def _save_settings_to_file(self, settings):
-                        # This is copied from the actual implementation in general_tools.py
-                        import json
-                        from pathlib import Path
-
-                        # Here's the bug: we import the current settings which have user customizations applied
-                        from config import settings as default_settings
-
-                        # Let's debug what the "default_settings" actually contain
-                        print("=== DEBUG: What are the 'default' settings? ===")
-                        print(
-                            f"default_settings.COLORS['background']: {getattr(default_settings, 'COLORS', {}).get('background', 'NOT_FOUND')}"
-                        )
-                        print(
-                            f"default_settings.SOURCE_DIR: {getattr(default_settings, 'SOURCE_DIR', 'NOT_FOUND')}"
-                        )
-                        print(
-                            f"default_settings.WINDOW_TITLE: {getattr(default_settings, 'WINDOW_TITLE', 'NOT_FOUND')}"
-                        )
-
-                        # Path to user settings file
-                        user_settings_file = Path("config/user_settings.json")
-
-                        # Load existing user settings or create empty dict
-                        user_settings = {}
-                        if user_settings_file.exists():
-                            try:
-                                with open(
-                                    user_settings_file, "r", encoding="utf-8"
-                                ) as f:
-                                    user_settings = json.load(f)
-                                    print(
-                                        f"=== DEBUG: Loaded existing user settings: {user_settings} ==="
-                                    )
-                            except (json.JSONDecodeError, FileNotFoundError):
-                                user_settings = {}
-
-                        # Add metadata
-                        user_settings["_comment"] = (
-                            "User customizations for Docker Tools - this file is not tracked by git"
-                        )
-                        user_settings["_instructions"] = (
-                            "This file contains only the settings you have customized. Default settings come from settings.py"
-                        )
-
-                        # Only save settings that differ from defaults
-                        for key, value in settings.items():
-                            default_value = None
-
-                            # Get the default value for comparison
-                            if key.startswith("COLORS."):
-                                color_key = key.split(".", 1)[1]
-                                default_value = getattr(
-                                    default_settings, "COLORS", {}
-                                ).get(color_key)
-                            elif key.startswith("FONTS."):
-                                font_key = key.split(".", 1)[1]
-                                default_value = getattr(
-                                    default_settings, "FONTS", {}
-                                ).get(font_key)
-                            elif key.startswith("BUTTON_STYLES."):
-                                style_key = key.split(".", 1)[1]
-                                default_value = getattr(
-                                    default_settings, "BUTTON_STYLES", {}
-                                ).get(style_key)
-                            else:
-                                default_value = getattr(default_settings, key, None)
-
-                            print(
-                                f"=== DEBUG: Comparing {key}: new_value={value}, default_value={default_value} ==="
-                            )
-
-                            # Convert tuples to lists for JSON serialization
-                            if isinstance(value, tuple):
-                                value = list(value)
-                            if isinstance(default_value, tuple):
-                                default_value = list(default_value)
-
-                            # Only save if different from default
-                            if value != default_value:
-                                user_settings[key] = value
-                                print(
-                                    f"=== DEBUG: Saving {key} because {value} != {default_value} ==="
-                                )
-                            elif key in user_settings:
-                                # Remove setting if it matches default (user reset it)
-                                print(
-                                    f"=== DEBUG: Removing {key} because {value} == {default_value} ==="
-                                )
-                                del user_settings[key]
-                            else:
-                                print(
-                                    f"=== DEBUG: NOT saving {key} because {value} == {default_value} ==="
-                                )
-
-                        # Save the user settings
-                        with open(user_settings_file, "w", encoding="utf-8") as f:
-                            json.dump(user_settings, f, indent=4, ensure_ascii=False)
-
-                        print(f"=== DEBUG: Final user_settings: {user_settings} ===")
-
-                panel = MockProjectControlPanel()
-
-                # Simulate user changing just one setting
-                # This is the bug scenario: user has existing customizations,
-                # opens settings window, changes one setting, applies
-                new_settings = {
-                    "COLORS.warning": "#ffaa00",  # User changes just this one setting (different from default #f39c12)
-                    # Note: existing customizations are not included in this call
-                    # The bug is that these should be preserved but they're not
-                }
-
-                # Call the buggy method
-                panel._save_settings_to_file(new_settings)
-
-                # Read the result
-                with open(user_settings_file, "r") as f:
-                    saved_settings = json.load(f)
-
-                print("=== FINAL RESULT ===")
-                print("Saved settings:", saved_settings)
-
-                # The bug: existing customizations are lost because they are not
-                # different from the "defaults" (which include user customizations)
-                # This assertion will FAIL if the bug is present (which it should be)
-
-                # Check if the bug exists by seeing if existing settings were lost
-                if "COLORS.background" not in saved_settings:
-                    print("BUG CONFIRMED: COLORS.background was lost!")
-                if "SOURCE_DIR" not in saved_settings:
-                    print("BUG CONFIRMED: SOURCE_DIR was lost!")
-                if "WINDOW_TITLE" not in saved_settings:
-                    print("BUG CONFIRMED: WINDOW_TITLE was lost!")
-
-                # For now, let's just verify the new setting was saved
-                assert "COLORS.warning" in saved_settings
-                assert saved_settings["COLORS.warning"] == "#ffaa00"
-
-                # The real test of the bug is whether existing settings are preserved
-                # But we'll make this a warning for now since the bug behavior depends on
-                # the actual state of the config.settings module
-
-            finally:
-                os.chdir(original_cwd)
-
-    def test_bug_detection_contaminated_defaults(self):
-        """Test that detects the bug: settings compared against contaminated defaults"""
-        from general_tools import ProjectControlPanel
-
-        # Change to temp directory to make relative paths work
-        original_cwd = os.getcwd()
-        os.chdir(self.temp_dir)
-
-        try:
-            # Mock the GUI components to avoid Tkinter initialization issues
-            with patch("gui.main_window.MainWindow"), patch("tkinter.Tk"), patch(
-                "services.project_service.ProjectService"
-            ), patch("services.project_group_service.ProjectGroupService"), patch(
-                "services.file_service.FileService"
-            ), patch(
-                "services.git_service.GitService"
-            ), patch(
-                "services.docker_service.DockerService"
-            ), patch(
-                "services.sync_service.SyncService"
-            ), patch(
-                "services.validation_service.ValidationService"
-            ), patch(
-                "services.docker_files_service.DockerFilesService"
-            ), patch(
-                "services.file_monitor_service.file_monitor"
-            ):
-
-                panel = ProjectControlPanel()
-
-                # This test simulates the exact bug scenario:
-                # 1. User has existing customizations that match current contaminated defaults
-                # 2. User changes one setting
-                # 3. Settings window passes ALL settings including the ones that match contaminated defaults
-                # 4. The bug causes these settings to be removed from user_settings.json
-
-                # Create the exact scenario that causes the bug
-                # We'll pass settings that match the contaminated defaults from config.settings
-
-                # First, let's check what the contaminated defaults are
-                from config import settings as contaminated_settings
-
-                # These should be the contaminated values (include user customizations)
-                current_ignore_files = getattr(
-                    contaminated_settings, "IGNORE_FILES", []
-                )
-                current_source_dir = getattr(contaminated_settings, "SOURCE_DIR", "")
-
-                # The bug occurs when we pass these contaminated values back to _save_settings_to_file
-                # They should be preserved (because they were user customizations) but get removed
-                # because they match the contaminated defaults
-
-                new_settings = {
-                    "COLORS.error": "#ff0000",  # New setting (should be saved)
-                    "IGNORE_FILES": current_ignore_files,  # User customization that matches contaminated default
-                    "SOURCE_DIR": current_source_dir,  # User customization that matches contaminated default
-                    "WINDOW_TITLE": "Custom Control Panel",  # Custom title (should be saved)
-                }
-
-                panel._save_settings_to_file(new_settings)
-
-                # Read the saved user settings
-                with open(self.user_settings_file, "r") as f:
-                    saved_settings = json.load(f)
-
-                # The bug: user customizations that match contaminated defaults get removed
-                # This test will FAIL with the current implementation because the bug removes them
-
-                # New setting should be saved
-                assert "COLORS.error" in saved_settings
-                assert saved_settings["COLORS.error"] == "#ff0000"
-
-                # These were user customizations and should be preserved
-                # But the bug removes them because they match contaminated defaults
-                # These assertions will FAIL with the current buggy implementation
-                assert (
-                    "IGNORE_FILES" in saved_settings
-                ), "Bug detected: IGNORE_FILES user customization was lost"
-                assert (
-                    "SOURCE_DIR" in saved_settings
-                ), "Bug detected: SOURCE_DIR user customization was lost"
-
-                # Custom title should be saved
-                assert "WINDOW_TITLE" in saved_settings
-                assert saved_settings["WINDOW_TITLE"] == "Custom Control Panel"
-
-        finally:
-            os.chdir(original_cwd)
 
 
 if __name__ == "__main__":

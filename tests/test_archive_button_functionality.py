@@ -22,7 +22,10 @@ if parent_dir not in sys.path:
 from models.project import Project
 from services.file_monitor_service import FileMonitorService, file_monitor
 from gui.main_window import MainWindow
-from config.settings import COLORS, BUTTON_STYLES
+from config.config import get_config
+
+COLORS = get_config().gui.colors
+BUTTON_STYLES = get_config().gui.button_styles
 
 
 class TestArchiveButtonColorFunctionality:

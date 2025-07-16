@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 
-from config.commands import COMMANDS
+from config.config import get_config
+
+COMMANDS = get_config().commands.commands
 from services.platform_service import PlatformService
 from utils.async_base import (
     AsyncServiceInterface,

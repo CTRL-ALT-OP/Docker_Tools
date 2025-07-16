@@ -8,11 +8,11 @@ import platform
 import subprocess
 from typing import List, Tuple, Optional, Union, Dict, Any, Callable
 
-from config.commands import (
-    COMMANDS,
-    BASH_PATHS,
-    ERROR_MESSAGES,
-)
+from config.config import get_config
+
+COMMANDS = get_config().commands.commands
+BASH_PATHS = get_config().commands.bash_paths
+ERROR_MESSAGES = get_config().commands.error_messages
 
 # Import async utilities if available
 try:
@@ -62,31 +62,24 @@ class PlatformService:
         """
         current_platform = PlatformService.get_platform()
 
-        if current_platform not in COMMANDS["ARCHIVE_COMMANDS"]:
+        if current_platform not in COMMANDS["ARCHIVE_COMMANDS"]["create"]:
             current_platform = "linux"  # Default fallback
 
-        archive_cmd_template = COMMANDS["ARCHIVE_COMMANDS"][current_platform]
+        archive_cmd_template = COMMANDS["ARCHIVE_COMMANDS"]["create"][current_platform]
 
         if current_platform == "windows":
             # Use PowerShell Compress-Archive on Windows
-            cmd_template = archive_cmd_template["cmd"]
-            formatted_cmd = [
-                cmd_template[0],
-                cmd_template[1],
-                cmd_template[2].format(archive_name=archive_name),
-            ]
+            # Format the command template
+            formatted_cmd = []
+            for cmd_part in archive_cmd_template:
+                formatted_cmd.append(cmd_part.format(archive_name=archive_name))
             return (formatted_cmd, True)
         else:
             # Use zip command on Mac/Linux
-            zip_cmd = archive_cmd_template["zip"]
-            formatted_cmd = [
-                zip_cmd[0],
-                zip_cmd[1],
-                archive_name,
-                zip_cmd[3],
-                zip_cmd[4],
-                archive_name,
-            ]
+            # Format the command template
+            formatted_cmd = []
+            for cmd_part in archive_cmd_template:
+                formatted_cmd.append(cmd_part.format(archive_name=archive_name))
             return (formatted_cmd, False)
 
     @staticmethod
