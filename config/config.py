@@ -520,22 +520,15 @@ class ConfigManager:
 
         # Navigate to the parent object
         for key in keys[:-1]:
-            if isinstance(current, dict):
-                if key in current:
-                    current = current[key]
-                else:
-                    self.logger.warning(
-                        f"Unknown config path: {'.'.join(keys[:keys.index(key)+1])}"
-                    )
-                    return
-            elif hasattr(current, key):
-                current = getattr(current, key)
-            else:
+            if isinstance(current, dict) and key in current:
+                current = current[key]
+            elif isinstance(current, dict) or not hasattr(current, key):
                 self.logger.warning(
                     f"Unknown config path: {'.'.join(keys[:keys.index(key)+1])}"
                 )
                 return
-
+            else:
+                current = getattr(current, key)
         # Set the final value
         final_key = keys[-1]
 
@@ -593,7 +586,7 @@ class ConfigManager:
 
         except Exception as e:
             self.logger.error(f"Configuration validation failed: {e}")
-            raise ConfigValidationError(f"Invalid configuration: {e}")
+            raise ConfigValidationError(f"Invalid configuration: {e}") from e
 
     def get_config(self) -> UnifiedConfig:
         """Get the current configuration"""

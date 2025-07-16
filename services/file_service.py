@@ -484,21 +484,17 @@ class FileService(AsyncServiceInterface):
 
     def _is_hidden(self, path: Path) -> bool:
         """Check if a file or directory is hidden (starts with dot or has hidden attribute on Windows)"""
+        import stat
+
         # Check if any part of the path starts with a dot (Unix-style hidden)
         for part in path.parts:
             if part.startswith(".") and part not in (".", ".."):
                 return True
 
         # On Windows, also check the hidden attribute
-        try:
+        with contextlib.suppress(AttributeError, OSError):
             if os.name == "nt" and path.exists():
-                import stat
-
                 return bool(path.stat().st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN)
-        except (AttributeError, OSError):
-            # Fallback to dot-based detection only
-            pass
-
         return False
 
     async def _create_archive_with_exclusions(

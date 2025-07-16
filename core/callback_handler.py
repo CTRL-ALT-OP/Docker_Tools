@@ -69,13 +69,12 @@ class CallbackHandler:
 
     def _initialize_operation_configs(self) -> Dict[str, CallbackConfig]:
         """Initialize standardized configurations for different operation types"""
-        configs = {}
-
-        # Cleanup operations
-        configs["cleanup"] = CallbackConfig(
-            custom_success_message=self._format_cleanup_success,
-            success_show_dialog=True,
-        )
+        configs = {
+            "cleanup": CallbackConfig(
+                custom_success_message=self._format_cleanup_success,
+                success_show_dialog=True,
+            )
+        }
 
         # Validation operations
         configs["validation"] = CallbackConfig(
@@ -233,8 +232,7 @@ class CallbackHandler:
         """Show info message in GUI thread"""
         from .gui_coordinator import get_gui_coordinator
 
-        coordinator = get_gui_coordinator()
-        if coordinator:
+        if coordinator := get_gui_coordinator():
             coordinator.show_info(title, message)
         else:
             # Fallback to direct tkinter
@@ -244,8 +242,7 @@ class CallbackHandler:
         """Show error message in GUI thread"""
         from .gui_coordinator import get_gui_coordinator
 
-        coordinator = get_gui_coordinator()
-        if coordinator:
+        if coordinator := get_gui_coordinator():
             coordinator.show_error(title, message)
         else:
             # Fallback to direct tkinter
@@ -255,8 +252,7 @@ class CallbackHandler:
         """Show warning message in GUI thread"""
         from .gui_coordinator import get_gui_coordinator
 
-        coordinator = get_gui_coordinator()
-        if coordinator:
+        if coordinator := get_gui_coordinator():
             coordinator.show_warning(title, message)
         else:
             # Fallback to direct tkinter
@@ -275,13 +271,12 @@ class CallbackHandler:
             "deleted_files", []
         )
 
-        if deleted_items:
-            item_list = "\n".join([f"  • {item}" for item in deleted_items[:10]])
-            if len(deleted_items) > 10:
-                item_list += f"\n  ... and {len(deleted_items) - 10} more items"
-            return f"{message}\n\nDeleted items:\n{item_list}"
-        else:
+        if not deleted_items:
             return f"{message}\n\nNo items needed cleanup."
+        item_list = "\n".join([f"  • {item}" for item in deleted_items[:10]])
+        if len(deleted_items) > 10:
+            item_list += f"\n  ... and {len(deleted_items) - 10} more items"
+        return f"{message}\n\nDeleted items:\n{item_list}"
 
     def _format_validation_success(self, data: Dict[str, Any]) -> str:
         """Format validation success message with validation ID"""

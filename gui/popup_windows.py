@@ -121,12 +121,10 @@ class TerminalOutputWindow:
                 self.window.after(0, update_text)
 
         # Always update the global web terminal buffer
-        try:
+        with contextlib.suppress(Exception):
             from models.web_terminal_buffer import web_terminal_buffer
 
             web_terminal_buffer.append(text)
-        except Exception as e:
-            pass
 
     def update_status(self, status_text: str, color: str = None):
         """Update status label with race condition protection"""

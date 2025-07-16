@@ -402,12 +402,11 @@ class GUICoordinator:
         """Create a synchronization event for async operations"""
         if self.async_bridge:
             return self.async_bridge.create_sync_event()
-        else:
-            # Fallback for when no async bridge is available
-            event_id = str(uuid.uuid4())
-            event = asyncio.Event()
-            event.set()  # Immediately set for compatibility
-            return event_id, event
+        # Fallback for when no async bridge is available
+        event_id = str(uuid.uuid4())
+        event = asyncio.Event()
+        event.set()  # Immediately set for compatibility
+        return event_id, event
 
     def signal_event(self, event_id: str):
         """Signal an async event from the GUI thread"""
@@ -428,7 +427,7 @@ class GUICoordinator:
         def update_widget():
             try:
                 if hasattr(widget, property_name):
-                    if property_name in ["text", "textvariable"]:
+                    if property_name in {"text", "textvariable"}:
                         widget.config(**{property_name: value})
                     else:
                         setattr(widget, property_name, value)

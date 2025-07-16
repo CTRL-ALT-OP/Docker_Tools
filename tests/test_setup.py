@@ -45,22 +45,11 @@ class TestSetup:
         DOCKER_COMMANDS = config.commands.commands["DOCKER_COMMANDS"]
         GIT_COMMANDS = config.commands.commands["GIT_COMMANDS"]
 
-        # If we get here, all imports worked
-        assert True
-
     def test_fixtures_available(self, temp_directory, mock_project_service):
         """Test that pytest fixtures are available"""
         assert temp_directory.exists()
         assert temp_directory.is_dir()
         assert mock_project_service is not None
-
-    @pytest.mark.asyncio
-    async def test_async_support(self):
-        """Test that async tests work"""
-        import asyncio
-
-        await asyncio.sleep(0.01)
-        assert True
 
     def test_mock_support(self):
         """Test that mocking works"""
@@ -82,24 +71,6 @@ class TestSetup:
         assert test_file.exists()
         assert test_file.read_text() == "test content"
 
-    def test_markers(self):
-        """Test that pytest markers work"""
-        # This test has no special markers
-        assert True
-
-    @pytest.mark.slow
-    def test_slow_marker(self):
-        """Test marked as slow"""
-        import time
-
-        time.sleep(0.1)
-        assert True
-
-    @pytest.mark.unit
-    def test_unit_marker(self):
-        """Test marked as unit test"""
-        assert 1 + 1 == 2
-
     def test_environment(self):
         """Test that environment is set up correctly"""
         # Check Python version
@@ -119,7 +90,6 @@ class TestSetup:
             import coverage
             import pytest_cov
 
-            assert True
         except ImportError:
             # Coverage tools are optional
             pytest.skip("Coverage tools not installed")

@@ -67,19 +67,20 @@ class PlatformService:
 
         archive_cmd_template = COMMANDS["ARCHIVE_COMMANDS"]["create"][current_platform]
 
+        # Use PowerShell Compress-Archive on Windows
+        # Format the command template
+        formatted_cmd = []
         if current_platform == "windows":
-            # Use PowerShell Compress-Archive on Windows
-            # Format the command template
-            formatted_cmd = []
-            for cmd_part in archive_cmd_template:
-                formatted_cmd.append(cmd_part.format(archive_name=archive_name))
+            formatted_cmd.extend(
+                cmd_part.format(archive_name=archive_name)
+                for cmd_part in archive_cmd_template
+            )
             return (formatted_cmd, True)
         else:
-            # Use zip command on Mac/Linux
-            # Format the command template
-            formatted_cmd = []
-            for cmd_part in archive_cmd_template:
-                formatted_cmd.append(cmd_part.format(archive_name=archive_name))
+            formatted_cmd.extend(
+                cmd_part.format(archive_name=archive_name)
+                for cmd_part in archive_cmd_template
+            )
             return (formatted_cmd, False)
 
     @staticmethod

@@ -113,21 +113,25 @@ class TestSettingsWindow:
 
     def test_create_window_structure(self):
         """Test that create_window creates proper window structure"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel") as mock_toplevel, patch(
-            "tkinter.ttk.Notebook"
-        ) as mock_notebook, patch(
-            "gui.popup_windows.GuiUtils"
-        ) as mock_gui_utils, patch(
-            "gui.popup_windows.SettingsWindow._create_general_tab"
-        ) as mock_gen, patch(
-            "gui.popup_windows.SettingsWindow._create_appearance_tab"
-        ) as mock_app, patch(
-            "gui.popup_windows.SettingsWindow._create_directories_tab"
-        ) as mock_dirs, patch(
-            "gui.popup_windows.SettingsWindow._create_languages_tab"
-        ) as mock_lang, patch(
-            "gui.popup_windows.SettingsWindow._bind_mouse_wheel_events"
-        ) as mock_bind:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel") as mock_toplevel,
+            patch("tkinter.ttk.Notebook") as mock_notebook,
+            patch("gui.popup_windows.GuiUtils") as mock_gui_utils,
+            patch("gui.popup_windows.SettingsWindow._create_general_tab") as mock_gen,
+            patch(
+                "gui.popup_windows.SettingsWindow._create_appearance_tab"
+            ) as mock_app,
+            patch(
+                "gui.popup_windows.SettingsWindow._create_directories_tab"
+            ) as mock_dirs,
+            patch(
+                "gui.popup_windows.SettingsWindow._create_languages_tab"
+            ) as mock_lang,
+            patch(
+                "gui.popup_windows.SettingsWindow._bind_mouse_wheel_events"
+            ) as mock_bind,
+        ):
 
             mock_window = Mock()
             mock_toplevel.return_value = mock_window
@@ -165,9 +169,12 @@ class TestSettingsWindow:
         self, mock_bind, mock_lang, mock_dirs, mock_app, mock_gen
     ):
         """Test that all tab creation methods are called"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -184,19 +191,25 @@ class TestSettingsWindow:
 
     def test_mouse_wheel_events_binding(self):
         """Test mouse wheel event binding"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel") as mock_toplevel, patch(
-            "tkinter.ttk.Notebook"
-        ) as mock_notebook, patch("gui.popup_windows.GuiUtils"), patch(
-            "gui.popup_windows.SettingsWindow._create_general_tab"
-        ) as mock_gen, patch(
-            "gui.popup_windows.SettingsWindow._create_appearance_tab"
-        ) as mock_app, patch(
-            "gui.popup_windows.SettingsWindow._create_directories_tab"
-        ) as mock_dirs, patch(
-            "gui.popup_windows.SettingsWindow._create_languages_tab"
-        ) as mock_lang, patch(
-            "gui.popup_windows.SettingsWindow._bind_mouse_wheel_events"
-        ) as mock_bind:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel") as mock_toplevel,
+            patch("tkinter.ttk.Notebook") as mock_notebook,
+            patch("gui.popup_windows.GuiUtils"),
+            patch("gui.popup_windows.SettingsWindow._create_general_tab") as mock_gen,
+            patch(
+                "gui.popup_windows.SettingsWindow._create_appearance_tab"
+            ) as mock_app,
+            patch(
+                "gui.popup_windows.SettingsWindow._create_directories_tab"
+            ) as mock_dirs,
+            patch(
+                "gui.popup_windows.SettingsWindow._create_languages_tab"
+            ) as mock_lang,
+            patch(
+                "gui.popup_windows.SettingsWindow._bind_mouse_wheel_events"
+            ) as mock_bind,
+        ):
 
             mock_window = Mock()
             mock_toplevel.return_value = mock_window
@@ -218,9 +231,12 @@ class TestSettingsWindow:
 
     def test_settings_collection_text_widgets(self):
         """Test settings collection from text widgets"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -264,9 +280,12 @@ class TestSettingsWindow:
 
     def test_font_settings_parsing(self):
         """Test font settings parsing"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -288,9 +307,12 @@ class TestSettingsWindow:
 
     def test_invalid_font_settings_handling(self):
         """Test handling of invalid font settings"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -312,9 +334,12 @@ class TestSettingsWindow:
 
     def test_reset_to_defaults(self):
         """Test reset to defaults functionality"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -334,11 +359,13 @@ class TestSettingsWindow:
 
     def test_reset_to_defaults_no_callback(self):
         """Test reset to defaults without callback"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "gui.popup_windows.messagebox"
-        ) as mock_messagebox:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+            patch("gui.popup_windows.messagebox") as mock_messagebox,
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, None  # No reset callback
@@ -351,9 +378,12 @@ class TestSettingsWindow:
 
     def test_cancel_dialog(self):
         """Test cancel dialog functionality"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -370,9 +400,12 @@ class TestSettingsWindow:
 
     def test_window_destroy_cleanup(self):
         """Test proper cleanup when window is destroyed"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -390,9 +423,12 @@ class TestSettingsWindow:
 
     def test_window_destroy_without_window(self):
         """Test destroy method when window is None"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -404,11 +440,13 @@ class TestSettingsWindow:
 
     def test_error_handling_in_apply_settings(self):
         """Test error handling in apply settings"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "gui.popup_windows.messagebox"
-        ) as mock_messagebox:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+            patch("gui.popup_windows.messagebox") as mock_messagebox,
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -429,11 +467,13 @@ class TestSettingsWindow:
 
     def test_json_parsing_error_handling(self):
         """Test JSON parsing error handling"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "gui.popup_windows.messagebox"
-        ) as mock_messagebox:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+            patch("gui.popup_windows.messagebox") as mock_messagebox,
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -464,9 +504,12 @@ class TestSettingsWindowCanvasScrolling:
 
     def test_canvas_references_storage(self):
         """Test that canvas references are properly stored for each tab"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -490,9 +533,12 @@ class TestSettingsWindowCanvasScrolling:
 
     def test_mouse_wheel_scroll_handling(self):
         """Test mouse wheel scroll event handling"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ) as mock_notebook, patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook") as mock_notebook,
+            patch("gui.popup_windows.GuiUtils"),
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -516,12 +562,9 @@ class TestSettingsWindowCanvasScrolling:
             # Test the mouse wheel handler logic
             # This would be called by the actual event handler
             if (
-                hasattr(mock_event.widget, "winfo_class")
-                and mock_event.widget.winfo_class() == "Text"
+                not hasattr(mock_event.widget, "winfo_class")
+                or mock_event.widget.winfo_class() != "Text"
             ):
-                # Should return early for Text widgets
-                pass
-            else:
                 # Should scroll the canvas
                 mock_canvas.yview_scroll.assert_not_called()  # Not called yet
 
@@ -531,9 +574,12 @@ class TestSettingsWindowCanvasScrolling:
 
     def test_text_widget_scroll_prevention(self):
         """Test that text widgets prevent main window scrolling"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -571,11 +617,13 @@ class TestSettingsWindowValidation:
 
     def test_settings_validation_window_size_format(self):
         """Test window size format validation"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "gui.popup_windows.messagebox"
-        ) as mock_messagebox:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+            patch("gui.popup_windows.messagebox") as mock_messagebox,
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -590,9 +638,12 @@ class TestSettingsWindowValidation:
 
     def test_settings_validation_valid_window_size(self):
         """Test valid window size validation"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -626,19 +677,25 @@ class TestSettingsWindowIntegration:
 
     def test_full_settings_workflow(self):
         """Test complete settings workflow"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "gui.popup_windows.SettingsWindow._create_general_tab"
-        ) as mock_gen, patch(
-            "gui.popup_windows.SettingsWindow._create_appearance_tab"
-        ) as mock_app, patch(
-            "gui.popup_windows.SettingsWindow._create_directories_tab"
-        ) as mock_dirs, patch(
-            "gui.popup_windows.SettingsWindow._create_languages_tab"
-        ) as mock_lang, patch(
-            "gui.popup_windows.SettingsWindow._bind_mouse_wheel_events"
-        ) as mock_bind:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+            patch("gui.popup_windows.SettingsWindow._create_general_tab") as mock_gen,
+            patch(
+                "gui.popup_windows.SettingsWindow._create_appearance_tab"
+            ) as mock_app,
+            patch(
+                "gui.popup_windows.SettingsWindow._create_directories_tab"
+            ) as mock_dirs,
+            patch(
+                "gui.popup_windows.SettingsWindow._create_languages_tab"
+            ) as mock_lang,
+            patch(
+                "gui.popup_windows.SettingsWindow._bind_mouse_wheel_events"
+            ) as mock_bind,
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -656,9 +713,12 @@ class TestSettingsWindowIntegration:
 
     def test_settings_persistence(self):
         """Test that settings are properly collected and passed to callback"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
 
             window = SettingsWindow(
                 self.mock_parent, self.mock_save_callback, self.mock_reset_callback
@@ -789,15 +849,15 @@ class TestSettingsWindowCreateNewFunctionality:
 
     def test_create_new_with_existing_folder_shows_correct_options(self):
         """Test that existing dockerized folder shows appropriate options"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "tkinter.filedialog.askdirectory"
-        ) as mock_askdir, patch(
-            "tkinter.messagebox"
-        ) as mock_messagebox, patch(
-            "config.config.get_config"
-        ) as mock_get_config:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+            patch("tkinter.filedialog.askdirectory") as mock_askdir,
+            patch("tkinter.messagebox") as mock_messagebox,
+            patch("config.config.get_config") as mock_get_config,
+        ):
             # Set up mock config
             mock_config = Mock()
             mock_config.project.folder_aliases = self.mock_folder_aliases
@@ -833,9 +893,12 @@ class TestSettingsWindowCreateNewFunctionality:
 
     def test_apply_settings_creates_folders_when_planned(self):
         """Test that Apply creates folders when 'Create new' was used"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
             # Set up mock config for folder aliases
             self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
@@ -877,11 +940,13 @@ class TestSettingsWindowCreateNewFunctionality:
 
     def test_apply_settings_with_existing_dockerized_folder(self):
         """Test that Apply handles existing dockerized folder correctly"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "gui.popup_windows.messagebox"
-        ) as mock_messagebox:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+            patch("gui.popup_windows.messagebox") as mock_messagebox,
+        ):
             # Set up mock config for folder aliases
             self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
@@ -923,9 +988,12 @@ class TestSettingsWindowCreateNewFunctionality:
 
     def test_cancel_prevents_folder_creation(self):
         """Test that Cancel prevents folder creation even when 'Create new' was used"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
             # Set up mock config for folder aliases
             self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
@@ -951,9 +1019,12 @@ class TestSettingsWindowCreateNewFunctionality:
 
     def test_window_destroy_prevents_folder_creation(self):
         """Test that destroying the window prevents folder creation"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel") as mock_toplevel, patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel") as mock_toplevel,
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
             # Set up mock config for folder aliases
             self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
@@ -986,11 +1057,13 @@ class TestSettingsWindowCreateNewFunctionality:
 
     def test_user_cancels_folder_selection(self):
         """Test that canceling folder selection doesn't set path or create folders"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "tkinter.filedialog.askdirectory"
-        ) as mock_askdir:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+            patch("tkinter.filedialog.askdirectory") as mock_askdir,
+        ):
             # Set up mock config for folder aliases
             self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
@@ -1018,11 +1091,13 @@ class TestSettingsWindowCreateNewFunctionality:
 
     def test_error_handling_during_folder_creation(self):
         """Test that folder creation errors are handled gracefully"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"), patch(
-            "gui.popup_windows.messagebox"
-        ) as mock_messagebox:
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+            patch("gui.popup_windows.messagebox") as mock_messagebox,
+        ):
             # Set up mock config for folder aliases
             self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
@@ -1063,9 +1138,12 @@ class TestSettingsWindowCreateNewFunctionality:
 
     def test_integration_with_existing_settings_workflow(self):
         """Test that the new functionality integrates properly with existing settings"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
             # Set up mock config for folder aliases
             self.mock_config.project.folder_aliases = self.mock_folder_aliases
 
@@ -1112,9 +1190,12 @@ class TestSettingsWindowCreateNewFunctionality:
 
     def test_reset_to_defaults_clears_pending_folder_creation(self):
         """Test that reset to defaults clears pending folder creation"""
-        with patch("tkinter.Tk"), patch("tkinter.Toplevel"), patch(
-            "tkinter.ttk.Notebook"
-        ), patch("gui.popup_windows.GuiUtils"):
+        with (
+            patch("tkinter.Tk"),
+            patch("tkinter.Toplevel"),
+            patch("tkinter.ttk.Notebook"),
+            patch("gui.popup_windows.GuiUtils"),
+        ):
             # Set up mock config for folder aliases
             self.mock_config.project.folder_aliases = self.mock_folder_aliases
 

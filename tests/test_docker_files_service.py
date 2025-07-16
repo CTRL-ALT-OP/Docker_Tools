@@ -1837,7 +1837,7 @@ project(MyCustomProject)
         await service._ensure_language_files(project, "csharp", Mock())
 
         # Then: no additional files should be created
-        files_before = set(f.name for f in project_dir.iterdir())
+        files_before = {f.name for f in project_dir.iterdir()}
         assert files_before == {"Program.cs"}
 
 

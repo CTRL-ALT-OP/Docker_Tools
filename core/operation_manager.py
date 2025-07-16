@@ -428,7 +428,7 @@ echo "Tests completed for {project.parent}"
                 # Final summary
                 output_window.append_output(f"\n" + "=" * 50 + "\n")
                 output_window.append_output(f"EDIT SUMMARY\n")
-                output_window.append_output(f"=" * 50 + "\n")
+                output_window.append_output("=" * 50 + "\n")
                 output_window.append_output(f"Total versions: {len(versions)}\n")
                 output_window.append_output(
                     f"Successfully updated: {len(successful_updates)}\n"
@@ -647,7 +647,7 @@ echo "Tests completed for {project.parent}"
                 # Final summary
                 output_window.append_output(f"\n" + "=" * 50 + "\n")
                 output_window.append_output(f"PROJECT ADDITION SUMMARY\n")
-                output_window.append_output(f"=" * 50 + "\n")
+                output_window.append_output("=" * 50 + "\n")
                 output_window.append_output(f"Project name: {project_name}\n")
                 output_window.append_output(f"Repository: {repo_url}\n")
                 output_window.append_output(f"Total directories: {len(subdirs)}\n")

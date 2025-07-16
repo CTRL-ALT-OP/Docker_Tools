@@ -365,7 +365,7 @@ class TestFileService:
                 f for f in file_list if "__pycache__" in f or ".coverage" in f
             ]
             assert (
-                len(ignored_items) == 0
+                not ignored_items
             ), f"Archive should not contain ignored items: {ignored_items}"
 
     @pytest.mark.asyncio
@@ -740,12 +740,12 @@ class TestFileService:
             file_list = zip_ref.namelist()
 
             # Should not contain excluded directories (from IGNORE_DIRS config)
-            assert not any("__pycache__" in f for f in file_list)
-            assert not any(".pytest_cache" in f for f in file_list)
-            assert not any("dist" in f for f in file_list)
+            assert all("__pycache__" not in f for f in file_list)
+            assert all(".pytest_cache" not in f for f in file_list)
+            assert all("dist" not in f for f in file_list)
 
             # Should not contain excluded files (from IGNORE_FILES config)
-            assert not any(".coverage" in f for f in file_list)
+            assert all(".coverage" not in f for f in file_list)
 
             # Should contain regular files
             assert any("main.py" in f for f in file_list)
@@ -886,7 +886,7 @@ class TestFileService:
             for pattern in excluded_patterns:
                 excluded_items = [f for f in file_list if pattern in f]
                 assert (
-                    len(excluded_items) == 0
+                    not excluded_items
                 ), f"Archive should not contain items matching '{pattern}': {excluded_items}"
 
             # Verify we have reasonable number of files (not empty, not too many)
