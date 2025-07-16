@@ -1335,7 +1335,9 @@ pytest -vv tests/
 
                 # Call the ACTUAL operation_manager method
                 operation_manager._handle_run_tests_edit(
-                    self.project_group, ["tests/test_example.py"], "python"
+                    self.project_group,
+                    ["tests/test_example.py", "tests/test_another.py"],
+                    "python",
                 )
 
                 # Wait for the async task to complete
@@ -1519,3 +1521,249 @@ pytest -vv tests/
                 assert (
                     b"\r" not in content_bytes
                 ), f"Operation_manager should not create CR characters on platform {platform.system()}. File: {version}/run_tests.sh"
+
+    @pytest.mark.asyncio
+    async def test_newline_parameter_enforcement_via_method_mocking(self):
+        """Test that operation_manager calls write_text with newline='\n' parameter - works on any platform"""
+        # This test mocks Path.write_text to verify the newline parameter is passed
+        # It will catch the bug on any platform by testing method calls, not file system results
+
+        from core.operation_manager import OperationManager
+        from unittest.mock import Mock, patch, call
+        from pathlib import Path
+
+        mock_services = {
+            "project_service": Mock(),
+            "file_service": Mock(),
+            "git_service": Mock(),
+            "docker_service": Mock(),
+            "sync_service": Mock(),
+            "validation_service": Mock(),
+            "docker_files_service": Mock(),
+            "async_bridge": Mock(),
+        }
+
+        operation_manager = OperationManager(
+            services=mock_services,
+            callback_handler=Mock(),
+            window=Mock(),
+            control_panel=Mock(),
+        )
+
+        # Track all write_text calls to verify newline parameter
+        write_text_calls = []
+
+        # Store the original method for actual file writing
+        original_write_text = Path.write_text
+
+        def mock_write_text(content, encoding=None, errors=None, newline=None):
+            # Simple approach: just capture the parameters we care about
+            call_info = {
+                "content_length": len(content),
+                "content_start": content[:100],
+                "encoding": encoding,
+                "newline": newline,
+                "has_shebang": content.startswith("#!"),
+                "is_run_tests_content": "run_tests.sh" in content
+                or "Auto-generated run_tests.sh" in content,
+            }
+            write_text_calls.append(call_info)
+            print(
+                f"DEBUG: write_text called with newline={newline}, shebang={call_info['has_shebang']}, run_tests_content={call_info['is_run_tests_content']}"
+            )
+
+            # For this test, don't actually write files to avoid side effects
+            # We just want to verify the parameters being passed
+
+        # Mock the TerminalOutputWindow and Path.write_text
+        with patch(
+            "core.operation_manager.TerminalOutputWindow"
+        ) as mock_output_window_class, patch.object(
+            Path, "write_text", side_effect=mock_write_text
+        ):
+
+            mock_output_window = Mock()
+            mock_output_window_class.return_value = mock_output_window
+
+            # Mock task_manager to run the coroutine directly without creating a separate task
+            with patch("core.operation_manager.task_manager") as mock_task_manager:
+                # Capture the coroutine but don't create a task - just await it directly
+                captured_coro = None
+
+                def capture_coro(coro, task_name=None):
+                    nonlocal captured_coro
+                    captured_coro = coro
+                    # Return a mock task to satisfy the interface
+                    mock_task = Mock()
+                    mock_task.done.return_value = True
+                    return mock_task
+
+                mock_task_manager.run_task.side_effect = capture_coro
+
+                # Call the ACTUAL operation_manager method
+                operation_manager._handle_run_tests_edit(
+                    self.project_group, ["tests/test_example.py"], "python"
+                )
+
+                # Now await the captured coroutine directly
+                if captured_coro:
+                    await captured_coro
+
+        # Debug output
+        print(f"DEBUG: Total write_text calls captured: {len(write_text_calls)}")
+        for i, call in enumerate(write_text_calls):
+            print(
+                f"DEBUG: Call {i+1} - newline={call['newline']}, shebang={call['has_shebang']}, run_tests={call['is_run_tests_content']}"
+            )
+
+        # Filter to calls that look like run_tests.sh files (have shebang and run_tests content)
+        run_tests_writes = [
+            call
+            for call in write_text_calls
+            if call["has_shebang"] and call["is_run_tests_content"]
+        ]
+
+        print(f"DEBUG: Found {len(run_tests_writes)} run_tests.sh writes")
+
+        # Should have written to multiple versions
+        assert (
+            len(run_tests_writes) > 0
+        ), f"Should have written run_tests.sh files. Total calls: {len(write_text_calls)}, with shebangs: {len([c for c in write_text_calls if c['has_shebang']])}"
+
+        # Every run_tests.sh write should use newline="\n" for Docker compatibility
+        for write_call in run_tests_writes:
+            assert write_call["newline"] == "\n", (
+                f"Operation_manager should call write_text with newline='\\n' for Docker compatibility. "
+                f"Got newline={write_call['newline']}"
+            )
+
+            assert (
+                write_call["encoding"] == "utf-8"
+            ), f"Should use UTF-8 encoding. Got {write_call['encoding']}"
+
+    @pytest.mark.asyncio
+    async def test_write_text_parameter_verification_comprehensive(self):
+        """Comprehensive test that verifies all write_text parameters for run_tests.sh files"""
+        # This test ensures that operation_manager uses the correct parameters for Docker compatibility
+
+        from core.operation_manager import OperationManager
+        from unittest.mock import Mock, patch
+        from pathlib import Path
+
+        mock_services = {
+            "project_service": Mock(),
+            "file_service": Mock(),
+            "git_service": Mock(),
+            "docker_service": Mock(),
+            "sync_service": Mock(),
+            "validation_service": Mock(),
+            "docker_files_service": Mock(),
+            "async_bridge": Mock(),
+        }
+
+        operation_manager = OperationManager(
+            services=mock_services,
+            callback_handler=Mock(),
+            window=Mock(),
+            control_panel=Mock(),
+        )
+
+        # Track all write_text calls with full parameter details
+        write_text_calls = []
+
+        def comprehensive_mock_write_text(content, *args, **kwargs):
+            # Capture all parameters passed to write_text
+            call_info = {
+                "content_preview": (
+                    content[:50] + "..." if len(content) > 50 else content
+                ),
+                "args": args,
+                "kwargs": kwargs,
+                "has_shebang": content.startswith("#!"),
+                "is_run_tests_content": "run_tests.sh" in content
+                or "Auto-generated run_tests.sh" in content,
+            }
+            write_text_calls.append(call_info)
+            print(f"DEBUG: Comprehensive write_text called with kwargs={kwargs}")
+
+            # Don't actually write files for this test
+
+        # Create pre-edit run_tests.sh (the operation_manager will use its default shebang)
+        pre_edit_path = Path(self.temp_dir) / "pre-edit" / "test-project"
+        run_tests_path = pre_edit_path / "run_tests.sh"
+        run_tests_path.write_text("#!/bin/sh\npytest tests/\n", encoding="utf-8")
+
+        with patch(
+            "core.operation_manager.TerminalOutputWindow"
+        ) as mock_output_window_class, patch.object(
+            Path, "write_text", side_effect=comprehensive_mock_write_text
+        ):
+
+            mock_output_window = Mock()
+            mock_output_window_class.return_value = mock_output_window
+
+            # Mock task_manager to run the coroutine directly
+            with patch("core.operation_manager.task_manager") as mock_task_manager:
+                captured_coro = None
+
+                def capture_coro(coro, task_name=None):
+                    nonlocal captured_coro
+                    captured_coro = coro
+                    # Return a mock task to satisfy the interface
+                    mock_task = Mock()
+                    mock_task.done.return_value = True
+                    return mock_task
+
+                mock_task_manager.run_task.side_effect = capture_coro
+
+                # Call the ACTUAL operation_manager method
+                operation_manager._handle_run_tests_edit(
+                    self.project_group, ["tests/test_example.py"], "python"
+                )
+
+                # Now await the captured coroutine directly
+                if captured_coro:
+                    await captured_coro
+
+        # Debug output
+        print(f"DEBUG: Total comprehensive calls captured: {len(write_text_calls)}")
+        for call in write_text_calls:
+            print(
+                f"DEBUG: Comprehensive call - is_run_tests: {call['is_run_tests_content']}, shebang: {call['has_shebang']}"
+            )
+
+        # Filter to only run_tests.sh files
+        run_tests_writes = [
+            call
+            for call in write_text_calls
+            if call["is_run_tests_content"] and call["has_shebang"]
+        ]
+
+        assert (
+            len(run_tests_writes) > 0
+        ), f"Should have written run_tests.sh files. Total calls: {len(write_text_calls)}"
+
+        # Verify all run_tests.sh writes use correct parameters
+        for write_call in run_tests_writes:
+            kwargs = write_call["kwargs"]
+
+            # Must have newline="\n" for Docker LF compatibility (MAIN TEST - will FAIL without fix)
+            assert "newline" in kwargs and kwargs["newline"] == "\n", (
+                f"Operation_manager must use newline='\\n' for Docker compatibility. "
+                f"Got kwargs: {kwargs}"
+            )
+
+            # Must use UTF-8 encoding
+            assert "encoding" in kwargs and kwargs["encoding"] == "utf-8", (
+                f"Operation_manager must use UTF-8 encoding. " f"Got kwargs: {kwargs}"
+            )
+
+            # Content should have a valid shebang (any valid shell shebang is acceptable)
+            content = write_call["content_preview"]
+            valid_shebangs = ["#!/bin/sh", "#!/bin/bash", "#!/bin/dash"]
+            has_valid_shebang = any(
+                content.startswith(shebang) for shebang in valid_shebangs
+            )
+            assert (
+                has_valid_shebang
+            ), f"Should have a valid shell shebang. Got content: {content}"
