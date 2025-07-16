@@ -6,6 +6,7 @@ extracting this responsibility from the main ProjectControlPanel class.
 """
 
 import asyncio
+import contextlib
 import logging
 from pathlib import Path
 from typing import Dict, Any, List
@@ -381,8 +382,21 @@ class OperationManager:
 
                         run_tests_path = project.path / "run_tests.sh"
 
+                        # Preserve original shebang if file exists, otherwise use portable default
+                        original_shebang = "#!/bin/sh"  # Default to portable shell
+                        if run_tests_path.exists():
+                            with contextlib.suppress(Exception):
+                                existing_content = run_tests_path.read_text(
+                                    encoding="utf-8"
+                                )
+                                lines = existing_content.split("\n")
+                                if lines and lines[0].startswith("#!"):
+                                    original_shebang = lines[0].rstrip(
+                                        "\r"
+                                    )  # Strip CRLF fix
+
                         # Create the run_tests.sh content
-                        run_tests_content = f"""#!/bin/bash
+                        run_tests_content = f"""{original_shebang}
 # Auto-generated run_tests.sh for {project.parent}
 # Language: {language}
 # Selected tests: {', '.join(selected_tests) if selected_tests else 'All tests'}
@@ -401,8 +415,12 @@ echo ""
 echo "Tests completed for {project.parent}"
 """
 
-                        # Write the file
-                        run_tests_path.write_text(run_tests_content, encoding="utf-8")
+                        # Write the file with Unix line endings (LF) to avoid Docker issues
+                        run_tests_path.write_text(
+                            run_tests_content,
+                            encoding="utf-8",
+                            newline="\n",  # LF enforcement fix
+                        )
 
                         # Make it executable (on Unix-like systems)
                         if run_tests_path.exists():
