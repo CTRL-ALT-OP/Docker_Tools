@@ -26,7 +26,6 @@ from models.project import Project
 from config.config import get_config
 
 COMMANDS = get_config().commands.commands
-FOLDER_ALIASES = get_config().project.folder_aliases
 COLORS = get_config().gui.colors
 from utils.async_base import (
     AsyncServiceInterface,
@@ -91,19 +90,16 @@ class ValidationService(AsyncServiceInterface):
 
     def _determine_codebase_type(self, project: Project) -> str:
         """Determine codebase type based on project parent directory"""
-        parent_lower = project.parent.lower()
-
-        # Check each category in FOLDER_ALIASES
-        for category, aliases in FOLDER_ALIASES.items():
-            for alias in aliases:
-                if alias.lower() in parent_lower:
-                    # Map category to validation type
-                    if category == "preedit":
-                        return "preedit"
-                    elif category.startswith("postedit"):
-                        return "postedit"
-                    elif category == "rewrite":
-                        return "rewrite"
+        if alias := self.project_service.get_folder_alias(project.parent):
+            # Map alias to validation type
+            if alias == "preedit":
+                return "preedit"
+            elif alias.startswith("postedit"):
+                return "postedit"
+            elif alias == "rewrite":
+                return "rewrite"
+            elif alias == "corrected":
+                return "rewrite"  # corrected is treated as rewrite for validation
 
         # Default to rewrite if no match found
         return "rewrite"
@@ -112,17 +108,19 @@ class ValidationService(AsyncServiceInterface):
         """Determine codebase type from ZIP filename when project info is not available"""
         filename_lower = filename.lower()
 
-        # Check each category in FOLDER_ALIASES
-        for category, aliases in FOLDER_ALIASES.items():
-            for alias in aliases:
-                if alias.lower() in filename_lower:
-                    # Map category to validation type
-                    if category == "preedit":
-                        return "preedit"
-                    elif category.startswith("postedit"):
-                        return "postedit"
-                    elif category == "rewrite":
-                        return "rewrite"
+        # Extract potential folder name from filename and check aliases
+        # Try to match common patterns like "projectname_foldername.zip"
+        if "_" in filename_lower:
+            potential_folder = filename_lower.split("_")[-1].replace(".zip", "")
+            if alias := self.project_service.get_folder_alias(potential_folder):
+                if alias == "preedit":
+                    return "preedit"
+                elif alias.startswith("postedit"):
+                    return "postedit"
+                elif alias == "rewrite":
+                    return "rewrite"
+                elif alias == "corrected":
+                    return "rewrite"  # corrected is treated as rewrite for validation
 
         # Default to rewrite if no match found
         return "rewrite"
@@ -822,16 +820,11 @@ class ValidationService(AsyncServiceInterface):
     async def _check_docker_running(self) -> bool:
         """Check if Docker is running and available"""
         try:
-            # Use docker info to check if Docker daemon is running
-            result = await run_in_executor(
-                lambda: subprocess.run(
-                    COMMANDS["DOCKER_COMMANDS"]["info"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
+            # Use platform service to check if Docker daemon is running
+            success, _ = await PlatformService.run_docker_command_async(
+                "info", capture_output=True, text=True, timeout=10
             )
-            return result.returncode == 0
+            return success
         except Exception:
             return False
 

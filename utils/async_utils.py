@@ -13,6 +13,8 @@ from typing import Callable, Any, Optional, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor
 import functools
 
+from services.platform_service import PlatformService
+
 # Set up logging
 logger = logging.getLogger(__name__)
 
@@ -138,7 +140,7 @@ async def run_subprocess_streaming_async(
                 # Read data in small chunks but batch for GUI updates
                 try:
                     # Check if data is available without blocking
-                    if sys.platform != "win32":
+                    if not PlatformService.is_windows():
                         # On Unix systems, use select to check for available data
                         import select
 

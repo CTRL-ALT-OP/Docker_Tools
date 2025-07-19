@@ -171,11 +171,16 @@ class ArchiveProjectCommand(AsyncCommand):
 class DockerBuildAndTestCommand(AsyncCommand):
     """Standardized command for Docker build and test operations with real-time streaming"""
 
-    def __init__(self, project: Project, docker_service, window=None, **kwargs):
+    def __init__(
+        self, project: Project, docker_service, project_service, window=None, **kwargs
+    ):
         super().__init__(**kwargs)
         self.project = project
         self.docker_service = docker_service
-        self.docker_tag = f"{self.project.parent}_{self.project.name}".lower()
+        self.project_service = project_service
+        self.docker_tag = self.project_service.get_docker_tag(
+            self.project.parent, self.project.name
+        )
         self.window = window
         self.terminal_window = None
 

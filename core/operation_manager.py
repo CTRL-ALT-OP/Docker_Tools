@@ -14,6 +14,7 @@ from tkinter import messagebox
 
 from models.project import Project
 from services.project_group_service import ProjectGroup
+from services.platform_service import PlatformService
 from utils.async_utils import task_manager
 from gui import TerminalOutputWindow, EditRunTestsWindow
 from config.config import get_config
@@ -582,11 +583,31 @@ echo "Tests completed for {project.parent}"
 
                 # Get all subdirectories from SOURCE_DIR
                 source_path = Path(SOURCE_DIR)
-                subdirs = [
-                    d
-                    for d in source_path.iterdir()
-                    if d.is_dir() and not d.name.startswith(".")
-                ]
+
+                # Use project service for platform-aware directory listing
+                if self.project_service:
+                    try:
+                        subdir_names = self.project_service._list_directory_contents(
+                            str(source_path)
+                        )
+                        subdirs = [
+                            source_path / name
+                            for name in subdir_names
+                            if not name.startswith(".")
+                        ]
+                    except Exception:
+                        # Fallback to direct filesystem access
+                        subdirs = [
+                            d
+                            for d in source_path.iterdir()
+                            if d.is_dir() and not d.name.startswith(".")
+                        ]
+                else:
+                    subdirs = [
+                        d
+                        for d in source_path.iterdir()
+                        if d.is_dir() and not d.name.startswith(".")
+                    ]
 
                 if not subdirs:
                     output_window.update_status(
@@ -624,37 +645,40 @@ echo "Tests completed for {project.parent}"
                             )
                             continue
 
-                        # Clone the repository
-                        clone_cmd = ["git", "clone", repo_url, str(target_path)]
-
-                        import subprocess
-
-                        process = subprocess.run(
-                            clone_cmd,
-                            capture_output=True,
-                            text=True,
-                            timeout=300,  # 5 minute timeout
+                        # Clone the repository using platform service
+                        clone_success, clone_result = (
+                            PlatformService.run_command_with_result(
+                                "GIT_COMMANDS",
+                                subkey="clone",
+                                repo_url=repo_url,
+                                project_name=str(target_path),
+                                capture_output=True,
+                                text=True,
+                                timeout=300,  # 5 minute timeout
+                            )
                         )
 
-                        if process.returncode == 0:
+                        if clone_success:
                             successful_clones.append(f"{subdir.name}/{project_name}")
                             output_window.append_output(
                                 f"✅ Cloned into {subdir.name}/{project_name}\n"
                             )
                         else:
                             failed_clones.append(
-                                f"{subdir.name}: {process.stderr.strip()}"
+                                f"{subdir.name}: {clone_result.strip()}"
                             )
                             output_window.append_output(
-                                f"❌ Failed to clone into {subdir.name}: {process.stderr.strip()}\n"
+                                f"❌ Failed to clone into {subdir.name}: {clone_result.strip()}\n"
                             )
 
-                    except subprocess.TimeoutExpired:
-                        failed_clones.append(
-                            f"{subdir.name}: Clone timed out after 5 minutes"
-                        )
+                    except Exception as e:
+                        # Handle timeouts and other errors
+                        error_msg = str(e)
+                        if "timeout" in error_msg.lower():
+                            error_msg = "Clone timed out after 5 minutes"
+                        failed_clones.append(f"{subdir.name}: {error_msg}")
                         output_window.append_output(
-                            f"❌ Clone into {subdir.name} timed out\n"
+                            f"❌ Clone into {subdir.name} failed: {error_msg}\n"
                         )
                     except Exception as e:
                         failed_clones.append(f"{subdir.name}: {str(e)}")

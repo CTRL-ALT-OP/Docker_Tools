@@ -2,7 +2,6 @@
 Refactored Project Control Panel - Main Application with Improved Async Architecture
 """
 
-import os
 import time
 import asyncio
 import tkinter as tk
@@ -28,6 +27,7 @@ from services.file_service import FileService
 from services.git_service import GitService
 from services.docker_service import DockerService
 from services.sync_service import SyncService
+from services.platform_service import PlatformService
 from services.validation_service import ValidationService
 from services.docker_files_service import DockerFilesService
 from services.file_monitor_service import file_monitor
@@ -614,7 +614,7 @@ class ProjectControlPanel:
             time.sleep(0.5)
 
             # Restart using subprocess with proper configuration
-            if os.name == "nt":  # Windows
+            if PlatformService.is_windows():  # Windows
                 # Use DETACHED_PROCESS to fully detach from parent process (IDE-friendly)
                 # Combined with CREATE_NO_WINDOW to avoid console window
                 subprocess.Popen(

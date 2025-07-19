@@ -493,7 +493,7 @@ class FileService(AsyncServiceInterface):
 
         # On Windows, also check the hidden attribute
         with contextlib.suppress(AttributeError, OSError):
-            if os.name == "nt" and path.exists():
+            if PlatformService.is_windows() and path.exists():
                 return bool(path.stat().st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN)
         return False
 

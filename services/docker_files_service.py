@@ -12,7 +12,6 @@ from services.project_group_service import ProjectGroup
 from services.platform_service import PlatformService
 from models.project import Project
 
-FOLDER_ALIASES = get_config().project.folder_aliases
 LANGUAGE_EXTENSIONS = get_config().language.extensions
 LANGUAGE_REQUIRED_FILES = get_config().language.required_files
 COLORS = get_config().gui.colors
@@ -118,11 +117,10 @@ class DockerFilesService:
 
     def _find_pre_edit_version(self, project_group: ProjectGroup) -> Optional[Project]:
         """Find the pre-edit version from the project group"""
-        # Look for folders that match the pre-edit aliases
-        pre_edit_aliases = FOLDER_ALIASES.get("preedit", ["pre-edit", "original"])
-
-        for alias in pre_edit_aliases:
-            if version := project_group.get_version(alias):
+        # Check all versions in the project group to find one with preedit alias
+        for version in project_group.get_all_versions():
+            alias = project_group.project_service.get_folder_alias(version.parent)
+            if alias == "preedit":
                 return version
 
         return None
@@ -571,7 +569,12 @@ require (
         if not source.exists():
             raise FileNotFoundError(f"Template file not found: {source}")
 
-        shutil.copy2(source, dest)
+        # Use platform service for standardized file copying
+        copy_success, copy_error = PlatformService.copy_file(
+            str(source), str(dest), preserve_attrs=True
+        )
+        if not copy_success:
+            raise RuntimeError(f"Failed to copy Dockerfile: {copy_error}")
         output_callback(f"   ✅ Copied {description}: Dockerfile\n")
 
     async def _copy_files_to_all_versions(
@@ -638,8 +641,14 @@ require (
                                 normalized_content, encoding="utf-8", newline="\n"
                             )
                     else:
-                        # For other files, use regular copy
-                        shutil.copy2(source_file, target_file)
+                        # For other files, use platform service for standardized copying
+                        copy_success, copy_error = PlatformService.copy_file(
+                            str(source_file), str(target_file), preserve_attrs=True
+                        )
+                        if not copy_success:
+                            raise RuntimeError(
+                                f"Failed to copy {file_name}: {copy_error}"
+                            )
 
                     # Preserve executable permissions for shell scripts
                     if file_name.endswith(".sh"):
