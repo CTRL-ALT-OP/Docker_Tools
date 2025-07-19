@@ -31,6 +31,24 @@ class PlatformService:
     """Service for handling platform-specific operations"""
 
     @staticmethod
+    def _get_async_utils():
+        """Lazy import of async utilities to avoid circular imports"""
+        try:
+            from utils.async_utils import (
+                run_subprocess_async,
+                run_subprocess_streaming_async,
+                run_in_executor,
+            )
+
+            return True, (
+                run_subprocess_async,
+                run_subprocess_streaming_async,
+                run_in_executor,
+            )
+        except ImportError:
+            return False, (None, None, None)
+
+    @staticmethod
     def get_platform() -> str:
         """Get the current platform (windows, linux, darwin)"""
         return platform.system().lower()
@@ -169,7 +187,29 @@ class PlatformService:
                 )
                 for part in cmd_template
             ]
-            use_shell = current_platform == "windows" and cmd[0] == "start"
+
+            # Determine if shell is needed
+            use_shell = False
+            if current_platform == "windows":
+                # Windows built-in commands that require shell=True
+                windows_builtins = {
+                    "copy",
+                    "robocopy",
+                    "dir",
+                    "if",
+                    "mkdir",
+                    "start",
+                    "echo",
+                    "cd",
+                    "md",
+                    "rd",
+                    "del",
+                    "type",
+                    "xcopy",
+                }
+                if cmd and cmd[0] in windows_builtins:
+                    use_shell = True
+
             return (cmd, use_shell)
         else:
             raise ValueError(f"Invalid command template type: {type(cmd_template)}")
@@ -234,6 +274,60 @@ class PlatformService:
                 cmd, shell=use_shell, capture_output=True, text=True, timeout=30
             )
 
+            # Special handling for robocopy exit codes
+            if (
+                command_key == "FILE_SYSTEM_COMMANDS"
+                and subkey == "copy_file_preserve"
+                and isinstance(cmd, list)
+                and cmd
+                and cmd[0] == "robocopy"
+            ):
+                # Robocopy exit codes:
+                # 0: No files copied, no failure
+                # 1: Files copied successfully
+                # 2: Extra files/directories copied
+                # 4: Mismatched files/directories
+                # 8: Failed to copy some files/directories
+                if result.returncode in [0, 1, 2]:
+                    return True, result.stdout.strip() if result.stdout else ""
+                elif result.returncode == 4:
+                    # Partial success - some mismatches but operation completed
+                    return True, (
+                        result.stdout.strip()
+                        if result.stdout
+                        else "Files copied with some mismatches"
+                    )
+                else:
+                    # Exit codes 8+ indicate failures
+                    error_msg = (
+                        result.stderr.strip()
+                        if result.stderr
+                        else f"Robocopy failed with exit code {result.returncode}"
+                    )
+                    return False, error_msg
+
+            # Special handling for Windows mkdir command
+            if (
+                command_key == "FILE_SYSTEM_COMMANDS"
+                and subkey == "create_dir"
+                and isinstance(cmd, list)
+                and cmd
+                and cmd[0] == "mkdir"
+            ):
+                if result.returncode == 0:
+                    return True, result.stdout.strip() if result.stdout else ""
+                elif "already exists" in result.stderr.lower():
+                    # Directory already exists - treat as success
+                    return True, "Directory already exists"
+                else:
+                    error_msg = (
+                        result.stderr.strip()
+                        if result.stderr
+                        else f"Command failed with exit code {result.returncode}"
+                    )
+                    return False, error_msg
+
+            # Normal exit code handling for other commands
             if result.returncode == 0:
                 return True, result.stdout.strip() if result.stdout else ""
             error_msg = (
@@ -369,7 +463,12 @@ class PlatformService:
         Returns:
             CompletedProcess result
         """
-        if not ASYNC_AVAILABLE:
+        async_available, (
+            run_subprocess_async,
+            run_subprocess_streaming_async,
+            run_in_executor,
+        ) = PlatformService._get_async_utils()
+        if not async_available:
             raise RuntimeError("Async utilities not available")
 
         # If direct command provided, use it (backwards compatibility)
@@ -432,7 +531,12 @@ class PlatformService:
         Returns:
             (success, error_message) tuple
         """
-        if not ASYNC_AVAILABLE:
+        async_available, (
+            run_subprocess_async,
+            run_subprocess_streaming_async,
+            run_in_executor,
+        ) = PlatformService._get_async_utils()
+        if not async_available:
             raise RuntimeError("Async utilities not available")
 
         try:
@@ -467,6 +571,60 @@ class PlatformService:
                 cmd, shell=use_shell, **subprocess_kwargs
             )
 
+            # Special handling for robocopy exit codes
+            if (
+                command_key == "FILE_SYSTEM_COMMANDS"
+                and subkey == "copy_file_preserve"
+                and isinstance(cmd, list)
+                and cmd
+                and cmd[0] == "robocopy"
+            ):
+                # Robocopy exit codes:
+                # 0: No files copied, no failure
+                # 1: Files copied successfully
+                # 2: Extra files/directories copied
+                # 4: Mismatched files/directories
+                # 8: Failed to copy some files/directories
+                if result.returncode in [0, 1, 2]:
+                    return True, result.stdout.strip() if result.stdout else ""
+                elif result.returncode == 4:
+                    # Partial success - some mismatches but operation completed
+                    return True, (
+                        result.stdout.strip()
+                        if result.stdout
+                        else "Files copied with some mismatches"
+                    )
+                else:
+                    # Exit codes 8+ indicate failures
+                    error_msg = (
+                        result.stderr.strip()
+                        if result.stderr
+                        else f"Robocopy failed with exit code {result.returncode}"
+                    )
+                    return False, error_msg
+
+            # Special handling for Windows mkdir command
+            if (
+                command_key == "FILE_SYSTEM_COMMANDS"
+                and subkey == "create_dir"
+                and isinstance(cmd, list)
+                and cmd
+                and cmd[0] == "mkdir"
+            ):
+                if result.returncode == 0:
+                    return True, result.stdout.strip() if result.stdout else ""
+                elif "already exists" in result.stderr.lower():
+                    # Directory already exists - treat as success
+                    return True, "Directory already exists"
+                else:
+                    error_msg = (
+                        result.stderr.strip()
+                        if result.stderr
+                        else f"Command failed with exit code {result.returncode}"
+                    )
+                    return False, error_msg
+
+            # Normal exit code handling for other commands
             if result.returncode == 0:
                 return True, result.stdout.strip() if result.stdout else ""
             else:
@@ -590,7 +748,12 @@ class PlatformService:
         Returns:
             (return_code, full_output) tuple
         """
-        if not ASYNC_AVAILABLE:
+        async_available, (
+            run_subprocess_async,
+            run_subprocess_streaming_async,
+            run_in_executor,
+        ) = PlatformService._get_async_utils()
+        if not async_available:
             raise RuntimeError("Async utilities not available")
 
         # Prepare command
@@ -822,16 +985,45 @@ class PlatformService:
         source_path_obj = Path(source_path)
         target_path_obj = Path(target_path)
 
-        return PlatformService.run_command_with_result(
-            "FILE_SYSTEM_COMMANDS",
-            subkey=subkey,
-            source_dir=str(source_path_obj.parent),
-            target_dir=str(target_path_obj.parent),
-            file_name=source_path_obj.name,
-            capture_output=True,
-            text=True,
-            **kwargs,
-        )
+        # If filenames are different, we need to handle this specially
+        if source_path_obj.name != target_path_obj.name:
+            # Use robocopy to copy to target directory with original name
+            success, output = PlatformService.run_command_with_result(
+                "FILE_SYSTEM_COMMANDS",
+                subkey=subkey,
+                source_dir=str(source_path_obj.parent),
+                target_dir=str(target_path_obj.parent),
+                file_name=source_path_obj.name,
+                capture_output=True,
+                text=True,
+                **kwargs,
+            )
+
+            if not success:
+                return False, output
+
+            # Then rename the file to the target name
+            temp_target = target_path_obj.parent / source_path_obj.name
+            if temp_target.exists():
+                try:
+                    temp_target.rename(target_path_obj)
+                    return True, output
+                except Exception as e:
+                    return False, f"Copy succeeded but rename failed: {str(e)}"
+            else:
+                return False, "Copy succeeded but temporary file not found"
+        else:
+            # Filenames are the same, use normal robocopy
+            return PlatformService.run_command_with_result(
+                "FILE_SYSTEM_COMMANDS",
+                subkey=subkey,
+                source_dir=str(source_path_obj.parent),
+                target_dir=str(target_path_obj.parent),
+                file_name=source_path_obj.name,
+                capture_output=True,
+                text=True,
+                **kwargs,
+            )
 
     @staticmethod
     def create_directory(dir_path: str, **kwargs) -> Tuple[bool, str]:
@@ -906,7 +1098,12 @@ class PlatformService:
         """
         Async version of copy_file
         """
-        if not ASYNC_AVAILABLE:
+        async_available, (
+            run_subprocess_async,
+            run_subprocess_streaming_async,
+            run_in_executor,
+        ) = PlatformService._get_async_utils()
+        if not async_available:
             raise RuntimeError("Async utilities not available")
 
         subkey = "copy_file_preserve" if preserve_attrs else "copy_file"
@@ -927,16 +1124,45 @@ class PlatformService:
         source_path_obj = Path(source_path)
         target_path_obj = Path(target_path)
 
-        return await PlatformService.run_command_with_result_async(
-            "FILE_SYSTEM_COMMANDS",
-            subkey=subkey,
-            source_dir=str(source_path_obj.parent),
-            target_dir=str(target_path_obj.parent),
-            file_name=source_path_obj.name,
-            capture_output=True,
-            text=True,
-            **kwargs,
-        )
+        # If filenames are different, we need to handle this specially
+        if source_path_obj.name != target_path_obj.name:
+            # Use robocopy to copy to target directory with original name
+            success, output = await PlatformService.run_command_with_result_async(
+                "FILE_SYSTEM_COMMANDS",
+                subkey=subkey,
+                source_dir=str(source_path_obj.parent),
+                target_dir=str(target_path_obj.parent),
+                file_name=source_path_obj.name,
+                capture_output=True,
+                text=True,
+                **kwargs,
+            )
+
+            if not success:
+                return False, output
+
+            # Then rename the file to the target name
+            temp_target = target_path_obj.parent / source_path_obj.name
+            if temp_target.exists():
+                try:
+                    temp_target.rename(target_path_obj)
+                    return True, output
+                except Exception as e:
+                    return False, f"Copy succeeded but rename failed: {str(e)}"
+            else:
+                return False, "Copy succeeded but temporary file not found"
+        else:
+            # Filenames are the same, use normal robocopy
+            return await PlatformService.run_command_with_result_async(
+                "FILE_SYSTEM_COMMANDS",
+                subkey=subkey,
+                source_dir=str(source_path_obj.parent),
+                target_dir=str(target_path_obj.parent),
+                file_name=source_path_obj.name,
+                capture_output=True,
+                text=True,
+                **kwargs,
+            )
 
     @staticmethod
     async def create_directory_async(dir_path: str, **kwargs) -> Tuple[bool, str]:

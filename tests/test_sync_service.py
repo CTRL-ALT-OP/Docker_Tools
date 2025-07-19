@@ -67,6 +67,16 @@ class TestSyncService:
         project_service.get_folder_sort_order.side_effect = lambda x: sort_order.get(
             x, 99
         )
+        # Mock the get_folder_alias method to map folders to aliases
+        folder_aliases = {
+            "pre-edit": "preedit",
+            "post-edit": "postedit-beetle",
+            "post-edit2": "postedit-sonnet",
+            "correct-edit": "rewrite",
+        }
+        project_service.get_folder_alias.side_effect = lambda x: folder_aliases.get(
+            x, None
+        )
         return project_service
 
     def _create_test_project_group(self):

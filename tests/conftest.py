@@ -29,6 +29,26 @@ def event_loop_policy():
     return asyncio.get_event_loop_policy()
 
 
+@pytest.fixture(autouse=True)
+def mock_async_utilities():
+    """Ensure async utilities are available during tests"""
+    # Import the actual async utilities to make them available
+    try:
+        import utils.async_utils
+
+        # Patch ASYNC_AVAILABLE to True in platform_service
+        from unittest.mock import patch
+
+        with patch("services.platform_service.ASYNC_AVAILABLE", True):
+            yield
+    except ImportError:
+        # If async utils can't be imported, create minimal mocks
+        from unittest.mock import patch, AsyncMock
+
+        with patch("services.platform_service.ASYNC_AVAILABLE", True):
+            yield
+
+
 @pytest.fixture
 def temp_directory():
     """Create a temporary directory for tests"""

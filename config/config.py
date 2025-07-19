@@ -292,19 +292,57 @@ class CommandConfig:
                     "darwin": ["ls", "-1", "{dir_path}"],
                 },
                 "check_file_exists": {
-                    "windows": ["if", "exist", "{file_path}", "echo", "exists"],
+                    "windows": [
+                        "powershell",
+                        "-Command",
+                        "if (Test-Path -Path '{file_path}' -PathType Leaf) { exit 0 } else { exit 1 }",
+                    ],
                     "linux": ["test", "-f", "{file_path}"],
                     "darwin": ["test", "-f", "{file_path}"],
+                },
+                "check_dir_exists": {
+                    "windows": [
+                        "powershell",
+                        "-Command",
+                        "if (Test-Path -Path '{dir_path}' -PathType Container) { exit 0 } else { exit 1 }",
+                    ],
+                    "linux": ["test", "-d", "{dir_path}"],
+                    "darwin": ["test", "-d", "{dir_path}"],
+                },
+                "get_file_stat": {
+                    "windows": ["dir", "{file_path}"],
+                    "linux": ["stat", "{file_path}"],
+                    "darwin": ["stat", "{file_path}"],
                 },
                 "copy_file": {
                     "windows": ["copy", "{source_path}", "{target_path}"],
                     "linux": ["cp", "{source_path}", "{target_path}"],
                     "darwin": ["cp", "{source_path}", "{target_path}"],
                 },
+                "copy_file_preserve": {
+                    "windows": [
+                        "robocopy",
+                        "{source_dir}",
+                        "{target_dir}",
+                        "{file_name}",
+                        "/COPY:DAT",
+                        "/IS",
+                    ],
+                    "linux": ["cp", "-p", "{source_path}", "{target_path}"],
+                    "darwin": ["cp", "-p", "{source_path}", "{target_path}"],
+                },
                 "create_dir": {
                     "windows": ["mkdir", "{dir_path}"],
                     "linux": ["mkdir", "-p", "{dir_path}"],
                     "darwin": ["mkdir", "-p", "{dir_path}"],
+                },
+            },
+            # File permission commands
+            "FILE_PERMISSION_COMMANDS": {
+                "make_executable": {
+                    "windows": ["echo", "Windows files are executable by default"],
+                    "linux": ["chmod", "+x", "{file_path}"],
+                    "darwin": ["chmod", "+x", "{file_path}"],
                 },
             },
         }

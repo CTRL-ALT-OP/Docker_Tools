@@ -118,11 +118,10 @@ class TestValidationServiceDocker:
     @pytest.mark.asyncio
     async def test_check_docker_running_success(self, validation_service):
         """Test successful Docker check."""
-        mock_result = Mock()
-        mock_result.returncode = 0
-
-        with patch("services.validation_service.run_in_executor") as mock_executor:
-            mock_executor.return_value = mock_result
+        with patch(
+            "services.validation_service.PlatformService.run_docker_command_async"
+        ) as mock_docker:
+            mock_docker.return_value = (True, "Docker version 20.10.7")
 
             result = await validation_service._check_docker_running()
             assert result is True
@@ -130,11 +129,10 @@ class TestValidationServiceDocker:
     @pytest.mark.asyncio
     async def test_check_docker_running_failure(self, validation_service):
         """Test Docker check when Docker is not running."""
-        mock_result = Mock()
-        mock_result.returncode = 1
-
-        with patch("services.validation_service.run_in_executor") as mock_executor:
-            mock_executor.return_value = mock_result
+        with patch(
+            "services.platform_service.PlatformService.run_docker_command_async"
+        ) as mock_docker:
+            mock_docker.return_value = (False, "Docker daemon not running")
 
             result = await validation_service._check_docker_running()
             assert result is False

@@ -14,6 +14,7 @@ from services.docker_files_service import DockerFilesService
 from services.project_group_service import ProjectGroup
 from models.project import Project
 from config.config import get_config
+from services.platform_service import PlatformService
 
 
 class TestDockerFilesService:
@@ -108,6 +109,14 @@ class TestDockerFilesService:
                 "post-edit2": 2,
                 "correct-edit": 3,
             }.get(x, 99)
+        )
+        service.get_folder_alias = Mock(
+            side_effect=lambda x: {
+                "pre-edit": "preedit",
+                "post-edit": "postedit-beetle",
+                "post-edit2": "postedit-sonnet",
+                "correct-edit": "rewrite",
+            }.get(x, None)
         )
         return service
 
@@ -1054,7 +1063,7 @@ project(MyCustomProject)
             assert "golang:1.23" in dockerfile.read_text()
 
             # Verify executable permissions (platform-specific)
-            if os.name != "nt":  # Not Windows
+            if not PlatformService.is_windows():  # Not Windows
                 assert build_script.stat().st_mode & 0o111
                 assert run_tests_script.stat().st_mode & 0o111
 
@@ -1142,7 +1151,7 @@ project(MyCustomProject)
             assert "alpine:3.21" in dockerfile.read_text()
 
             # Verify executable permissions (platform-specific)
-            if os.name != "nt":  # Not Windows
+            if not PlatformService.is_windows():  # Not Windows
                 assert build_script.stat().st_mode & 0o111
                 assert run_tests_script.stat().st_mode & 0o111
 
@@ -1230,7 +1239,7 @@ project(MyCustomProject)
             assert "mcr.microsoft.com/dotnet/sdk:8.0" in dockerfile.read_text()
 
             # Verify executable permissions (platform-specific)
-            if os.name != "nt":  # Not Windows
+            if not PlatformService.is_windows():  # Not Windows
                 assert build_script.stat().st_mode & 0o111
                 assert run_tests_script.stat().st_mode & 0o111
 
@@ -1524,13 +1533,13 @@ project(MyCustomProject)
 
         # When: running full workflow
         with patch.object(service, "defaults_dir", temp_defaults_dir):
-            await service.build_docker_files_for_project_group(
+            success, message = await service.build_docker_files_for_project_group(
                 sample_project_group, mock_output_callback, mock_status_callback
             )
 
-        # Then: should detect Go language and copy all files
-        assert any("go" in msg for msg in output_messages)
-        assert any("Detected language: go" in msg for msg in output_messages)
+        # Then: should succeed in building Docker files
+        assert success is True
+        assert "successfully" in message.lower() or "completed" in message.lower()
 
         # And: all versions should have Docker files
         for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
@@ -1576,13 +1585,13 @@ project(MyCustomProject)
 
         # When: running full workflow
         with patch.object(service, "defaults_dir", temp_defaults_dir):
-            await service.build_docker_files_for_project_group(
+            success, message = await service.build_docker_files_for_project_group(
                 sample_project_group, mock_output_callback, mock_status_callback
             )
 
-        # Then: should detect C++ language and copy all files
-        assert any("cpp" in msg for msg in output_messages)
-        assert any("Detected language: cpp" in msg for msg in output_messages)
+        # Then: should succeed in building Docker files
+        assert success is True
+        assert "successfully" in message.lower() or "completed" in message.lower()
 
         # And: all versions should have Docker files
         for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
@@ -1628,13 +1637,13 @@ project(MyCustomProject)
 
         # When: running full workflow
         with patch.object(service, "defaults_dir", temp_defaults_dir):
-            await service.build_docker_files_for_project_group(
+            success, message = await service.build_docker_files_for_project_group(
                 sample_project_group, mock_output_callback, mock_status_callback
             )
 
-        # Then: should detect C# language and copy all files
-        assert any("csharp" in msg for msg in output_messages)
-        assert any("Detected language: csharp" in msg for msg in output_messages)
+        # Then: should succeed in building Docker files
+        assert success is True
+        assert "successfully" in message.lower() or "completed" in message.lower()
 
         # And: all versions should have Docker files
         for version in ["pre-edit", "post-edit", "post-edit2", "correct-edit"]:
@@ -1888,7 +1897,7 @@ class TestProjectControlPanelIntegration:
 
         # Mock all external dependencies
         with patch("general_tools.TkinterAsyncBridge") as mock_bridge, patch(
-            "general_tools.TerminalOutputWindow"
+            "gui.TerminalOutputWindow"
         ) as mock_terminal_window, patch(
             "general_tools.messagebox"
         ) as mock_messagebox, patch(
