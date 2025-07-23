@@ -176,41 +176,42 @@ class TestValidationServiceStartup:
         run_bat = validation_tool_path / "run.bat"
         run_bat.write_text("@echo off\necho Starting validation service")
 
-        mock_process = Mock()
-        mock_process.pid = 12345
-        mock_process.poll.return_value = None
-        mock_process.stdout.readline.return_value = "Starting containers...\n"
-
         output_callback = Mock()
 
-        with patch("services.validation_service.subprocess.Popen") as mock_popen:
-            mock_popen.return_value = mock_process
+        with patch.object(
+            validation_service, "_check_docker_running"
+        ) as mock_docker_check:
+            mock_docker_check.return_value = True
 
             with patch.object(
-                validation_service, "_check_docker_running"
-            ) as mock_docker_check:
-                mock_docker_check.return_value = True
+                validation_service.platform_service, "is_windows"
+            ) as mock_is_windows:
+                mock_is_windows.return_value = True
 
+                # Mock PlatformService.run_command_streaming_async instead of subprocess
                 with patch(
-                    "services.validation_service.asyncio.create_task"
-                ) as mock_create_task:
-                    with patch(
-                        "services.validation_service.asyncio.sleep"
-                    ) as mock_sleep:
-                        with patch.object(
-                            validation_service.platform_service, "is_windows"
-                        ) as mock_is_windows:
-                            # Mock platform check to avoid platform-specific issues in Docker
-                            mock_is_windows.return_value = True
+                    "services.platform_service.PlatformService.run_command_streaming_async"
+                ) as mock_streaming_command:
+                    # Mock successful docker compose startup
+                    mock_streaming_command.return_value = (
+                        0,
+                        "Docker compose started successfully",
+                    )
 
-                            result = await validation_service._start_validation_service(
-                                validation_tool_path, output_callback
-                            )
+                    result = await validation_service._start_validation_service(
+                        validation_tool_path, output_callback
+                    )
 
-                            assert result is True
-                            assert hasattr(validation_service, "_validation_process")
-                            mock_create_task.assert_called_once()
-                            mock_docker_check.assert_called_once()
+                    assert result is True
+                    mock_docker_check.assert_called_once()
+                    mock_streaming_command.assert_called_once_with(
+                        "DOCKER_COMMANDS",
+                        subkey="compose_up",
+                        output_callback=output_callback,
+                        cwd=str(validation_tool_path),
+                        text=True,
+                        timeout=300,
+                    )
 
     @pytest.mark.asyncio
     async def test_start_validation_service_docker_not_running(

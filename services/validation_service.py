@@ -86,7 +86,6 @@ class ValidationService(AsyncServiceInterface):
         self.platform_service = PlatformService()
         self.file_service = FileService()
         self.project_service = ProjectService()
-        self._streaming_task = None  # Store reference to background streaming task
 
     def _determine_codebase_type(self, project: Project) -> str:
         """Determine codebase type based on project parent directory"""
@@ -547,55 +546,14 @@ class ValidationService(AsyncServiceInterface):
             error = ProcessError(f"Failed to move {archive_name}: {str(e)}")
             return ServiceResult.error(error)
 
-    async def _stream_docker_output(
-        self, process: subprocess.Popen, output_callback: Callable[[str], None]
-    ):
-        """Stream Docker output in real-time"""
-        try:
-
-            def read_output():
-                """Read process output in a separate thread"""
-                while True:
-                    # Check if process is still running
-                    if process.poll() is not None:
-                        # Process finished, read any remaining output
-                        remaining = process.stdout.read()
-                        if remaining:
-                            return remaining
-                        break
-
-                    # Read line by line
-                    line = process.stdout.readline()
-                    if line:
-                        # Schedule callback in main thread
-                        output_callback(line)
-                    else:
-                        # No data available, small sleep to prevent busy waiting
-                        time.sleep(0.1)
-
-                return None
-
-            # Run the output reading in a thread to avoid blocking
-            await run_in_executor(read_output)
-
-        except asyncio.CancelledError:
-            # Task was cancelled, this is expected during cleanup
-            output_callback("🔄 Docker output streaming stopped\n")
-            raise
-        except Exception as e:
-            output_callback(f"❌ Error streaming Docker output: {str(e)}\n")
-
     async def _cleanup_validation_process(self):
         """Clean up validation process and associated tasks"""
         try:
-            # Cancel streaming task if it exists
-            if self._streaming_task and not self._streaming_task.done():
-                self._streaming_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._streaming_task
-            # Clean up process reference
-            if hasattr(self, "_validation_process"):
-                self._validation_process = None
+            # Note: With PlatformService.run_command_streaming_async(),
+            # process cleanup is handled automatically by the platform service
+            logger.debug(
+                "Validation process cleanup completed (handled by PlatformService)"
+            )
 
         except Exception as e:
             # Don't let cleanup errors propagate
@@ -778,40 +736,34 @@ class ValidationService(AsyncServiceInterface):
                 f"🔧 This may take a few minutes to build and start containers...\n\n"
             )
 
-            # Start the process with real-time output streaming
-            if self.platform_service.is_windows():
-                # Use docker compose directly to get better output
-                cmd = COMMANDS["DOCKER_COMMANDS"]["compose_up"]
-            else:
-                # Use docker compose directly to get better output
-                cmd = COMMANDS["DOCKER_COMMANDS"]["compose_up"]
+            # Use PlatformService to run Docker Compose with real-time output streaming
+            try:
+                return_code, full_output = (
+                    await PlatformService.run_command_streaming_async(
+                        "DOCKER_COMMANDS",
+                        subkey="compose_up",
+                        output_callback=output_callback,
+                        cwd=str(validation_tool_path),
+                        text=True,
+                        timeout=300,  # 5 minute timeout for Docker Compose startup
+                    )
+                )
 
-            # Start the process
-            process = subprocess.Popen(
-                cmd,
-                cwd=str(validation_tool_path),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                universal_newlines=True,
-            )
+                if return_code == 0:
+                    output_callback(f"🔄 Docker Compose started successfully\n")
+                    output_callback(
+                        "📋 Starting health checks while Docker builds...\n\n"
+                    )
+                    return True
+                else:
+                    output_callback(
+                        f"❌ Docker Compose failed with return code {return_code}\n"
+                    )
+                    return False
 
-            # Store process for potential cleanup
-            self._validation_process = process
-
-            # Start a background task to stream output and store reference to avoid warnings
-            self._streaming_task = asyncio.create_task(
-                self._stream_docker_output(process, output_callback)
-            )
-
-            output_callback(f"🔄 Docker Compose started (PID: {process.pid})\n")
-            output_callback("📋 Starting health checks while Docker builds...\n\n")
-
-            # Give Docker a moment to start
-            await asyncio.sleep(3)
-
-            return True
+            except Exception as e:
+                output_callback(f"❌ Error running Docker Compose: {str(e)}\n")
+                return False
 
         except Exception as e:
             output_callback(f"❌ Error starting validation service: {str(e)}\n")
@@ -864,15 +816,8 @@ class ValidationService(AsyncServiceInterface):
                     )
                     return True
 
-                # Check if Docker process is still running
-                if (
-                    hasattr(self, "_validation_process")
-                    and self._validation_process.poll() is not None
-                ):
-                    output_callback(
-                        "❌ Docker Compose process has stopped unexpectedly\n"
-                    )
-                    return False
+                # Note: Process management is now handled by PlatformService
+                # No need to check subprocess directly
 
                 await asyncio.sleep(check_interval)
 
